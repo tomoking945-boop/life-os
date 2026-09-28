@@ -16,11 +16,11 @@ enum MockData {
 
     // MARK: - 今日の項目
 
-    /// 仕様「今日画面のMockデータ」の6件。
+    /// 仕様「今日画面のMockデータ」の6件＋レイアウト例の「ゴミ出し」。
     /// 種類（予定 / ToDo / 家事 / 買い物 / 支払予定）と担当者の割り当ては仕様に明記がないため、
     /// タイトルから最低限判断している。
     /// TODO: 各項目の種類・担当者の正式な割り当てを確認する（特に「外食」の担当、「クリーニング受取」の種類）。
-    /// TODO: 仕様のレイアウト例にある「ゴミ出し」はMockデータ一覧に含まれていないため未追加。
+    /// 決定済み：「ゴミ出し」はレイアウト例に合わせ、自分の家事として追加（2026-09-28）。
     /// TODO: 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。現状はMockデータ一覧を優先して表示。
     static func items(now: Date = LifeCalendar.now) -> [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
@@ -28,6 +28,8 @@ enum MockData {
             // 自分
             LifeItem(title: "歯医者", kind: .event, ownership: .personal,
                      date: LifeCalendar.date(on: today, hour: 10, minute: 30), hasTime: true, assignee: .me),
+            LifeItem(title: "ゴミ出し", kind: .chore, ownership: .personal,
+                     date: today, assignee: .me),
             LifeItem(title: "電気代を払う", kind: .payment, ownership: .personal,
                      date: today, assignee: .me),
             LifeItem(title: "筋トレ", kind: .todo, ownership: .personal,
