@@ -1,0 +1,37 @@
+import SwiftUI
+
+/// 生活OS のタイポグラフィ。
+/// すべて TextStyle ベースなので Dynamic Type に追従する。
+enum LifeTypography {
+    /// 画面タイトル・キャッチコピー（明朝系で落ち着いた印象に）
+    static let display = Font.system(.largeTitle, design: .serif)
+    /// 大見出し
+    static let title = Font.system(.title2, design: .serif)
+    /// 中見出し
+    static let headline = Font.system(.headline)
+    /// 本文
+    static let body = Font.system(.body)
+    /// 本文（強調）
+    static let bodyEmphasis = Font.system(.body).weight(.semibold)
+    /// 補助テキスト
+    static let callout = Font.system(.callout)
+    /// 注釈
+    static let footnote = Font.system(.footnote)
+    /// 小さな補足
+    static let caption = Font.system(.caption)
+    /// セクションラベル（NEXT / TODAY など）
+    static let label = Font.system(.caption).weight(.semibold)
+    /// ボタン
+    static let button = Font.system(.body).weight(.semibold)
+    /// 金額（桁揃え）
+    static let amount = Font.system(.body).weight(.medium).monospacedDigit()
+    /// 大きな金額
+    static let amountLarge = Font.system(.title, design: .serif).monospacedDigit()
+    /// NEXT カードの時刻
+    static let timeLarge = Font.system(.largeTitle, design: .serif).monospacedDigit()
+    /// カレンダーの日付
+    static let calendarDay = Font.system(.callout).monospacedDigit()
+
+    /// セクションラベルの字間
+    static let labelTracking: CGFloat = 1.6
+}
