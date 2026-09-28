@@ -107,6 +107,32 @@ struct TodayView: View {
                     .foregroundStyle(LifeColors.secondaryText)
             }
             .accessibilityElement(children: .combine)
+
+            if !viewModel.laterEvents.isEmpty {
+                laterEventsSection
+            }
+        }
+    }
+
+    /// NEXT の後に続く今日の予定
+    private var laterEventsSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+            LifeDivider()
+                .padding(.vertical, LifeSpacing.sm)
+            LifeSectionTitle("このあと")
+            ForEach(viewModel.laterEvents) { event in
+                HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.sm) {
+                    Text(viewModel.timeText(for: event))
+                        .font(LifeTypography.amount)
+                        .foregroundStyle(LifeColors.primary)
+                    Text(event.title)
+                        .font(LifeTypography.body)
+                        .foregroundStyle(LifeColors.text)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: LifeSpacing.minTapTarget)
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 

@@ -35,13 +35,19 @@ final class TodayViewModel {
 
     // MARK: - NEXT
 
-    /// 現在時刻より後で最も近い予定
-    /// TODO: NEXT 以外の今日の予定（例：外食 20:00）の表示場所は仕様未定。現状は NEXT の1件のみ表示。
-    var nextEvent: LifeItem? {
+    /// 現在時刻より後の今日の予定（時刻順）
+    private var upcomingEvents: [LifeItem] {
         todaysItems
             .filter { $0.kind == .event && $0.hasTime && $0.date > now }
-            .min(by: { $0.date < $1.date })
+            .sorted { $0.date < $1.date }
     }
+
+    /// 現在時刻より後で最も近い予定
+    var nextEvent: LifeItem? { upcomingEvents.first }
+
+    /// NEXT の後に続く今日の予定（「このあと」として NEXT カードの下に小さく表示）
+    /// 決定済み：NEXT 以外の今日の予定は NEXT カードの下に並べる（2026-09-28）。
+    var laterEvents: [LifeItem] { Array(upcomingEvents.dropFirst()) }
 
     func timeText(for item: LifeItem) -> String {
         LifeFormatters.time(item.date)
