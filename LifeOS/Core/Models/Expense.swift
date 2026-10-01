@@ -1,7 +1,7 @@
 import Foundation
 
 /// 支出カテゴリー
-enum ExpenseCategory: String, CaseIterable, Identifiable, Hashable {
+enum ExpenseCategory: String, CaseIterable, Identifiable, Hashable, Codable {
     case food
     case dailyGoods
     case diningOut
@@ -24,7 +24,7 @@ enum ExpenseCategory: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 支出1件
-struct Expense: Identifiable, Hashable {
+struct Expense: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
     var amount: Int
@@ -44,7 +44,7 @@ struct Expense: Identifiable, Hashable {
 }
 
 /// 月の予算と支出
-struct MonthlyBudget: Hashable {
+struct MonthlyBudget: Hashable, Codable {
     var month: Date
     /// 今月の支出合計（Mock では仕様どおり固定値 ¥82,450）
     var spent: Int

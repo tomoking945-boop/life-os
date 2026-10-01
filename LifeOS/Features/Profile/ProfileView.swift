@@ -128,4 +128,5 @@ struct ProfileLinkRow<Destination: View>: View {
         ProfileView(appState: appState)
     }
     .environment(appState)
+    .environment(LifeStore())
 }

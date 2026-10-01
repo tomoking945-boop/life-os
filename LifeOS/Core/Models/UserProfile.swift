@@ -1,7 +1,7 @@
 import Foundation
 
 /// 生活グループのメンバー
-struct Member: Identifiable, Hashable {
+struct Member: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var isCurrentUser: Bool
@@ -15,7 +15,7 @@ struct Member: Identifiable, Hashable {
 
 /// 通知のON/OFF（Mock。実際の通知は送らない）
 /// TODO: Push通知の接続時に、各項目の通知タイミング（何分前に知らせるか等）を決める。
-struct NotificationSettings: Hashable {
+struct NotificationSettings: Hashable, Codable {
     /// 今日の予定のお知らせ
     var todaySchedule = true
     /// やることのリマインド
@@ -25,7 +25,7 @@ struct NotificationSettings: Hashable {
 }
 
 /// 本人のプロフィール
-struct UserProfile: Hashable {
+struct UserProfile: Hashable, Codable {
     var name: String
     var groupName: String
     var members: [Member]

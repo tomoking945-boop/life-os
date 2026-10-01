@@ -2,8 +2,9 @@ import SwiftUI
 
 @main
 struct LifeOSApp: App {
-    @State private var appState = AppState()
-    @State private var store = LifeStore()
+    // 端末内に保存したデータを読み込んで始める（初回は Mock データ）
+    @State private var appState = AppState.persistent()
+    @State private var store = LifeStore.persistent()
 
     init() {
         LifeAppearance.configure()

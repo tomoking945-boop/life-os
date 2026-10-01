@@ -1,7 +1,7 @@
 import Foundation
 
 /// 料金プラン（Mock。StoreKit には接続しない）
-enum PlanType: String, CaseIterable, Identifiable, Hashable {
+enum PlanType: String, CaseIterable, Identifiable, Hashable, Codable {
     case free
     case premium
 

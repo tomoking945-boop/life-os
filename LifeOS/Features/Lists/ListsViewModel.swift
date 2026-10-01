@@ -22,7 +22,7 @@ final class ListsViewModel {
         "\(list.items.count)件"
     }
 
-    // MARK: - リスト内の項目（Mock。アプリ再起動で消える）
+    // MARK: - リスト内の項目（端末内に保存）
 
     /// 空白だけの入力は追加しない
     func addItem(_ title: String, toList id: LifeList.ID) -> Bool {
@@ -36,7 +36,7 @@ final class ListsViewModel {
         store.removeItems(at: offsets, fromList: id)
     }
 
-    // MARK: - 新規リスト作成（Mock。アプリ再起動で消える）
+    // MARK: - 新規リスト作成（端末内に保存）
 
     private var trimmedTitle: String {
         newListTitle.trimmingCharacters(in: .whitespacesAndNewlines)

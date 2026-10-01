@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 新規リスト作成（Mock。保存はメモリ上のみ）
+/// 新規リスト作成（端末内に保存）
 struct NewListView: View {
     @Bindable var viewModel: ListsViewModel
     @FocusState private var isFieldFocused: Bool

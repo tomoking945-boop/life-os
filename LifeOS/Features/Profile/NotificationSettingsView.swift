@@ -32,7 +32,7 @@ struct NotificationSettingsView: View {
                 }
             }
 
-            SettingsNote(text: "試作版のため、実際の通知は送られません。設定はアプリを閉じると元に戻ります。")
+            SettingsNote(text: "試作版のため、実際の通知は送られません。設定はこの端末の中に保存されます。")
         }
     }
 }

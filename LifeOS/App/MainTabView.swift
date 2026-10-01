@@ -40,6 +40,9 @@ struct MainTabView: View {
             .tag(AppTab.money)
         }
         .tint(LifeColors.primary)
+        // Free/Premium と通知設定は画面のスイッチで直接変わるため、変わったときに保存する
+        .onChange(of: appState.plan) { appState.save() }
+        .onChange(of: appState.notificationSettings) { appState.save() }
         .sheet(isPresented: $appState.isQuickAddPresented) {
             QuickAddSheet(store: store)
                 .presentationDetents([.medium, .large])

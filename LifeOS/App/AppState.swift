@@ -50,6 +50,49 @@ final class AppState {
 
     var isPremium: Bool { plan == .premium }
 
+    // MARK: - 端末内への保存
+
+    /// true のとき、save() で端末内へ保存する（プレビューでは保存しない）
+    @ObservationIgnored private var persists = false
+
+    /// 端末内に保存する設定（タブやフィルターの選択状態は保存しない）
+    private struct Settings: Codable {
+        var plan: PlanType
+        var profile: UserProfile
+        var notificationSettings: NotificationSettings
+    }
+
+    private static let fileName = "app-settings.json"
+
+    /// 端末内に保存された設定を読み込む。保存がなければ Mock の初期値で始める。
+    static func persistent() -> AppState {
+        let state = AppState()
+        if let settings = LocalStorage.load(Settings.self, from: fileName) {
+            state.plan = settings.plan
+            state.profile = settings.profile
+            state.notificationSettings = settings.notificationSettings
+        }
+        state.persists = true
+        state.save()
+        return state
+    }
+
+    /// 現在の設定を端末内に保存する（Free/Premium と通知は MainTabView の変更検知から呼ぶ）
+    func save() {
+        guard persists else { return }
+        LocalStorage.save(
+            Settings(plan: plan, profile: profile, notificationSettings: notificationSettings),
+            to: Self.fileName
+        )
+    }
+
+    /// 開発用：名前・生活グループ・通知を Mock の初期値に戻す（プランと写真はそのまま）
+    func resetSettingsToMock() {
+        profile = MockData.profile
+        notificationSettings = NotificationSettings()
+        save()
+    }
+
     /// 名前を変更する（共有メンバー一覧の自分の名前も合わせて変える）
     /// 空白だけの名前は受け付けない。
     func updateName(_ name: String) {
@@ -59,6 +102,7 @@ final class AppState {
         if let index = profile.members.firstIndex(where: { $0.isCurrentUser }) {
             profile.members[index].name = trimmed
         }
+        save()
     }
 
     /// 生活グループ名を変更する。空白だけの名前は受け付けない。
@@ -66,6 +110,7 @@ final class AppState {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         profile.groupName = trimmed
+        save()
     }
 
     /// プロフィール写真を変更・削除し、端末内の保存内容も合わせて更新する

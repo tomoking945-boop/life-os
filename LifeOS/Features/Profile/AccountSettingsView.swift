@@ -23,7 +23,7 @@ struct AccountSettingsView: View {
                 SettingsValueRow(title: "ログイン方法", value: "未設定")
             }
 
-            SettingsNote(text: "試作版のため、ログインやアカウントの登録は行われません。名前はこの端末の中だけで変わり、アプリを閉じると元に戻ります。")
+            SettingsNote(text: "試作版のため、ログインやアカウントの登録は行われません。名前はこの端末の中にだけ保存されます。")
         }
         .onAppear { draftName = appState.profile.name }
         .onDisappear(perform: commit)

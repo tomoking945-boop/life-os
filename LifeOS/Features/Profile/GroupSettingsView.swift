@@ -48,7 +48,7 @@ struct GroupSettingsView: View {
                 isShowingInviteNotice = true
             }
 
-            SettingsNote(text: "試作版のため、グループ名はこの端末の中だけで変わり、アプリを閉じると元に戻ります。")
+            SettingsNote(text: "試作版のため、グループ名はこの端末の中にだけ保存されます。")
         }
         .onAppear { draftName = appState.profile.groupName }
         .onDisappear(perform: commit)

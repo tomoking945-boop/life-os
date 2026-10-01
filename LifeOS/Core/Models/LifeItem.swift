@@ -1,7 +1,7 @@
 import Foundation
 
 /// データの持ち主。「自分用」か「共有用」かを識別する。
-enum Ownership: String, CaseIterable, Hashable {
+enum Ownership: String, CaseIterable, Hashable, Codable {
     /// 本人の個人データ
     case personal
     /// 夫婦・家族の共有データ
@@ -44,7 +44,7 @@ enum ScopeFilter: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 担当者
-enum Assignee: Hashable {
+enum Assignee: String, Hashable, Codable {
     /// 本人
     case me
     /// パートナー（Mock では「妻」）
@@ -54,7 +54,7 @@ enum Assignee: Hashable {
 }
 
 /// 項目の種類（カレンダーの表示対象と同じ5種類）
-enum LifeItemKind: String, CaseIterable, Hashable {
+enum LifeItemKind: String, CaseIterable, Hashable, Codable {
     case event
     case todo
     case chore
@@ -83,7 +83,7 @@ enum LifeItemKind: String, CaseIterable, Hashable {
 }
 
 /// 予定・ToDo・家事・買い物・支払予定をまとめて表す項目
-struct LifeItem: Identifiable, Hashable {
+struct LifeItem: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
     var kind: LifeItemKind
