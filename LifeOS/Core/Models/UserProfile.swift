@@ -13,6 +13,17 @@ struct Member: Identifiable, Hashable {
     }
 }
 
+/// 通知のON/OFF（Mock。実際の通知は送らない）
+/// TODO: Push通知の接続時に、各項目の通知タイミング（何分前に知らせるか等）を決める。
+struct NotificationSettings: Hashable {
+    /// 今日の予定のお知らせ
+    var todaySchedule = true
+    /// やることのリマインド
+    var taskReminder = true
+    /// 共有メンバーが追加・更新したとき
+    var sharedUpdates = false
+}
+
 /// 本人のプロフィール
 struct UserProfile: Hashable {
     var name: String

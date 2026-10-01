@@ -45,7 +45,28 @@ final class AppState {
     private(set) var profileImage: UIImage? = ProfileImageStorage.load()
     var isQuickAddPresented = false
 
+    /// 通知設定（Mock。実際の通知は送らない。Push通知は今回やらない）
+    var notificationSettings = NotificationSettings()
+
     var isPremium: Bool { plan == .premium }
+
+    /// 名前を変更する（共有メンバー一覧の自分の名前も合わせて変える）
+    /// 空白だけの名前は受け付けない。
+    func updateName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        profile.name = trimmed
+        if let index = profile.members.firstIndex(where: { $0.isCurrentUser }) {
+            profile.members[index].name = trimmed
+        }
+    }
+
+    /// 生活グループ名を変更する。空白だけの名前は受け付けない。
+    func updateGroupName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        profile.groupName = trimmed
+    }
 
     /// プロフィール写真を変更・削除し、端末内の保存内容も合わせて更新する
     func updateProfileImage(_ image: UIImage?) {

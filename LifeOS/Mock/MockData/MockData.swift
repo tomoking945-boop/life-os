@@ -19,7 +19,7 @@ enum MockData {
     /// 仕様「今日画面のMockデータ」の6件＋レイアウト例の「ゴミ出し」。
     /// 種類（予定 / ToDo / 家事 / 買い物 / 支払予定）と担当者の割り当ては仕様に明記がないため、
     /// タイトルから最低限判断している。
-    /// TODO: 各項目の種類・担当者の正式な割り当てを確認する（特に「クリーニング受取」の種類）。
+    /// 決定済み：「クリーニング受取」は家事（2026-10-01）。
     /// 決定済み：「外食」の担当は「どちらでも」（2026-10-01）。
     /// 決定済み：「ゴミ出し」はレイアウト例に合わせ、自分の家事として追加（2026-09-28）。
     /// TODO: 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。現状はMockデータ一覧を優先して表示。
@@ -47,12 +47,11 @@ enum MockData {
 
     // MARK: - お金
 
-    /// TODO: Netflix の支払日は仕様未定。「今日 ¥3,520」と合わせるため今日以外（3日前）にしている。
+    /// 決定済み：Netflix は3日前・サブスク、スーパーは今日・食費（2026-10-01）。
     static func expenses(now: Date = LifeCalendar.now) -> [Expense] {
         let today = LifeCalendar.startOfDay(now)
         let threeDaysAgo = LifeCalendar.calendar.date(byAdding: .day, value: -3, to: today) ?? today
         return [
-            // TODO: 「スーパー」のカテゴリーは仕様未定。現状は「食費」。
             Expense(title: "スーパー", amount: 3_520, category: .food, date: today),
             Expense(title: "Netflix", amount: 1_590, category: .subscription, date: threeDaysAgo)
         ]

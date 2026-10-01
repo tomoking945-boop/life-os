@@ -17,11 +17,11 @@ struct ProfileView: View {
                 LifeCard(padding: LifeSpacing.md) {
                     VStack(spacing: 0) {
                         ProfileLinkRow(title: "アカウント") {
-                            PlaceholderDetailView(title: "アカウント")
+                            AccountSettingsView()
                         }
                         LifeDivider()
                         ProfileLinkRow(title: "生活グループ", value: viewModel.groupName) {
-                            PlaceholderDetailView(title: "生活グループ")
+                            GroupSettingsView()
                         }
                         LifeDivider()
                         ProfileLinkRow(title: "共有メンバー", value: viewModel.memberCountText) {
@@ -33,11 +33,11 @@ struct ProfileView: View {
                 LifeCard(padding: LifeSpacing.md) {
                     VStack(spacing: 0) {
                         ProfileLinkRow(title: "通知") {
-                            PlaceholderDetailView(title: "通知")
+                            NotificationSettingsView()
                         }
                         LifeDivider()
                         ProfileLinkRow(title: "表示設定") {
-                            PlaceholderDetailView(title: "表示設定")
+                            DisplaySettingsView()
                         }
                     }
                 }

@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// 中身が仕様未定の設定項目（アカウント / 生活グループ / 通知 / 表示設定）の仮画面
-/// TODO: 各画面の内容は仕様未定。Apple Sign In・Push通知などは今回やらない。
+/// 中身が未定の画面の仮表示（2026-10-01 時点で未使用。今後の仮画面用に残している）
 struct PlaceholderDetailView: View {
     let title: String
 

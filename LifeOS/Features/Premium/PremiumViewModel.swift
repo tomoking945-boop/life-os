@@ -5,8 +5,8 @@ import Observation
 final class PremiumViewModel {
     private let appState: AppState
 
-    /// TODO: 初期選択のプラン（月額 / 年額）は仕様未定。現状は年額。
-    var selectedOption: PremiumBillingOption = .annual
+    /// 決定済み：初期選択は月額（2026-10-01）。
+    var selectedOption: PremiumBillingOption = .monthly
 
     init(appState: AppState) {
         self.appState = appState
