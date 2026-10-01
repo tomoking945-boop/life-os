@@ -32,5 +32,6 @@ enum LifeColors {
     /// 浮いているボタンの影
     static let floatingShadow = text.opacity(0.12)
 
-    // TODO: ダークモードの配色は仕様未定。現状はライトモード固定（LifeOSApp で指定）。
+    // 決定済み：当面はライトモード固定（LifeOSApp で指定、2026-10-01）。
+    // TODO: デザインを詰める段階でダークモード用の配色を追加する。
 }

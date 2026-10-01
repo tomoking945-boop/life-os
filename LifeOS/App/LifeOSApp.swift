@@ -14,7 +14,7 @@ struct LifeOSApp: App {
             MainTabView()
                 .environment(appState)
                 .environment(store)
-                // TODO: ダークモードの配色は仕様未定のため、ライトモードに固定している。
+                // 決定済み：当面はライトモード固定（2026-10-01）。ダーク配色はデザインを詰める段階で追加する。
                 .preferredColorScheme(.light)
         }
     }

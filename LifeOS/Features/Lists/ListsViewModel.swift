@@ -22,6 +22,20 @@ final class ListsViewModel {
         "\(list.items.count)件"
     }
 
+    // MARK: - リスト内の項目（Mock。アプリ再起動で消える）
+
+    /// 空白だけの入力は追加しない
+    func addItem(_ title: String, toList id: LifeList.ID) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        store.addItem(trimmed, toList: id)
+        return true
+    }
+
+    func deleteItems(at offsets: IndexSet, fromList id: LifeList.ID) {
+        store.removeItems(at: offsets, fromList: id)
+    }
+
     // MARK: - 新規リスト作成（Mock。アプリ再起動で消える）
 
     private var trimmedTitle: String {

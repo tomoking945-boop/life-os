@@ -45,7 +45,7 @@ struct ListsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
         .navigationDestination(for: LifeList.ID.self) { id in
-            ListDetailView(list: viewModel.list(id: id))
+            ListDetailView(listID: id, viewModel: viewModel)
         }
         .sheet(isPresented: $viewModel.isCreatingList) {
             NewListView(viewModel: viewModel)

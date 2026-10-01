@@ -19,7 +19,8 @@ enum MockData {
     /// 仕様「今日画面のMockデータ」の6件＋レイアウト例の「ゴミ出し」。
     /// 種類（予定 / ToDo / 家事 / 買い物 / 支払予定）と担当者の割り当ては仕様に明記がないため、
     /// タイトルから最低限判断している。
-    /// TODO: 各項目の種類・担当者の正式な割り当てを確認する（特に「外食」の担当、「クリーニング受取」の種類）。
+    /// TODO: 各項目の種類・担当者の正式な割り当てを確認する（特に「クリーニング受取」の種類）。
+    /// 決定済み：「外食」の担当は「どちらでも」（2026-10-01）。
     /// 決定済み：「ゴミ出し」はレイアウト例に合わせ、自分の家事として追加（2026-09-28）。
     /// TODO: 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。現状はMockデータ一覧を優先して表示。
     static func items(now: Date = LifeCalendar.now) -> [LifeItem] {
@@ -36,7 +37,7 @@ enum MockData {
                      date: today, assignee: .me),
             // 共有
             LifeItem(title: "外食", kind: .event, ownership: .shared,
-                     date: LifeCalendar.date(on: today, hour: 20, minute: 0), hasTime: true),
+                     date: LifeCalendar.date(on: today, hour: 20, minute: 0), hasTime: true, assignee: .either),
             LifeItem(title: "牛乳を買う", kind: .shopping, ownership: .shared,
                      date: today, assignee: .either),
             LifeItem(title: "クリーニング受取", kind: .chore, ownership: .shared,
@@ -65,12 +66,24 @@ enum MockData {
 
     // MARK: - リスト
 
-    /// TODO: 各リストの中身は仕様未定のため空。
+    /// 決定済み：リストの項目は詳細画面で追加・削除できる。各リストに表示確認用の例を2件ずつ入れる（2026-10-01）。
     static let lists: [LifeList] = [
-        LifeList(title: "行きたい場所"),
-        LifeList(title: "観たいもの"),
-        LifeList(title: "欲しいもの"),
-        LifeList(title: "二人で相談")
+        LifeList(title: "行きたい場所", items: [
+            LifeListItem(title: "箱根の温泉"),
+            LifeListItem(title: "近所の新しいカフェ")
+        ]),
+        LifeList(title: "観たいもの", items: [
+            LifeListItem(title: "話題の映画"),
+            LifeListItem(title: "美術館の企画展")
+        ]),
+        LifeList(title: "欲しいもの", items: [
+            LifeListItem(title: "加湿器"),
+            LifeListItem(title: "旅行用のバッグ")
+        ]),
+        LifeList(title: "二人で相談", items: [
+            LifeListItem(title: "年末の帰省"),
+            LifeListItem(title: "冷蔵庫の買い替え")
+        ])
     ]
 
     // MARK: - なんでも追加（AIを使わない固定結果）

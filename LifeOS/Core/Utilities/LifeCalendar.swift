@@ -3,7 +3,7 @@ import Foundation
 /// アプリ全体で使う暦と「現在時刻」
 enum LifeCalendar {
     /// 日本語・グレゴリオ暦・日曜始まり
-    /// TODO: 週の始まり（日曜 / 月曜）は仕様未定。現状は日曜始まり。
+    /// 決定済み：週の始まりは日曜（2026-10-01）。
     static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "ja_JP")

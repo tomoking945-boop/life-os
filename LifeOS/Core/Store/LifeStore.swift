@@ -58,4 +58,16 @@ final class LifeStore {
     func addList(title: String) {
         lists.append(LifeList(title: title))
     }
+
+    func addItem(_ title: String, toList id: LifeList.ID) {
+        guard let index = lists.firstIndex(where: { $0.id == id }) else { return }
+        lists[index].items.append(LifeListItem(title: title))
+    }
+
+    func removeItems(at offsets: IndexSet, fromList id: LifeList.ID) {
+        guard let index = lists.firstIndex(where: { $0.id == id }) else { return }
+        for offset in offsets.sorted(by: >) where lists[index].items.indices.contains(offset) {
+            lists[index].items.remove(at: offset)
+        }
+    }
 }
