@@ -13,6 +13,11 @@ struct QuickAddConfirmView: View {
                     .foregroundStyle(LifeColors.text)
                     .accessibilityAddTraits(.isHeader)
 
+                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                    LifeSectionTitle("追加先")
+                    LifeSegmentControl(Ownership.allCases, selection: $viewModel.ownership) { $0.label }
+                }
+
                 LifeCard {
                     VStack(alignment: .leading, spacing: LifeSpacing.xs) {
                         ForEach(Array(viewModel.candidates.enumerated()), id: \.element.id) { index, candidate in

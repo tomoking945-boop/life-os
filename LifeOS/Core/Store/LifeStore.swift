@@ -43,6 +43,12 @@ final class LifeStore {
             }
     }
 
+    // MARK: - お金
+
+    func add(_ expense: Expense) {
+        expenses.append(expense)
+    }
+
     // MARK: - リスト
 
     func list(id: LifeList.ID) -> LifeList? {

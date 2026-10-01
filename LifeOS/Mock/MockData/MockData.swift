@@ -76,7 +76,7 @@ enum MockData {
     // MARK: - なんでも追加（AIを使わない固定結果）
 
     /// 「整理する」を押したときの固定結果
-    /// TODO: 追加した項目の「自分 / 共有」区分は仕様未定。現状は「自分」として追加する。
+    /// 追加先（自分 / 共有）は確認画面で選ぶ（QuickAddViewModel.addSelected で上書き）。
     static func quickAddResults(now: Date = LifeCalendar.now) -> [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
         return [

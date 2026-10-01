@@ -40,10 +40,20 @@ final class AppState {
     /// Free / Premium（開発用スイッチで切り替え。StoreKit には接続しない）
     var plan: PlanType = .free
     var profile: UserProfile = MockData.profile
-    /// プロフィール写真（端末内のメモリのみ。アップロードはしない）
-    /// TODO: アプリ再起動後も写真を保持するかは仕様未定。現状は再起動で消える。
-    var profileImage: UIImage?
+    /// プロフィール写真（端末内に保存。アップロードはしない）
+    /// 決定済み：再起動後も残るよう端末内に保存する（2026-10-01）。変更は updateProfileImage(_:) から行う。
+    private(set) var profileImage: UIImage? = ProfileImageStorage.load()
     var isQuickAddPresented = false
 
     var isPremium: Bool { plan == .premium }
+
+    /// プロフィール写真を変更・削除し、端末内の保存内容も合わせて更新する
+    func updateProfileImage(_ image: UIImage?) {
+        profileImage = image
+        if let image {
+            ProfileImageStorage.save(image)
+        } else {
+            ProfileImageStorage.delete()
+        }
+    }
 }

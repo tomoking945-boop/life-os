@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// プロフィール写真の変更。
-/// 写真は端末内（メモリ上）でのみ変更し、Firebase Storage へのアップロードは行わない。
+/// 写真は端末内にだけ保存し、Firebase Storage へのアップロードは行わない。
 struct PhotoChangeView: View {
     @Environment(AppState.self) private var appState
 
@@ -67,7 +67,7 @@ struct PhotoChangeView: View {
         }
         .confirmationDialog("現在の写真を削除しますか？", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
             Button("削除", role: .destructive) {
-                appState.profileImage = nil
+                appState.updateProfileImage(nil)
             }
             Button("キャンセル", role: .cancel) {}
         }
@@ -89,7 +89,7 @@ struct PhotoChangeView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
-                appState.profileImage = image
+                appState.updateProfileImage(image)
             } else {
                 errorMessage = "写真を読み込めませんでした。"
             }

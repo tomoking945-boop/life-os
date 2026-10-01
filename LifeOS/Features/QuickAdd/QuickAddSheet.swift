@@ -39,16 +39,22 @@ struct QuickAddSheet: View {
                         LifeSectionTitle("すぐ追加")
                         LazyVGrid(columns: chipColumns, spacing: LifeSpacing.xs) {
                             ForEach(QuickAddType.allCases) { type in
-                                LifeChip(
-                                    title: type.label,
-                                    systemImage: type.systemImage,
-                                    isSelected: viewModel.selectedType == type
-                                ) {
-                                    viewModel.toggleQuickType(type)
+                                LifeChip(title: type.label, systemImage: type.systemImage) {
+                                    isInputFocused = false
+                                    if viewModel.quickAdd(type) {
+                                        dismiss()
+                                    }
                                 }
                                 .frame(maxWidth: .infinity)
+                                .disabled(!viewModel.canQuickAdd)
+                                .opacity(viewModel.canQuickAdd ? 1 : 0.4)
+                                .accessibilityHint("入力した内容を\(type.label)として今日に追加します")
                             }
                         }
+                        Text("入力してから押すと、整理せずにそのまま追加します。支出は「ランチ 1200」のように金額も入力してください。")
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     LifeButton("整理する", systemImage: "sparkles") {
@@ -76,6 +82,11 @@ struct QuickAddSheet: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("音声入力はこの試作版ではまだ使えません。")
+            }
+            .alert("金額を入力してください", isPresented: $viewModel.isShowingAmountNotice) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("支出は「ランチ 1200」のように、品目と金額を入力してください。")
             }
         }
     }
