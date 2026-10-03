@@ -32,7 +32,9 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: LifeSpacing.lg) {
                     header
                     hero
-                    LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
+                    if viewModel.showsScopeFilter {
+                        LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
+                    }
                 }
 
                 if let message = viewModel.feedbackMessage {
@@ -48,6 +50,9 @@ struct TodayView: View {
                 }
                 if let next = viewModel.nextEvent {
                     nextSection(next)
+                }
+                if viewModel.showsInviteCard {
+                    inviteCard
                 }
                 if viewModel.hasNoSchedule {
                     LifeCard {
@@ -91,6 +96,12 @@ struct TodayView: View {
             case .memories:
                 LifeMemoryView(store: store)
             }
+        }
+        .sheet(isPresented: $viewModel.isShowingInvite) {
+            SharingFlowView(item: viewModel.invitingItem, store: store)
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(LifeRadius.sheet)
+                .presentationBackground(LifeColors.background)
         }
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             animate { viewModel.postpone(item, to: option) }
@@ -147,8 +158,27 @@ struct TodayView: View {
                 Text(viewModel.subtitle)
                     .font(LifeTypography.editorialCopy)
                     .foregroundStyle(LifeColors.onHeroSecondary)
+                Text(viewModel.usageCopy)
+                    .font(LifeTypography.label)
+                    .tracking(LifeTypography.labelTracking)
+                    .foregroundStyle(LifeColors.onHeroSecondary)
+                    .padding(.top, LifeSpacing.xs)
             }
             .accessibilityElement(children: .combine)
+        }
+    }
+
+    // MARK: - 家族招待
+
+    private var inviteCard: some View {
+        LifeEditorialCard(eyebrow: "FAMILY", title: "パートナーを招待", tint: LifeCategoryColors.mistBlue) {
+            Text("買い物・家事・予定を、ふたりで同じ画面から。")
+                .font(LifeTypography.callout)
+                .foregroundStyle(LifeColors.text)
+                .fixedSize(horizontal: false, vertical: true)
+            LifeButton("招待する", systemImage: "person.badge.plus", kind: .secondary) {
+                viewModel.startInvite()
+            }
         }
     }
 
@@ -370,6 +400,18 @@ struct TodayView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("次の予定、\(viewModel.timeText(for: item))、\(item.title)、\(viewModel.remainingText(for: item))")
+
+                if viewModel.canShare(item) {
+                    Button {
+                        viewModel.shareTapped(item)
+                    } label: {
+                        Label("パートナーと共有", systemImage: "person.2")
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.primary)
+                            .frame(minHeight: LifeSpacing.minTapTarget)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 if !viewModel.laterEvents.isEmpty {
                     LifeDivider()

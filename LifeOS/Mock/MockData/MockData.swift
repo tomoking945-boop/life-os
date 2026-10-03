@@ -84,6 +84,26 @@ enum MockData {
         ]
     }
 
+    // MARK: - よく買うもの
+
+    /// v2 仕様 11 の Mock 例（牛乳 食品/冷蔵、ティッシュ 日用品 など）
+    static func frequentPurchases(now: Date = LifeCalendar.now) -> [FrequentPurchase] {
+        let today = LifeCalendar.startOfDay(now)
+        func daysAgo(_ days: Int) -> Date {
+            LifeCalendar.calendar.date(byAdding: .day, value: -days, to: today) ?? today
+        }
+        return [
+            FrequentPurchase(title: "牛乳", categories: [.food, .chilled], lastPurchasedAt: daysAgo(4)),
+            FrequentPurchase(title: "卵", categories: [.food, .chilled], lastPurchasedAt: daysAgo(6)),
+            FrequentPurchase(title: "ティッシュ", categories: [.dailyGoods], lastPurchasedAt: daysAgo(21)),
+            FrequentPurchase(title: "お茶", categories: [.drinks], lastPurchasedAt: daysAgo(9)),
+            FrequentPurchase(title: "食パン", categories: [.food], lastPurchasedAt: daysAgo(3))
+        ]
+    }
+
+    /// 共有スターターで選べる「よく買うもの」の候補
+    static let starterFrequentCandidates = ["牛乳", "卵", "食パン", "米", "トイレットペーパー", "洗剤"]
+
     // MARK: - 家事オートパイロット
 
     /// v2 仕様の Mock ロジック（少ない＝2件、普通＝＋風呂掃除、余裕あり＝＋掃除機・シーツ交換）

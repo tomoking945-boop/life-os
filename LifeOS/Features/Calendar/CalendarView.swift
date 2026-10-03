@@ -7,7 +7,10 @@ struct CalendarView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
 
+    private let store: LifeStore
+
     init(store: LifeStore, appState: AppState) {
+        self.store = store
         _viewModel = State(initialValue: CalendarViewModel(store: store, appState: appState))
     }
 
@@ -19,7 +22,9 @@ struct CalendarView: View {
                     .foregroundStyle(LifeColors.text)
                     .accessibilityAddTraits(.isHeader)
 
-                LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
+                if viewModel.showsScopeFilter {
+                    LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
+                }
 
                 monthCard
                 selectedDaySection
@@ -30,6 +35,12 @@ struct CalendarView: View {
         .background(LifeColors.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        .sheet(item: $viewModel.invitingItem) { item in
+            SharingFlowView(item: item, store: store)
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(LifeRadius.sheet)
+                .presentationBackground(LifeColors.background)
+        }
     }
 
     // MARK: - 月表示
@@ -131,21 +142,36 @@ struct CalendarView: View {
                 } else {
                     VStack(alignment: .leading, spacing: LifeSpacing.xs) {
                         ForEach(viewModel.selectedItems) { item in
-                            if item.isTask {
-                                LifeTaskRow(
-                                    title: item.title,
-                                    detail: viewModel.detailText(for: item),
-                                    isCompleted: item.isCompleted,
-                                    tint: item.kind.tint
-                                ) {
-                                    viewModel.toggle(item)
+                            HStack(spacing: LifeSpacing.xs) {
+                                if item.isTask {
+                                    LifeTaskRow(
+                                        title: item.title,
+                                        detail: viewModel.detailText(for: item),
+                                        isCompleted: item.isCompleted,
+                                        tint: item.kind.tint
+                                    ) {
+                                        viewModel.toggle(item)
+                                    }
+                                } else {
+                                    CalendarEventRow(
+                                        time: viewModel.timeText(for: item),
+                                        title: item.title,
+                                        detail: viewModel.detailText(for: item)
+                                    )
                                 }
-                            } else {
-                                CalendarEventRow(
-                                    time: viewModel.timeText(for: item),
-                                    title: item.title,
-                                    detail: viewModel.detailText(for: item)
-                                )
+                                if viewModel.canShare(item) {
+                                    Button {
+                                        viewModel.shareTapped(item)
+                                    } label: {
+                                        Image(systemName: "person.2")
+                                            .font(LifeTypography.callout)
+                                            .foregroundStyle(LifeColors.primary)
+                                            .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("\(item.title)をパートナーと共有")
+                                }
                             }
                         }
                     }

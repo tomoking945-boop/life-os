@@ -2,9 +2,11 @@ import SwiftUI
 
 /// 生活グループ（Mock）：グループ名の変更とメンバーの確認。
 /// 決定済み：見た目だけの画面を用意する（2026-10-01）。
-/// TODO: メンバーの招待・削除、グループの切り替えは Firebase 接続時に実装する。
+/// メンバーの招待は v2 の「1タップ家族招待」の Mock 画面を開く。
+/// TODO: 本物の招待・メンバーの削除・グループの切り替えは Firebase 接続時に実装する。
 struct GroupSettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(LifeStore.self) private var store
     @State private var draftName = ""
     @State private var isShowingInviteNotice = false
 
@@ -52,10 +54,12 @@ struct GroupSettingsView: View {
         }
         .onAppear { draftName = appState.profile.groupName }
         .onDisappear(perform: commit)
-        .alert("メンバーを招待", isPresented: $isShowingInviteNotice) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("招待はこの試作版ではまだ使えません。")
+        .sheet(isPresented: $isShowingInviteNotice) {
+            // v2：1タップ家族招待の Mock 画面（実際の招待は送らない）
+            SharingFlowView(item: nil, store: store)
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(LifeRadius.sheet)
+                .presentationBackground(LifeColors.background)
         }
     }
 
@@ -70,4 +74,5 @@ struct GroupSettingsView: View {
         GroupSettingsView()
     }
     .environment(AppState())
+    .environment(LifeStore())
 }

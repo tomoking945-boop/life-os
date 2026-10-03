@@ -19,6 +19,22 @@ struct DeveloperSettingsView: View {
                     LifeSegmentControl(PlanType.allCases, selection: $appState.plan) { $0.label }
                 }
 
+                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                    LifeSectionTitle("利用スタイル（Mock）")
+                    LifeSegmentControl(UsageStyle.allCases, selection: $appState.usageStyle) { style in
+                        style == .solo ? "ひとり" : "家族・パートナー"
+                    }
+                    Toggle("パートナー参加済み", isOn: $appState.partnerJoined)
+                        .font(LifeTypography.body)
+                        .tint(LifeColors.primary)
+                        .disabled(appState.usageStyle == .solo)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                    Text("ひとり：共有を前面に出さず「すべて / 自分 / 共有」を隠します。家族・パートナー：共有ボタンを出し、未参加なら招待画面を出します。")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 LifeCard {
                     VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                         Text("Free：今日画面に広告カードを1枠表示します。")

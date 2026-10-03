@@ -48,6 +48,17 @@ final class AppState {
     /// 通知設定（Mock。実際の通知は送らない。Push通知は今回やらない）
     var notificationSettings = NotificationSettings()
 
+    /// 利用スタイル（一人 / 家族・パートナー）。開発用設定で切り替える。
+    /// TODO: 初回オンボーディングで選べるようにするかは未定（v2 仕様は「初回オンボーディングまたは開発用設定」）。
+    var usageStyle: UsageStyle = .shared
+
+    /// 実際に使うフィルター。一人モードでは「すべて / 自分 / 共有」を出さないため、常に「すべて」。
+    var effectiveScope: ScopeFilter {
+        usageStyle.showsScopeFilter ? scope : .all
+    }
+    /// パートナーが参加済みか（Mock。招待の流れを確認するため開発用設定で切り替える）
+    var partnerJoined = true
+
     var isPremium: Bool { plan == .premium }
 
     // MARK: - 端末内への保存
@@ -60,6 +71,9 @@ final class AppState {
         var plan: PlanType
         var profile: UserProfile
         var notificationSettings: NotificationSettings
+        /// v2 で追加。以前の保存データには無いため Optional
+        var usageStyle: UsageStyle?
+        var partnerJoined: Bool?
     }
 
     private static let fileName = "app-settings.json"
@@ -71,6 +85,8 @@ final class AppState {
             state.plan = settings.plan
             state.profile = settings.profile
             state.notificationSettings = settings.notificationSettings
+            state.usageStyle = settings.usageStyle ?? .shared
+            state.partnerJoined = settings.partnerJoined ?? true
         }
         state.persists = true
         state.save()
@@ -81,7 +97,13 @@ final class AppState {
     func save() {
         guard persists else { return }
         LocalStorage.save(
-            Settings(plan: plan, profile: profile, notificationSettings: notificationSettings),
+            Settings(
+                plan: plan,
+                profile: profile,
+                notificationSettings: notificationSettings,
+                usageStyle: usageStyle,
+                partnerJoined: partnerJoined
+            ),
             to: Self.fileName
         )
     }

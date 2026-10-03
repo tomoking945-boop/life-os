@@ -5,6 +5,8 @@ struct QuickAddConfirmView: View {
     @Bindable var viewModel: QuickAddViewModel
     let onComplete: () -> Void
 
+    @Environment(AppState.self) private var appState
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.lg) {
@@ -13,9 +15,12 @@ struct QuickAddConfirmView: View {
                     .foregroundStyle(LifeColors.text)
                     .accessibilityAddTraits(.isHeader)
 
-                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-                    LifeSectionTitle("追加先")
-                    LifeSegmentControl(Ownership.allCases, selection: $viewModel.ownership) { $0.label }
+                // 一人モードでは共有を前面に出さないため、追加先は出さない（常に「自分」）
+                if appState.usageStyle == .shared {
+                    VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                        LifeSectionTitle("追加先")
+                        LifeSegmentControl(Ownership.allCases, selection: $viewModel.ownership) { $0.label }
+                    }
                 }
 
                 LifeCard {

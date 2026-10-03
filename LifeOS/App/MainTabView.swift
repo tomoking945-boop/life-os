@@ -43,6 +43,8 @@ struct MainTabView: View {
         // Free/Premium と通知設定は画面のスイッチで直接変わるため、変わったときに保存する
         .onChange(of: appState.plan) { appState.save() }
         .onChange(of: appState.notificationSettings) { appState.save() }
+        .onChange(of: appState.usageStyle) { appState.save() }
+        .onChange(of: appState.partnerJoined) { appState.save() }
         .sheet(isPresented: $appState.isQuickAddPresented) {
             QuickAddSheet(store: store)
                 .presentationDetents([.medium, .large])

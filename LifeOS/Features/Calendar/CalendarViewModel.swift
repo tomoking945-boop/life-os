@@ -32,6 +32,9 @@ final class CalendarViewModel {
         set { appState.scope = newValue }
     }
 
+    /// 一人モードでは「すべて / 自分 / 共有」を出さない
+    var showsScopeFilter: Bool { appState.usageStyle.showsScopeFilter }
+
     // MARK: - 月表示
 
     var monthTitle: String { LifeFormatters.month(displayedMonth) }
@@ -71,7 +74,7 @@ final class CalendarViewModel {
     }
 
     func itemCount(on date: Date) -> Int {
-        store.items(on: date, scope: appState.scope).count
+        store.items(on: date, scope: appState.effectiveScope).count
     }
 
     func select(_ date: Date) {
@@ -104,7 +107,7 @@ final class CalendarViewModel {
     var selectedDateTitle: String { LifeFormatters.shortDate(selectedDate) }
 
     var selectedItems: [LifeItem] {
-        store.items(on: selectedDate, scope: appState.scope)
+        store.items(on: selectedDate, scope: appState.effectiveScope)
     }
 
     func timeText(for item: LifeItem) -> String? {
@@ -117,6 +120,25 @@ final class CalendarViewModel {
             parts.append("担当：\(appState.profile.displayName(for: assignee))")
         }
         return parts.joined(separator: "・")
+    }
+
+    // MARK: - パートナーと共有（v2 1タップ家族招待）
+
+    /// 招待シートで見せる項目（パートナー未参加のとき）
+    var invitingItem: LifeItem?
+
+    /// 家族・パートナーモードの自分の項目だけ共有ボタンを出す
+    func canShare(_ item: LifeItem) -> Bool {
+        appState.usageStyle == .shared && item.ownership == .personal
+    }
+
+    /// 参加済みならすぐ共有、未参加なら招待を出す
+    func shareTapped(_ item: LifeItem) {
+        if appState.partnerJoined {
+            store.share(item.id)
+        } else {
+            invitingItem = item
+        }
     }
 
     func toggle(_ item: LifeItem) {

@@ -9,6 +9,10 @@ final class TodayViewModel {
 
     /// 「あとで」シートの対象
     var postponingItem: LifeItem?
+    /// 家族招待シートを出しているか
+    var isShowingInvite = false
+    /// 家族招待シートで見せる項目（項目から招待したとき）
+    var invitingItem: LifeItem?
     /// 「今日これだけ」の残りを開いているか
     var isShowingRest = false
     /// 操作のあとに短く出す一言（例：明日に回しました）
@@ -41,8 +45,41 @@ final class TodayViewModel {
         set { appState.scope = newValue }
     }
 
+    /// 一人モードでは「すべて / 自分 / 共有」を出さない
+    var showsScopeFilter: Bool { appState.usageStyle.showsScopeFilter }
+
     private var todaysItems: [LifeItem] {
-        store.items(on: now, scope: appState.scope)
+        store.items(on: now, scope: appState.effectiveScope)
+    }
+
+    // MARK: - 一人 / 家族・パートナー
+
+    var usageCopy: String { appState.usageStyle.copy }
+
+    /// 家族・パートナーモードで、パートナーがまだ参加していないとき招待を出す
+    var showsInviteCard: Bool {
+        appState.usageStyle == .shared && !appState.partnerJoined
+    }
+
+    /// 「パートナーと共有」ボタンを出すか（家族・パートナーモードの自分の項目だけ）
+    func canShare(_ item: LifeItem) -> Bool {
+        appState.usageStyle == .shared && item.ownership == .personal
+    }
+
+    /// パートナーと共有：参加済みならすぐ共有、未参加なら招待を出す
+    func shareTapped(_ item: LifeItem) {
+        if appState.partnerJoined {
+            store.share(item.id)
+            feedbackMessage = "「\(item.title)」をパートナーと共有しました"
+        } else {
+            invitingItem = item
+            isShowingInvite = true
+        }
+    }
+
+    func startInvite() {
+        invitingItem = nil
+        isShowingInvite = true
     }
 
     // MARK: - 今日これだけ
@@ -119,7 +156,7 @@ final class TodayViewModel {
     }
 
     var leftovers: [LifeItem] {
-        store.leftovers(before: now, scope: appState.scope)
+        store.leftovers(before: now, scope: appState.effectiveScope)
     }
 
     func leftoverDetail(for item: LifeItem) -> String {

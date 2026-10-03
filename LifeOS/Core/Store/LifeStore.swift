@@ -19,6 +19,8 @@ final class LifeStore {
     var choreTemplates: [ChoreTemplate]
     /// 家事オートパイロットの今日の状態
     var autopilot: AutopilotDay?
+    /// よく買うもの
+    var frequentPurchases: [FrequentPurchase]
 
     /// true のとき、変更のたびに端末内へ保存する
     @ObservationIgnored private var persists = false
@@ -34,6 +36,7 @@ final class LifeStore {
         var memories: [LifeMemory]?
         var choreTemplates: [ChoreTemplate]?
         var autopilot: AutopilotDay?
+        var frequentPurchases: [FrequentPurchase]?
     }
 
     private static let fileName = "life-store.json"
@@ -46,7 +49,8 @@ final class LifeStore {
         inbox: [InboxItem] = MockData.inbox(),
         memories: [LifeMemory] = MockData.memories(),
         choreTemplates: [ChoreTemplate] = MockData.choreTemplates,
-        autopilot: AutopilotDay? = nil
+        autopilot: AutopilotDay? = nil,
+        frequentPurchases: [FrequentPurchase] = MockData.frequentPurchases()
     ) {
         self.items = items
         self.expenses = expenses
@@ -56,6 +60,7 @@ final class LifeStore {
         self.memories = memories
         self.choreTemplates = choreTemplates
         self.autopilot = autopilot
+        self.frequentPurchases = frequentPurchases
     }
 
     /// 端末内に保存されたデータを読み込む。初回（保存がない）ときは Mock データで始めて保存する。
@@ -70,7 +75,8 @@ final class LifeStore {
                 inbox: snapshot.inbox ?? MockData.inbox(),
                 memories: snapshot.memories ?? MockData.memories(),
                 choreTemplates: snapshot.choreTemplates ?? MockData.choreTemplates,
-                autopilot: snapshot.autopilot
+                autopilot: snapshot.autopilot,
+                frequentPurchases: snapshot.frequentPurchases ?? MockData.frequentPurchases()
             )
         } else {
             store = LifeStore()
@@ -91,7 +97,8 @@ final class LifeStore {
                 inbox: inbox,
                 memories: memories,
                 choreTemplates: choreTemplates,
-                autopilot: autopilot
+                autopilot: autopilot,
+                frequentPurchases: frequentPurchases
             ),
             to: Self.fileName
         )
@@ -107,6 +114,7 @@ final class LifeStore {
         memories = MockData.memories()
         choreTemplates = MockData.choreTemplates
         autopilot = nil
+        frequentPurchases = MockData.frequentPurchases()
         save()
     }
 
@@ -157,6 +165,40 @@ final class LifeStore {
     func drop(_ id: LifeItem.ID, at date: Date = LifeCalendar.now) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].droppedAt = date
+        save()
+    }
+
+    /// パートナーと共有：自分の項目を共有にする（担当は「どちらでも」）
+    func share(_ id: LifeItem.ID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].ownership = .shared
+        items[index].assignee = .either
+        save()
+    }
+
+    // MARK: - 共有スターター
+
+    /// 二人の生活OSを30秒で作る：選んだものだけ反映する（どれも省略できる）
+    func applySharedStarter(trashWeekdays: [Int], frequentTitles: [String], commonEvent: (title: String, date: Date)?) {
+        if !trashWeekdays.isEmpty {
+            if let index = memories.firstIndex(where: { $0.title == "ゴミ" }) {
+                memories[index].rule = .weekdays(trashWeekdays.sorted())
+            } else {
+                memories.append(LifeMemory(title: "ゴミ", rule: .weekdays(trashWeekdays.sorted()), action: .notifyOnly))
+            }
+        }
+        for title in frequentTitles where !frequentPurchases.contains(where: { $0.title == title }) {
+            frequentPurchases.append(FrequentPurchase(title: title, categories: [.other]))
+        }
+        if let commonEvent {
+            items.append(LifeItem(
+                title: commonEvent.title,
+                kind: .event,
+                ownership: .shared,
+                date: LifeCalendar.startOfDay(commonEvent.date),
+                assignee: .either
+            ))
+        }
         save()
     }
 
