@@ -53,13 +53,15 @@ enum Assignee: String, Hashable, Codable {
     case either
 }
 
-/// 項目の種類（カレンダーの表示対象と同じ5種類）
+/// 項目の種類（予定・ToDo・家事・買い物・支払予定・習慣）
 enum LifeItemKind: String, CaseIterable, Hashable, Codable {
     case event
     case todo
     case chore
     case shopping
     case payment
+    /// 習慣（水を飲む・ストレッチ など）。できなくても責めない表示にする。
+    case habit
 
     var label: String {
         switch self {
@@ -68,6 +70,7 @@ enum LifeItemKind: String, CaseIterable, Hashable, Codable {
         case .chore: return "家事"
         case .shopping: return "買い物"
         case .payment: return "支払予定"
+        case .habit: return "習慣"
         }
     }
 
@@ -78,6 +81,7 @@ enum LifeItemKind: String, CaseIterable, Hashable, Codable {
         case .chore: return "house"
         case .shopping: return "bag"
         case .payment: return "yensign.circle"
+        case .habit: return "leaf"
         }
     }
 }
@@ -114,6 +118,9 @@ struct LifeItem: Identifiable, Hashable, Codable {
         self.isCompleted = isCompleted
     }
 
-    /// チェックできる項目か（予定以外）
+    /// チェックできる項目か（予定以外。習慣もチェックできる）
     var isTask: Bool { kind != .event }
+
+    /// 習慣か（今日画面では「やること」と分けて表示する）
+    var isHabit: Bool { kind == .habit }
 }

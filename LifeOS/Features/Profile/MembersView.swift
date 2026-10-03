@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 共有メンバー一覧
-/// TODO: メンバーの招待・削除は仕様未定のため未実装。
+/// TODO: メンバーの招待は v2 の「1タップ家族招待」（第4回）で Mock 実装予定。削除は未定。
 struct MembersView: View {
     let appState: AppState
 

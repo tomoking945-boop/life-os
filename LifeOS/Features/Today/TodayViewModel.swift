@@ -18,7 +18,8 @@ final class TodayViewModel {
     var dateTitle: String { LifeFormatters.headerDate(now) }
     var spokenDateTitle: String { LifeFormatters.spokenDate(now) }
 
-    /// TODO: 時間帯による挨拶の切り替えは仕様未定。現状はレイアウト例どおり固定。
+    /// 決定済み：プロトタイプでは現在時刻を 9:10 に固定するため、挨拶も固定（2026-09-28）。
+    /// TODO: 実時刻にする段階で、時間帯による挨拶の切り替えを決める。
     let greeting = "Good morning."
     let subtitle = "今日の暮らしを、シンプルに。"
 
@@ -61,13 +62,26 @@ final class TodayViewModel {
 
     /// TODAY：パートナー担当以外のタスク（レイアウト例に合わせ、共有の「牛乳を買う（どちらでも）」もここに入る）
     var todayTasks: [LifeItem] {
-        todaysItems.filter { $0.isTask && $0.assignee != .partner }
+        todaysItems.filter { $0.isTask && !$0.isHabit && $0.assignee != .partner }
     }
 
     /// SHARED：パートナー担当のタスク
     var partnerTasks: [LifeItem] {
-        todaysItems.filter { $0.isTask && $0.assignee == .partner }
+        todaysItems.filter { $0.isTask && !$0.isHabit && $0.assignee == .partner }
     }
+
+    // MARK: - 習慣
+
+    /// 今日の習慣（できていなくても警告などは出さない）
+    var habits: [LifeItem] {
+        todaysItems.filter(\.isHabit)
+    }
+
+    // MARK: - Inbox
+
+    var inboxCount: Int { store.inbox.count }
+
+    var inboxSummary: String { "未整理 \(inboxCount)件・今日の整理は30秒" }
 
     var partnerName: String { appState.profile.partnerName }
 
@@ -86,7 +100,7 @@ final class TodayViewModel {
 
     // MARK: - MONEY
 
-    /// TODO: お金は「自分 / 共有」の区分が未定のため、フィルターを適用していない。
+    /// 決定済み：お金は「自分 / 共有」で分けない（2026-10-01）。フィルターは適用しない。
     var todaySpending: Int {
         store.expenses
             .filter { LifeCalendar.isSameDay($0.date, now) }

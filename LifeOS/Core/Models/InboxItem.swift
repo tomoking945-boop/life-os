@@ -7,8 +7,7 @@ struct InboxItem: Identifiable, Hashable, Codable {
     /// 入力したそのままの文
     var text: String
     var createdAt: Date
-    /// 「後で」を選んだとき、この日時までおまかせ整理に出さない。
-    /// 日時で持つことで、将来の「今夜・明日・週末・来週」の延期と同じ仕組みに統合できる。
+    /// 「後で」を選んだとき、この日時までおまかせ整理に出さない
     var postponedUntil: Date?
 
     init(id: UUID = UUID(), text: String, createdAt: Date, postponedUntil: Date? = nil) {

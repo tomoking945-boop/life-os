@@ -5,6 +5,7 @@
 
 - [生活OS UIプロトタイプ実装指示](docs/LIFE_OS_UI_PROTOTYPE_IMPLEMENTATION.md)
 - [Claude Code送信用メッセージ](docs/CLAUDE_CODE_MESSAGE.md)
+- [生活OS v2 仕様（Editorial Living・ズボラ継続機能）](docs/LIFE_OS_V2_SPEC.md)
 - [UIプロトタイプ 実装メモ（動かし方・TODO）](docs/IMPLEMENTATION_NOTES.md)
 
 ## UIプロトタイプの動かし方

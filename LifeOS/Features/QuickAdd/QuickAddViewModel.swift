@@ -65,6 +65,15 @@ final class QuickAddViewModel {
     /// 「すぐ追加」を押せるか（入力欄が空なら押せない）
     var canQuickAdd: Bool { !trimmedInput.isEmpty }
 
+    /// とりあえず保存：分類・日時・担当を決めずに Inbox へ入れる（v2 おまかせInbox）
+    /// - Returns: 保存できたら true（シートを閉じる）
+    func saveToInbox() -> Bool {
+        guard canQuickAdd else { return false }
+        store.addToInbox(trimmedInput, now: now)
+        inputText = ""
+        return true
+    }
+
     func startVoiceInput() {
         // TODO: 音声入力（Speech フレームワーク等）は今回未実装。
         isShowingVoiceInputNotice = true
@@ -72,7 +81,7 @@ final class QuickAddViewModel {
 
     /// 「すぐ追加」：整理せず、入力欄の内容をそのまま指定の種類で今日に1件追加する。
     /// 決定済み（2026-10-01）。
-    /// TODO: すぐ追加した項目の「自分 / 共有」区分は未定。現状は「自分」として追加する。
+    /// 決定済み：すぐ追加した項目は「自分」として追加する（2026-10-01）。
     /// TODO: 予定の時刻は入力から読み取らない（終日の予定として追加）。
     /// - Returns: 追加できたら true（シートを閉じる）
     func quickAdd(_ type: QuickAddType) -> Bool {
@@ -154,7 +163,7 @@ final class QuickAddViewModel {
     }
 
     /// 選択した項目を、選んだ「自分 / 共有」で Mock のデータに追加する
-    /// TODO: 共有で追加したときの担当者は仕様未定。現状は「どちらでも」。
+    /// 決定済み：共有で追加したときの担当は「どちらでも」（2026-10-01）。
     func addSelected() {
         let items = candidates.filter(\.isSelected).map { candidate -> LifeItem in
             var item = candidate.item

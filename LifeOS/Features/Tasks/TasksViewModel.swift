@@ -47,11 +47,12 @@ final class TasksViewModel {
         self.now = now
     }
 
-    /// TODO: やること画面に「すべて / 自分 / 共有」フィルターを適用するかは仕様未定。現状は全件表示。
+    /// 決定済み：やること画面には「すべて / 自分 / 共有」フィルターを付けない（2026-09-28）。
+    /// 習慣は今日画面の「習慣」に表示し、やること画面には出さない。
     var tasks: [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
         return store.items
-            .filter { $0.isTask }
+            .filter { $0.isTask && !$0.isHabit }
             .filter { item in
                 switch segment {
                 case .today:

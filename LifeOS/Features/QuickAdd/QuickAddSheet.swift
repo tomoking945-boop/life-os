@@ -31,6 +31,20 @@ struct QuickAddSheet: View {
 
                     inputField
 
+                    VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                        LifeButton("とりあえず保存", systemImage: "tray.and.arrow.down", kind: .secondary) {
+                            isInputFocused = false
+                            if viewModel.saveToInbox() {
+                                dismiss()
+                            }
+                        }
+                        .disabled(!viewModel.canQuickAdd)
+                        Text("分類や日時は決めずにInboxへ。あとでまとめて整理できます。")
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     LifeButton("音声入力", systemImage: "mic", kind: .secondary) {
                         viewModel.startVoiceInput()
                     }

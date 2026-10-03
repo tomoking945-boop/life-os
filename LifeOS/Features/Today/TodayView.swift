@@ -3,13 +3,17 @@ import SwiftUI
 /// 今日画面の遷移先
 enum TodayRoute: Hashable {
     case profile
+    case inbox
 }
 
 struct TodayView: View {
     @State private var viewModel: TodayViewModel
     @Environment(AppState.self) private var appState
 
+    private let store: LifeStore
+
     init(store: LifeStore, appState: AppState) {
+        self.store = store
         _viewModel = State(initialValue: TodayViewModel(store: store, appState: appState))
     }
 
@@ -28,6 +32,12 @@ struct TodayView: View {
                 }
                 if !viewModel.partnerTasks.isEmpty {
                     sharedCard
+                }
+                if !viewModel.habits.isEmpty {
+                    habitCard
+                }
+                if viewModel.inboxCount > 0 {
+                    inboxCard
                 }
                 if viewModel.hasNoSchedule {
                     LifeCard {
@@ -54,6 +64,8 @@ struct TodayView: View {
             switch route {
             case .profile:
                 ProfileView(appState: appState)
+            case .inbox:
+                InboxView(store: store)
             }
         }
     }
@@ -179,6 +191,51 @@ struct TodayView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 習慣
+
+    private var habitCard: some View {
+        LifeCard {
+            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                LifeSectionTitle("HABIT", spokenTitle: "習慣")
+                taskRows(viewModel.habits)
+                Text("できた日だけ、チェックすれば十分です。")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.secondaryText)
+            }
+        }
+    }
+
+    // MARK: - Inbox
+
+    private var inboxCard: some View {
+        NavigationLink(value: TodayRoute.inbox) {
+            LifeCard {
+                HStack(spacing: LifeSpacing.sm) {
+                    Image(systemName: "tray")
+                        .font(.title3)
+                        .foregroundStyle(LifeColors.primary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                        Text("Inbox")
+                            .font(LifeTypography.headline)
+                            .foregroundStyle(LifeColors.text)
+                        Text(viewModel.inboxSummary)
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.secondaryText)
+                    }
+                    Spacer(minLength: LifeSpacing.xs)
+                    Image(systemName: "chevron.right")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Inboxを開いて、まとめて整理できます")
     }
 
     // MARK: - MONEY

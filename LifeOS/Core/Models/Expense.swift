@@ -31,8 +31,8 @@ struct Expense: Identifiable, Hashable, Codable {
     var category: ExpenseCategory
     var date: Date
 
-    // TODO: 支出の「自分 / 共有」区分は仕様未定のため未実装（お金は現状フィルター対象外）。
-    // TODO: 家計分担ロジックは今回やらない。
+    // 決定済み：支出は「自分 / 共有」で分けない（2026-10-01）。
+    // TODO: 家計分担ロジックと合わせて、支出の「自分 / 共有」区分を決める。
 
     init(id: UUID = UUID(), title: String, amount: Int, category: ExpenseCategory, date: Date) {
         self.id = id

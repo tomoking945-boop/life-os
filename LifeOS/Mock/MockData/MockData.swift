@@ -22,7 +22,7 @@ enum MockData {
     /// 決定済み：「クリーニング受取」は家事（2026-10-01）。
     /// 決定済み：「外食」の担当は「どちらでも」（2026-10-01）。
     /// 決定済み：「ゴミ出し」はレイアウト例に合わせ、自分の家事として追加（2026-09-28）。
-    /// TODO: 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。現状はMockデータ一覧を優先して表示。
+    /// 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。Mockデータ一覧を優先して表示している。
     static func items(now: Date = LifeCalendar.now) -> [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
         return [
@@ -41,7 +41,25 @@ enum MockData {
             LifeItem(title: "牛乳を買う", kind: .shopping, ownership: .shared,
                      date: today, assignee: .either),
             LifeItem(title: "クリーニング受取", kind: .chore, ownership: .shared,
-                     date: today, assignee: .partner)
+                     date: today, assignee: .partner),
+            // 習慣（v2 仕様の例）
+            // TODO: 習慣を毎日くり返す仕組み（くり返し設定）は未実装。現状は Mock の日付の分だけ表示する。
+            LifeItem(title: "水を飲む", kind: .habit, ownership: .personal,
+                     date: today, assignee: .me),
+            LifeItem(title: "ストレッチ", kind: .habit, ownership: .personal,
+                     date: today, assignee: .me)
+        ]
+    }
+
+    // MARK: - おまかせInbox
+
+    /// v2 仕様の初期 Mock 例（分類・日時・担当は未設定のまま保存されたメモ）
+    static func inbox(now: Date = LifeCalendar.now) -> [InboxItem] {
+        [
+            InboxItem(text: "明日牛乳買う", createdAt: now),
+            InboxItem(text: "妻と旅行相談", createdAt: now),
+            InboxItem(text: "電気代を払う", createdAt: now),
+            InboxItem(text: "美容院を予約する", createdAt: now)
         ]
     }
 

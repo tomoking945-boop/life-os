@@ -42,14 +42,12 @@ final class TidyUpViewModel {
     // MARK: - 1件ずつの操作
 
     /// スキップ：今回の整理から外す（Inbox には残り、次回また出る）
-    /// 決定済み（2026-10-02）。
+    /// TODO: 「スキップ」と「後で」の違いは仕様に明記がないため、上記の解釈で実装している。
     func skip(_ id: TidyUpEntry.ID) {
         entries.removeAll { $0.id == id }
     }
 
-    /// 後で：明日の整理まで出さない（Inbox には残る）。決定済み（2026-10-02）。
-    /// 延期先は日時（postponedUntil）で持っているため、将来「今夜・明日・週末・来週」の
-    /// 延期機能（v2 第2回「あとで」）と同じ選択肢・計算に統合できる。
+    /// 後で：明日の整理に回す（Inbox には残る）
     func postpone(_ id: TidyUpEntry.ID) {
         let tomorrow = LifeCalendar.calendar.date(byAdding: .day, value: 1, to: LifeCalendar.startOfDay(now))
             ?? now
