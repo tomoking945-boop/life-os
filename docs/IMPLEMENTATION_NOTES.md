@@ -75,8 +75,8 @@ LifeOS
 | 2 | 今日これだけ、未完了救済、あとで、暮らしメモリー、家事オートパイロット | 完了（10/3 ビルド確認済み） |
 | 3 | デザイン刷新（Editorial Living・カテゴリー色・Today作り直し・Motion） | 完了（10/3 ビルド確認済み） |
 | 4 | 一人モード／共有モード、1タップ家族招待Mock、共有スターター | 完了（10/3 ビルド確認済み） |
-| 5 | 買い物の強化、献立→買い物Mock、Premium Themes表示 | 実装済み（10/3・ビルド未確認） |
-| 6 | Repository Protocol 設計、Unit Test Target | 未着手 |
+| 5 | 買い物の強化、献立→買い物Mock、Premium Themes表示 | 完了（10/3 ビルド・動作確認済み） |
+| 6 | Repository Protocol 設計、Unit Test Target | 実装済み（10/3・ビルド・テスト未確認） |
 
 ### 第1回の実装と解釈
 
@@ -151,6 +151,15 @@ LifeOS
 | 献立 → 買い物 | Mock | 買い物 →「今週の献立から作る」：月 カレー／火 鮭／水 外食（固定）→［買い物リストを作成］で 玉ねぎ・人参・カレールー・鮭 → 選んで［N件を買い物に追加］ |
 | Premium | LifeOS Themes | Premium 画面に「自分らしい生活OSに」：Forest・Hotel・Sage・Midnight・Terracotta のプレビュー（`LifeTheme`）。選べるがアプリの色は変えない（Mock）。価格は変更なし |
 | Premium | 機能一覧 | 仕様1の7項目のまま。v2 の Premium 候補（高度な家事オートパイロット・テーマ・添付・AI自然文検索など）の一覧への反映は未決定（TODO） |
+
+### 第6回の実装
+
+| 箇所 | 内容 | 扱い |
+| --- | --- | --- |
+| Repository | Protocol | `LifeItemRepository`・`ExpenseRepository`・`ListRepository`・`InboxRepository`（`Core/Repositories`）。`LifeStore` が全部に適合 |
+| Repository | 切り替え済み | `MoneyViewModel`・`ListsViewModel` は Protocol 経由。ほかの ViewModel は段階的に切り替える（[REPOSITORY_DESIGN.md](REPOSITORY_DESIGN.md)） |
+| Unit Test | ターゲット | `LifeOSTests`（XCTest、ホストアプリ LifeOS）。共有スキーム `LifeOS` に追加し、⌘U で実行 |
+| Unit Test | 内容 | ScopeFilter・Ownership（一人モードは常に「すべて」）・Free/Premium と広告・価格・QuickAdd 金額解析・Inbox 分類・今日これだけ（選び方・パートナー担当・完了で下へ）・未完了救済（元の日付を変えない・もうやらないは削除しない）・あとでの日付・暮らしメモリーの表示条件・買い物の自動カテゴリーと重複・家事オートパイロット。日時は 2026/10/2（金）9:10 に固定 |
 
 ## 今回やっていないこと（仕様どおり）
 

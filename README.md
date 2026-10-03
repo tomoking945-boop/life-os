@@ -7,6 +7,8 @@
 - [Claude Code送信用メッセージ](docs/CLAUDE_CODE_MESSAGE.md)
 - [生活OS v2 仕様（Editorial Living・ズボラ継続機能）](docs/LIFE_OS_V2_SPEC.md)
 - [UIプロトタイプ 実装メモ（動かし方・TODO）](docs/IMPLEMENTATION_NOTES.md)
+- [Repository 設計（Firestore 移行の準備）](docs/REPOSITORY_DESIGN.md)
+- [v2 改修の報告](docs/V2_REPORT.md)
 
 ## UIプロトタイプの動かし方
 

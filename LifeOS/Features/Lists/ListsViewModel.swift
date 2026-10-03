@@ -3,19 +3,20 @@ import Observation
 
 @Observable
 final class ListsViewModel {
-    private let store: LifeStore
+    /// v2 第6回：LifeStore ではなく Repository の窓口を通して読み書きする
+    private let repository: any ListRepository
 
     var isCreatingList = false
     var newListTitle = ""
 
-    init(store: LifeStore) {
-        self.store = store
+    init(store repository: any ListRepository) {
+        self.repository = repository
     }
 
-    var lists: [LifeList] { store.lists }
+    var lists: [LifeList] { repository.lists }
 
     func list(id: LifeList.ID) -> LifeList? {
-        store.list(id: id)
+        repository.list(id: id)
     }
 
     func itemCountText(for list: LifeList) -> String {
@@ -28,12 +29,12 @@ final class ListsViewModel {
     func addItem(_ title: String, toList id: LifeList.ID) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        store.addItem(trimmed, toList: id)
+        repository.addItem(trimmed, toList: id)
         return true
     }
 
     func deleteItems(at offsets: IndexSet, fromList id: LifeList.ID) {
-        store.removeItems(at: offsets, fromList: id)
+        repository.removeItems(at: offsets, fromList: id)
     }
 
     // MARK: - 新規リスト作成（端末内に保存）
@@ -51,7 +52,7 @@ final class ListsViewModel {
 
     func createList() {
         guard canCreateList else { return }
-        store.addList(title: trimmedTitle)
+        repository.addList(title: trimmedTitle)
         newListTitle = ""
         isCreatingList = false
     }

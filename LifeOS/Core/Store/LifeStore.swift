@@ -4,7 +4,7 @@ import Observation
 /// アプリ内データの置き場。
 /// アプリ本体では `LifeStore.persistent()` を使い、変更のたびに端末内へ保存する。
 /// プレビューなどで `LifeStore()` を使った場合は保存しない（Mock のまま）。
-/// TODO: Firebase 等へ接続する際は、ここを Repository プロトコル経由の読み書きに置き換える（v2 第6回で設計）。
+/// Repository の窓口（Core/Repositories）にすべて適合している。Firebase 接続時は Firestore 版の Repository に差し替える。
 @Observable
 final class LifeStore {
     var items: [LifeItem]
