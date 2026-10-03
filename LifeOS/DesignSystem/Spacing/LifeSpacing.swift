@@ -31,4 +31,10 @@ enum LifeSpacing {
     static let calendarDotDiameter: CGFloat = 5
     /// 区切り線の太さ
     static let hairline: CGFloat = 0.5
+    /// カテゴリー色のドットの直径
+    static let categoryDot: CGFloat = 8
+    /// カテゴリー色の細い線の幅
+    static let categoryBar: CGFloat = 3
+    /// ヒーローカードの最低の高さ
+    static let heroMinHeight: CGFloat = 180
 }

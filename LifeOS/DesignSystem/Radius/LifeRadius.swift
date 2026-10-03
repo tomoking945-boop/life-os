@@ -12,4 +12,6 @@ enum LifeRadius {
     static let field: CGFloat = medium
     /// Bottom Sheet
     static let sheet: CGFloat = 32
+    /// ヒーローカード
+    static let hero: CGFloat = 32
 }

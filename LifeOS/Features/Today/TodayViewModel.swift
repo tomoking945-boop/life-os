@@ -22,14 +22,17 @@ final class TodayViewModel {
 
     // MARK: - ヘッダー
 
-    var dateTitle: String { LifeFormatters.headerDate(now) }
+    /// Editorial Living：英語の日付をセリフ体で（例：Saturday, October 3）
+    var dateTitle: String { LifeFormatters.editorialDate(now) }
+    /// 日本語の日付（小さく添える）
+    var japaneseDateTitle: String { LifeFormatters.headerDate(now) }
     var spokenDateTitle: String { LifeFormatters.spokenDate(now) }
 
     /// 決定済み：プロトタイプでは現在時刻を 9:10 に固定するため、挨拶も固定（2026-09-28）。
     /// TODO: 実時刻にする段階で、時間帯による挨拶の切り替えを決める。
     let greeting = "Good morning."
-    /// TODO: v2 の目標イメージは「今日も、無理なく。」。第3回のデザイン刷新で差し替えるか決める。
-    let subtitle = "今日の暮らしを、シンプルに。"
+    /// v2 の目標イメージに合わせたキャッチコピー
+    let subtitle = "今日も、無理なく。"
 
     // MARK: - フィルター
 
@@ -48,8 +51,16 @@ final class TodayViewModel {
         TodayFocusSelector.split(todaysItems)
     }
 
-    /// 目立つ位置に出す最大3件
-    var focusItems: [LifeItem] { focusSplit.focus }
+    /// 目立つ位置に出す最大3件。完了したものは下へ移動する（入れ替えはしない）。
+    var focusItems: [LifeItem] {
+        let focus = focusSplit.focus
+        return focus.filter { !$0.isCompleted } + focus.filter(\.isCompleted)
+    }
+
+    /// 01 / 02 / 03（今日これだけの番号）
+    func focusNumber(_ index: Int) -> String {
+        String(format: "%02d", index + 1)
+    }
 
     /// 折りたたむ残り
     var restItems: [LifeItem] { focusSplit.rest }
@@ -99,6 +110,13 @@ final class TodayViewModel {
 
     /// 責めないための見出し（赤字・警告は使わない）
     let leftoverTitle = "昨日残ったもの"
+
+    /// 選択肢を開いている行（ふだんは1行だけ表示して、押したときだけ選択肢を出す）
+    var expandedLeftoverID: LifeItem.ID?
+
+    func toggleLeftoverExpansion(_ item: LifeItem) {
+        expandedLeftoverID = expandedLeftoverID == item.id ? nil : item.id
+    }
 
     var leftovers: [LifeItem] {
         store.leftovers(before: now, scope: appState.scope)

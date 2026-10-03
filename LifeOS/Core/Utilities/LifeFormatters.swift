@@ -25,6 +25,20 @@ enum LifeFormatters {
     private static let timeFormatter = dateFormatter("H:mm")
     private static let monthFormatter = dateFormatter("yyyy年M月")
     private static let spokenDateFormatter = dateFormatter("M月d日EEEE")
+    /// Editorial Living の英語の日付（Saturday, October 3）
+    private static let editorialDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = LifeCalendar.calendar.timeZone
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter
+    }()
+
+    /// Saturday, October 3
+    static func editorialDate(_ date: Date) -> String {
+        editorialDateFormatter.string(from: date)
+    }
 
     /// ¥82,450
     static func yen(_ amount: Int) -> String {

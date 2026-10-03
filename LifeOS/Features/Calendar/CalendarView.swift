@@ -135,7 +135,8 @@ struct CalendarView: View {
                                 LifeTaskRow(
                                     title: item.title,
                                     detail: viewModel.detailText(for: item),
-                                    isCompleted: item.isCompleted
+                                    isCompleted: item.isCompleted,
+                                    tint: item.kind.tint
                                 ) {
                                     viewModel.toggle(item)
                                 }

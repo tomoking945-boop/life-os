@@ -32,6 +32,20 @@ enum LifeColors {
     /// 浮いているボタンの影
     static let floatingShadow = text.opacity(0.12)
 
+    // MARK: - Editorial Living（v2）
+
+    /// ヒーローの濃い面（Deep Forest を少し明るくした色。強いグラデーションにはしない）
+    static let heroDeep = primary
+    static let heroSoft = Color(hex: 0x2F4D43)
+    /// ヒーロー上の文字（Warm Ivory）
+    static let onHero = background
+    /// ヒーロー上の補助文字
+    static let onHeroSecondary = background.opacity(0.78)
+    /// ヒーローの装飾（抽象的な植物の形）
+    static let heroOrnament = accent.opacity(0.22)
+    /// 紙の質感を思わせる、少し濃いアイボリー
+    static let paper = Color(hex: 0xEFEBE3)
+
     // 決定済み：当面はライトモード固定（LifeOSApp で指定、2026-10-01）。
     // TODO: デザインを詰める段階でダークモード用の配色を追加する。
 }

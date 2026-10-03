@@ -32,6 +32,23 @@ enum LifeTypography {
     /// カレンダーの日付
     static let calendarDay = Font.system(.callout).monospacedDigit()
 
+    // MARK: - Editorial Living（v2）
+    // 本文は読みやすいサンセリフ、日付・大見出し・挨拶・キャッチコピーはセリフ体（.serif）。
+    // 外部フォントは使わない。
+
+    /// ヒーローの挨拶（Good morning.）
+    static let heroTitle = Font.system(.largeTitle, design: .serif).weight(.regular)
+    /// 日付（Saturday, October 3）
+    static let editorialDate = Font.system(.title3, design: .serif)
+    /// セクションの大見出し（今日これだけ）
+    static let editorialTitle = Font.system(.title, design: .serif)
+    /// カードの見出し（暮らしメモリー・今日の余力など）
+    static let editorialHeadline = Font.system(.title3, design: .serif)
+    /// 番号（01 / 02 / 03）
+    static let numeral = Font.system(.callout, design: .serif).monospacedDigit()
+    /// キャッチコピー（今日も、無理なく。）
+    static let editorialCopy = Font.system(.body, design: .serif)
+
     /// セクションラベルの字間
     static let labelTracking: CGFloat = 1.6
 }

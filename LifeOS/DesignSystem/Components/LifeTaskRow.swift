@@ -11,6 +11,8 @@ struct LifeTaskRow: View {
     var assigneeName: String?
     var assigneeImage: UIImage?
     let isCompleted: Bool
+    /// カテゴリー色（左の小さなドット）。nil なら出さない。
+    var tint: Color?
     var onLater: (() -> Void)?
     let onToggle: () -> Void
 
@@ -21,7 +23,12 @@ struct LifeTaskRow: View {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(isCompleted ? LifeColors.primary : LifeColors.secondaryText)
+                        .contentTransition(.symbolEffect(.replace))
                         .accessibilityHidden(true)
+
+                    if let dotColor = tint {
+                        LifeCategoryDot(color: dotColor)
+                    }
 
                     VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
                         Text(title)
@@ -48,6 +55,8 @@ struct LifeTaskRow: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget, alignment: .leading)
                 .contentShape(Rectangle())
+                // 完了したら少しフェード（取り消し線と合わせて、色だけに頼らない）
+                .opacity(isCompleted ? 0.6 : 1)
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)

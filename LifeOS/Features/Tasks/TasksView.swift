@@ -37,6 +37,7 @@ struct TasksView: View {
                                     assigneeName: avatar?.name,
                                     assigneeImage: avatar?.image,
                                     isCompleted: item.isCompleted,
+                                    tint: item.kind.tint,
                                     onLater: { viewModel.startPostponing(item) }
                                 ) {
                                     withAnimation(.easeInOut(duration: 0.25)) {
