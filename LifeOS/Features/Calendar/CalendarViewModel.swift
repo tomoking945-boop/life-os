@@ -108,7 +108,7 @@ final class CalendarViewModel {
     }
 
     func timeText(for item: LifeItem) -> String? {
-        item.hasTime ? LifeFormatters.time(item.date) : nil
+        item.showsTime ? LifeFormatters.time(item.displayDate) : nil
     }
 
     func detailText(for item: LifeItem) -> String {

@@ -25,6 +25,7 @@ enum MockData {
     /// 「筋トレ」はMockデータ一覧にあるがレイアウト例のTODAYには無い。Mockデータ一覧を優先して表示している。
     static func items(now: Date = LifeCalendar.now) -> [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
+        let yesterday = LifeCalendar.calendar.date(byAdding: .day, value: -1, to: today) ?? today
         return [
             // 自分
             LifeItem(title: "歯医者", kind: .event, ownership: .personal,
@@ -47,9 +48,52 @@ enum MockData {
             LifeItem(title: "水を飲む", kind: .habit, ownership: .personal,
                      date: today, assignee: .me),
             LifeItem(title: "ストレッチ", kind: .habit, ownership: .personal,
-                     date: today, assignee: .me)
+                     date: today, assignee: .me),
+            // 昨日残ったもの（v2「未完了救済」の確認用 Mock）
+            LifeItem(title: "粗大ゴミの申し込み", kind: .todo, ownership: .personal,
+                     date: yesterday, assignee: .me),
+            LifeItem(title: "郵便を出す", kind: .todo, ownership: .personal,
+                     date: yesterday, assignee: .me)
         ]
     }
+
+    // MARK: - 暮らしメモリー
+
+    /// v2 仕様の Mock 例（シャンプー・歯医者・エアコンフィルター・家賃・ゴミ）
+    static func memories(now: Date = LifeCalendar.now) -> [LifeMemory] {
+        let today = LifeCalendar.startOfDay(now)
+        func daysAgo(_ days: Int) -> Date {
+            LifeCalendar.calendar.date(byAdding: .day, value: -days, to: today) ?? today
+        }
+        return [
+            LifeMemory(title: "シャンプー",
+                       rule: .sinceLast(lastDate: daysAgo(49), dueAfterDays: 42),
+                       action: .addToShopping("シャンプーを買う")),
+            LifeMemory(title: "歯医者",
+                       rule: .sinceLast(lastDate: daysAgo(182), dueAfterDays: 180),
+                       action: .addToTodo("歯医者を予約する")),
+            LifeMemory(title: "エアコンフィルター掃除",
+                       rule: .sinceLast(lastDate: daysAgo(61), dueAfterDays: 60),
+                       action: .addOnSaturday("エアコンフィルター掃除")),
+            LifeMemory(title: "家賃",
+                       rule: .monthlyDay(day: 27, noticeDaysBefore: 3),
+                       action: .addToTodo("家賃を払う")),
+            LifeMemory(title: "ゴミ",
+                       rule: .weekdays([3, 6]),
+                       action: .notifyOnly)
+        ]
+    }
+
+    // MARK: - 家事オートパイロット
+
+    /// v2 仕様の Mock ロジック（少ない＝2件、普通＝＋風呂掃除、余裕あり＝＋掃除機・シーツ交換）
+    static let choreTemplates: [ChoreTemplate] = [
+        ChoreTemplate(id: "trash", title: "ゴミをまとめる", minutes: 2, minimumEnergy: .low),
+        ChoreTemplate(id: "laundry", title: "洗濯機を回す", minutes: 3, minimumEnergy: .low),
+        ChoreTemplate(id: "bath", title: "風呂掃除", minutes: 10, minimumEnergy: .normal),
+        ChoreTemplate(id: "vacuum", title: "掃除機", minutes: 15, minimumEnergy: .high),
+        ChoreTemplate(id: "sheets", title: "シーツ交換", minutes: 10, minimumEnergy: .high)
+    ]
 
     // MARK: - おまかせInbox
 

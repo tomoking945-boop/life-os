@@ -4,7 +4,7 @@ import Observation
 /// アプリ内データの置き場。
 /// アプリ本体では `LifeStore.persistent()` を使い、変更のたびに端末内へ保存する。
 /// プレビューなどで `LifeStore()` を使った場合は保存しない（Mock のまま）。
-/// TODO: Firebase 等へ接続する際は、ここを Repository プロトコル経由の読み書きに置き換える。
+/// TODO: Firebase 等へ接続する際は、ここを Repository プロトコル経由の読み書きに置き換える（v2 第6回で設計）。
 @Observable
 final class LifeStore {
     var items: [LifeItem]
@@ -13,18 +13,27 @@ final class LifeStore {
     var lists: [LifeList]
     /// おまかせInbox（未整理の生活メモ）
     var inbox: [InboxItem]
+    /// 暮らしメモリー
+    var memories: [LifeMemory]
+    /// 家事オートパイロットの候補
+    var choreTemplates: [ChoreTemplate]
+    /// 家事オートパイロットの今日の状態
+    var autopilot: AutopilotDay?
 
     /// true のとき、変更のたびに端末内へ保存する
     @ObservationIgnored private var persists = false
 
     /// 端末内に保存する形
+    /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
     private struct Snapshot: Codable {
         var items: [LifeItem]
         var expenses: [Expense]
         var budget: MonthlyBudget
         var lists: [LifeList]
-        /// v2 で追加。以前の保存データには無いため Optional（無ければ Mock の例で始める）
         var inbox: [InboxItem]?
+        var memories: [LifeMemory]?
+        var choreTemplates: [ChoreTemplate]?
+        var autopilot: AutopilotDay?
     }
 
     private static let fileName = "life-store.json"
@@ -34,13 +43,19 @@ final class LifeStore {
         expenses: [Expense] = MockData.expenses(),
         budget: MonthlyBudget = MockData.budget(),
         lists: [LifeList] = MockData.lists,
-        inbox: [InboxItem] = MockData.inbox()
+        inbox: [InboxItem] = MockData.inbox(),
+        memories: [LifeMemory] = MockData.memories(),
+        choreTemplates: [ChoreTemplate] = MockData.choreTemplates,
+        autopilot: AutopilotDay? = nil
     ) {
         self.items = items
         self.expenses = expenses
         self.budget = budget
         self.lists = lists
         self.inbox = inbox
+        self.memories = memories
+        self.choreTemplates = choreTemplates
+        self.autopilot = autopilot
     }
 
     /// 端末内に保存されたデータを読み込む。初回（保存がない）ときは Mock データで始めて保存する。
@@ -52,7 +67,10 @@ final class LifeStore {
                 expenses: snapshot.expenses,
                 budget: snapshot.budget,
                 lists: snapshot.lists,
-                inbox: snapshot.inbox ?? MockData.inbox()
+                inbox: snapshot.inbox ?? MockData.inbox(),
+                memories: snapshot.memories ?? MockData.memories(),
+                choreTemplates: snapshot.choreTemplates ?? MockData.choreTemplates,
+                autopilot: snapshot.autopilot
             )
         } else {
             store = LifeStore()
@@ -65,7 +83,16 @@ final class LifeStore {
     private func save() {
         guard persists else { return }
         LocalStorage.save(
-            Snapshot(items: items, expenses: expenses, budget: budget, lists: lists, inbox: inbox),
+            Snapshot(
+                items: items,
+                expenses: expenses,
+                budget: budget,
+                lists: lists,
+                inbox: inbox,
+                memories: memories,
+                choreTemplates: choreTemplates,
+                autopilot: autopilot
+            ),
             to: Self.fileName
         )
     }
@@ -77,6 +104,9 @@ final class LifeStore {
         budget = MockData.budget()
         lists = MockData.lists
         inbox = MockData.inbox()
+        memories = MockData.memories()
+        choreTemplates = MockData.choreTemplates
+        autopilot = nil
         save()
     }
 
@@ -93,15 +123,41 @@ final class LifeStore {
         save()
     }
 
-    /// 指定日の項目（フィルター適用・予定は時刻順、その後にタスク）
-    /// 前日以前の未完了タスクは、v2 の「未完了救済」（第2回で実装予定）で扱う。現状は日付どおりに表示する。
+    /// 指定日に表示する項目（フィルター適用・時刻のあるものを先に、その後にタスク）
+    /// 「あとで」「未完了救済」で回した項目は、回した先の日に表示する（元の日付は変えない）。
+    /// 「もうやらない」にした項目は出さない。
     func items(on day: Date, scope: ScopeFilter) -> [LifeItem] {
         items
-            .filter { LifeCalendar.isSameDay($0.date, day) && scope.includes($0.ownership) }
+            .filter { !$0.isDropped && LifeCalendar.isSameDay($0.displayDate, day) && scope.includes($0.ownership) }
             .sorted { lhs, rhs in
-                if lhs.hasTime != rhs.hasTime { return lhs.hasTime }
-                return lhs.date < rhs.date
+                if lhs.showsTime != rhs.showsTime { return lhs.showsTime }
+                return lhs.displayDate < rhs.displayDate
             }
+    }
+
+    /// 未完了救済：指定日より前に残っている未完了のタスク（習慣は除く）
+    func leftovers(before day: Date, scope: ScopeFilter) -> [LifeItem] {
+        let start = LifeCalendar.startOfDay(day)
+        return items
+            .filter { item in
+                item.isTask && !item.isHabit && !item.isCompleted && !item.isDropped
+                    && item.displayDate < start && scope.includes(item.ownership)
+            }
+            .sorted { $0.displayDate < $1.displayDate }
+    }
+
+    /// あとで・未完了救済：表示先の日時を変える（元の日付 `date` は変えない）
+    func reschedule(_ id: LifeItem.ID, to date: Date) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].deferredTo = date
+        save()
+    }
+
+    /// もうやらない：削除せず、一覧に出さないだけにする
+    func drop(_ id: LifeItem.ID, at date: Date = LifeCalendar.now) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].droppedAt = date
+        save()
     }
 
     // MARK: - おまかせInbox
@@ -124,6 +180,53 @@ final class LifeStore {
         for index in inbox.indices where ids.contains(inbox[index].id) {
             inbox[index].postponedUntil = date
         }
+        save()
+    }
+
+    // MARK: - 暮らしメモリー
+
+    /// 指定日時まで今日画面に出さない
+    func hideMemory(_ id: LifeMemory.ID, until date: Date) {
+        guard let index = memories.firstIndex(where: { $0.id == id }) else { return }
+        memories[index].hiddenUntil = date
+        save()
+    }
+
+    /// 「前回から」の起点を変える（今回はスキップ：周期をここから数え直す）
+    func restartMemoryCycle(_ id: LifeMemory.ID, from date: Date) {
+        guard let index = memories.firstIndex(where: { $0.id == id }) else { return }
+        if case let .sinceLast(_, dueAfterDays) = memories[index].rule {
+            memories[index].rule = .sinceLast(lastDate: date, dueAfterDays: dueAfterDays)
+        }
+        save()
+    }
+
+    // MARK: - 家事オートパイロット
+
+    /// 今日の状態（日付が変わっていたら新しい日として扱う）
+    func autopilotDay(for now: Date) -> AutopilotDay {
+        let today = LifeCalendar.startOfDay(now)
+        if let current = autopilot, LifeCalendar.isSameDay(current.day, today) {
+            return current
+        }
+        return AutopilotDay(day: today, energy: nil, doneChoreIDs: [])
+    }
+
+    func setEnergy(_ energy: EnergyLevel, now: Date) {
+        var day = autopilotDay(for: now)
+        day.energy = energy
+        autopilot = day
+        save()
+    }
+
+    func toggleChore(_ choreID: ChoreTemplate.ID, now: Date) {
+        var day = autopilotDay(for: now)
+        if day.doneChoreIDs.contains(choreID) {
+            day.doneChoreIDs.removeAll { $0 == choreID }
+        } else {
+            day.doneChoreIDs.append(choreID)
+        }
+        autopilot = day
         save()
     }
 

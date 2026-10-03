@@ -97,6 +97,11 @@ struct LifeItem: Identifiable, Hashable, Codable {
     var hasTime: Bool
     var assignee: Assignee?
     var isCompleted: Bool
+    /// 表示先の日時（「あとで」「未完了救済」で変える）。元の日付 `date` は書き換えない。
+    /// v2 で追加。以前の保存データには無いため Optional。
+    var deferredTo: Date?
+    /// 「もうやらない」を選んだ日時。削除はせず、一覧に出さないだけにする。
+    var droppedAt: Date?
 
     init(
         id: UUID = UUID(),
@@ -106,7 +111,9 @@ struct LifeItem: Identifiable, Hashable, Codable {
         date: Date,
         hasTime: Bool = false,
         assignee: Assignee? = nil,
-        isCompleted: Bool = false
+        isCompleted: Bool = false,
+        deferredTo: Date? = nil,
+        droppedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -116,7 +123,18 @@ struct LifeItem: Identifiable, Hashable, Codable {
         self.hasTime = hasTime
         self.assignee = assignee
         self.isCompleted = isCompleted
+        self.deferredTo = deferredTo
+        self.droppedAt = droppedAt
     }
+
+    /// 画面に表示する日時（あとで・救済で回した先。無ければ元の日付）
+    var displayDate: Date { deferredTo ?? date }
+
+    /// 「もうやらない」にしたか
+    var isDropped: Bool { droppedAt != nil }
+
+    /// 表示する時刻があるか（元の予定の時刻、または「今夜」に回した場合）
+    var showsTime: Bool { hasTime || deferredTo.map { LifeCalendar.calendar.component(.hour, from: $0) > 0 } == true }
 
     /// チェックできる項目か（予定以外。習慣もチェックできる）
     var isTask: Bool { kind != .event }

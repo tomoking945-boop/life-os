@@ -4,13 +4,20 @@ import SwiftUI
 enum TodayRoute: Hashable {
     case profile
     case inbox
+    case memories
 }
 
 struct TodayView: View {
     @State private var viewModel: TodayViewModel
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let store: LifeStore
+
+    private let leftoverActionColumns = [
+        GridItem(.flexible(), spacing: LifeSpacing.xs),
+        GridItem(.flexible(), spacing: LifeSpacing.xs)
+    ]
 
     init(store: LifeStore, appState: AppState) {
         self.store = store
@@ -24,25 +31,35 @@ struct TodayView: View {
                 LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
                 greeting
 
+                if let message = viewModel.feedbackMessage {
+                    feedbackBanner(message)
+                }
+
+                if !viewModel.focusItems.isEmpty {
+                    focusCard
+                }
+                if !viewModel.leftovers.isEmpty {
+                    leftoverCard
+                }
                 if let next = viewModel.nextEvent {
                     nextCard(next)
-                }
-                if !viewModel.todayTasks.isEmpty {
-                    todayCard
-                }
-                if !viewModel.partnerTasks.isEmpty {
-                    sharedCard
-                }
-                if !viewModel.habits.isEmpty {
-                    habitCard
-                }
-                if viewModel.inboxCount > 0 {
-                    inboxCard
                 }
                 if viewModel.hasNoSchedule {
                     LifeCard {
                         LifeEmptyState(systemImage: "leaf", title: "今日の予定はありません")
                     }
+                }
+                if !viewModel.visibleMemories.isEmpty {
+                    memoryCard
+                }
+
+                autopilotCard
+
+                if !viewModel.habits.isEmpty {
+                    habitCard
+                }
+                if viewModel.inboxCount > 0 {
+                    inboxCard
                 }
 
                 moneyCard
@@ -55,7 +72,7 @@ struct TodayView: View {
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
-            .animation(.easeInOut(duration: 0.25), value: viewModel.scope)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: viewModel.scope)
         }
         .background(LifeColors.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -66,7 +83,27 @@ struct TodayView: View {
                 ProfileView(appState: appState)
             case .inbox:
                 InboxView(store: store)
+            case .memories:
+                LifeMemoryView(store: store)
             }
+        }
+        .postponeSheet(item: $viewModel.postponingItem) { item, option in
+            animate { viewModel.postpone(item, to: option) }
+        }
+        .task(id: viewModel.feedbackMessage) {
+            // 一言は数秒で消す
+            guard viewModel.feedbackMessage != nil else { return }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            animate { viewModel.feedbackMessage = nil }
+        }
+    }
+
+    /// Reduce Motion のときはアニメーションしない
+    private func animate(_ changes: () -> Void) {
+        if reduceMotion {
+            changes()
+        } else {
+            withAnimation(.easeInOut(duration: 0.25)) { changes() }
         }
     }
 
@@ -100,6 +137,151 @@ struct TodayView: View {
                 .foregroundStyle(LifeColors.secondaryText)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func feedbackBanner(_ message: String) -> some View {
+        HStack(spacing: LifeSpacing.xs) {
+            Image(systemName: "checkmark")
+                .accessibilityHidden(true)
+            Text(message)
+        }
+        .font(LifeTypography.footnote)
+        .foregroundStyle(LifeColors.text)
+        .padding(.horizontal, LifeSpacing.md)
+        .padding(.vertical, LifeSpacing.xs)
+        .background(Capsule().fill(LifeColors.primarySubtle))
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    // MARK: - 今日これだけ
+
+    private var focusCard: some View {
+        LifeCard {
+            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                LifeSectionTitle("TODAY", spokenTitle: "今日これだけ")
+                Text("今日これだけ")
+                    .font(LifeTypography.title)
+                    .foregroundStyle(LifeColors.text)
+                    .padding(.bottom, LifeSpacing.xxs)
+
+                taskRows(viewModel.focusItems)
+
+                if viewModel.isFocusCompleted {
+                    Text(viewModel.focusCompletedMessage)
+                        .font(LifeTypography.callout)
+                        .foregroundStyle(LifeColors.primary)
+                        .padding(.top, LifeSpacing.xxs)
+                        .transition(.opacity)
+                }
+
+                if !viewModel.restItems.isEmpty {
+                    LifeDivider()
+                        .padding(.vertical, LifeSpacing.xs)
+                    Button {
+                        animate { viewModel.isShowingRest.toggle() }
+                    } label: {
+                        HStack {
+                            Text(viewModel.restToggleTitle)
+                                .font(LifeTypography.callout)
+                            Spacer()
+                            Image(systemName: viewModel.isShowingRest ? "chevron.up" : "chevron.down")
+                                .font(LifeTypography.footnote)
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(viewModel.isShowingRest ? "残りのやることを閉じます" : "残りのやることを表示します")
+
+                    if viewModel.isShowingRest {
+                        taskRows(viewModel.restItems)
+                    }
+                }
+            }
+        }
+    }
+
+    private func taskRows(_ items: [LifeItem]) -> some View {
+        ForEach(items) { item in
+            LifeTaskRow(
+                title: item.title,
+                detail: viewModel.detailText(for: item),
+                isCompleted: item.isCompleted,
+                onLater: { viewModel.startPostponing(item) }
+            ) {
+                animate { viewModel.toggle(item) }
+            }
+        }
+    }
+
+    // MARK: - 昨日残ったもの（未完了救済）
+
+    private var leftoverCard: some View {
+        LifeCard {
+            VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                LifeSectionTitle("LEFTOVER", spokenTitle: viewModel.leftoverTitle)
+                Text(viewModel.leftoverTitle)
+                    .font(LifeTypography.headline)
+                    .foregroundStyle(LifeColors.text)
+                Text("できなかった日もあります。どうするか選ぶだけで大丈夫です。")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(Array(viewModel.leftovers.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                        LifeDivider()
+                    }
+                    leftoverRow(item)
+                }
+            }
+        }
+    }
+
+    private func leftoverRow(_ item: LifeItem) -> some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+            VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                Text(item.title)
+                    .font(LifeTypography.body)
+                    .foregroundStyle(LifeColors.text)
+                Text(viewModel.leftoverDetail(for: item))
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.secondaryText)
+            }
+            .accessibilityElement(children: .combine)
+
+            LazyVGrid(columns: leftoverActionColumns, spacing: LifeSpacing.xs) {
+                smallActionButton("今日に表示", systemImage: "sun.max") {
+                    animate { viewModel.showToday(item) }
+                }
+                smallActionButton("今週に回す", systemImage: "calendar") {
+                    animate { viewModel.moveToThisWeek(item) }
+                }
+                smallActionButton("あとで", systemImage: "clock.arrow.circlepath") {
+                    viewModel.startPostponing(item)
+                }
+                smallActionButton("もうやらない", systemImage: "xmark") {
+                    animate { viewModel.dropLeftover(item) }
+                }
+            }
+        }
+        .padding(.vertical, LifeSpacing.xxs)
+    }
+
+    private func smallActionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget)
+                .background(Capsule().fill(LifeColors.primarySubtle))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - NEXT
@@ -148,46 +330,104 @@ struct TodayView: View {
         }
     }
 
-    // MARK: - TODAY
+    // MARK: - 暮らしメモリー
 
-    private var todayCard: some View {
+    private var memoryCard: some View {
         LifeCard {
-            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                LifeSectionTitle("TODAY", spokenTitle: "今日のやること")
-                taskRows(viewModel.todayTasks)
-            }
-        }
-    }
-
-    // MARK: - SHARED
-
-    private var sharedCard: some View {
-        LifeCard {
-            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                LifeSectionTitle("SHARED", spokenTitle: "共有")
-                HStack(spacing: LifeSpacing.xs) {
-                    LifeAvatar(name: viewModel.partnerName, size: .small)
-                    Text(viewModel.partnerName)
-                        .font(LifeTypography.headline)
-                        .foregroundStyle(LifeColors.text)
+            VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                HStack {
+                    LifeSectionTitle("MEMORY", spokenTitle: "暮らしメモリー")
+                    NavigationLink(value: TodayRoute.memories) {
+                        Text("すべて見る")
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.primary)
+                            .frame(minHeight: LifeSpacing.minTapTarget)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(viewModel.partnerName)の担当")
-                .padding(.top, LifeSpacing.xs)
-                taskRows(viewModel.partnerTasks)
+                Text("暮らしメモリー")
+                    .font(LifeTypography.headline)
+                    .foregroundStyle(LifeColors.text)
+
+                ForEach(Array(viewModel.visibleMemories.enumerated()), id: \.element.id) { index, memory in
+                    if index > 0 {
+                        LifeDivider()
+                    }
+                    memoryRow(memory)
+                }
             }
         }
     }
 
-    private func taskRows(_ items: [LifeItem]) -> some View {
-        ForEach(items) { item in
-            LifeTaskRow(
-                title: item.title,
-                detail: viewModel.detailText(for: item),
-                isCompleted: item.isCompleted
-            ) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewModel.toggle(item)
+    private func memoryRow(_ memory: LifeMemory) -> some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+            VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                Text(memory.title)
+                    .font(LifeTypography.bodyEmphasis)
+                    .foregroundStyle(LifeColors.text)
+                Text(viewModel.memoryMessage(memory))
+                    .font(LifeTypography.callout)
+                    .foregroundStyle(LifeColors.text)
+                Text(viewModel.memoryCycle(memory))
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.secondaryText)
+            }
+            .accessibilityElement(children: .combine)
+
+            HStack(spacing: LifeSpacing.xs) {
+                if let actionTitle = viewModel.memoryActionTitle(memory) {
+                    smallActionButton(actionTitle, systemImage: "plus") {
+                        animate { viewModel.performMemoryAction(memory) }
+                    }
+                }
+                if viewModel.canSkipMemory(memory) {
+                    smallActionButton("今回はスキップ", systemImage: "forward") {
+                        animate { viewModel.skipMemory(memory) }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, LifeSpacing.xxs)
+    }
+
+    // MARK: - 今日の余力（家事オートパイロット）
+
+    private var autopilotCard: some View {
+        LifeCard {
+            VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                LifeSectionTitle("ENERGY", spokenTitle: "今日の余力")
+                Text("今日の余力")
+                    .font(LifeTypography.headline)
+                    .foregroundStyle(LifeColors.text)
+
+                HStack(spacing: LifeSpacing.xs) {
+                    ForEach(EnergyLevel.allCases) { level in
+                        LifeChip(title: "\(level.emoji) \(level.label)", isSelected: viewModel.energy == level) {
+                            animate { viewModel.selectEnergy(level) }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("余力 \(level.label)")
+                    }
+                }
+
+                if viewModel.energy == nil {
+                    Text("選ぶと、今日やる家事の量を合わせます。")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                } else {
+                    Text(viewModel.autopilotSummary)
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .padding(.top, LifeSpacing.xxs)
+                    ForEach(viewModel.autopilotChores) { chore in
+                        LifeTaskRow(
+                            title: chore.title,
+                            trailing: "\(chore.minutes)分",
+                            isCompleted: viewModel.isChoreDone(chore)
+                        ) {
+                            animate { viewModel.toggleChore(chore) }
+                        }
+                    }
                 }
             }
         }
@@ -199,7 +439,11 @@ struct TodayView: View {
         LifeCard {
             VStack(alignment: .leading, spacing: LifeSpacing.xs) {
                 LifeSectionTitle("HABIT", spokenTitle: "習慣")
-                taskRows(viewModel.habits)
+                ForEach(viewModel.habits) { item in
+                    LifeTaskRow(title: item.title, isCompleted: item.isCompleted) {
+                        animate { viewModel.toggle(item) }
+                    }
+                }
                 Text("できた日だけ、チェックすれば十分です。")
                     .font(LifeTypography.footnote)
                     .foregroundStyle(LifeColors.secondaryText)

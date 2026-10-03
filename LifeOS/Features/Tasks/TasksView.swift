@@ -36,7 +36,8 @@ struct TasksView: View {
                                     trailing: viewModel.trailingText(for: item),
                                     assigneeName: avatar?.name,
                                     assigneeImage: avatar?.image,
-                                    isCompleted: item.isCompleted
+                                    isCompleted: item.isCompleted,
+                                    onLater: { viewModel.startPostponing(item) }
                                 ) {
                                     withAnimation(.easeInOut(duration: 0.25)) {
                                         viewModel.toggle(item)
@@ -53,6 +54,11 @@ struct TasksView: View {
         .background(LifeColors.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        .postponeSheet(item: $viewModel.postponingItem) { item, option in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                viewModel.postpone(item, to: option)
+            }
+        }
     }
 }
 

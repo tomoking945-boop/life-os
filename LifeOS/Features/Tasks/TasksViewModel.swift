@@ -52,13 +52,13 @@ final class TasksViewModel {
     var tasks: [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
         return store.items
-            .filter { $0.isTask && !$0.isHabit }
+            .filter { $0.isTask && !$0.isHabit && !$0.isDropped }
             .filter { item in
                 switch segment {
                 case .today:
-                    return LifeCalendar.isSameDay(item.date, today)
+                    return LifeCalendar.isSameDay(item.displayDate, today)
                 case .upcoming:
-                    return LifeCalendar.startOfDay(item.date) > today
+                    return LifeCalendar.startOfDay(item.displayDate) > today
                 case .shopping:
                     return item.kind == .shopping
                 case .chores:
@@ -66,7 +66,7 @@ final class TasksViewModel {
                 }
             }
             .filter { completion == .completed ? $0.isCompleted : !$0.isCompleted }
-            .sorted { $0.date < $1.date }
+            .sorted { $0.displayDate < $1.displayDate }
     }
 
     /// 担当：どちらでも など
@@ -99,6 +99,19 @@ final class TasksViewModel {
 
     var emptyTitle: String {
         completion == .completed ? "完了した項目はありません" : "やることはありません"
+    }
+
+    // MARK: - あとで
+
+    /// 「あとで」シートの対象
+    var postponingItem: LifeItem?
+
+    func startPostponing(_ item: LifeItem) {
+        postponingItem = item
+    }
+
+    func postpone(_ item: LifeItem, to option: PostponeOption) {
+        store.reschedule(item.id, to: option.date(from: now))
     }
 
     func toggle(_ item: LifeItem) {

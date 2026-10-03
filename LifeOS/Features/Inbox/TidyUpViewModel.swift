@@ -51,9 +51,8 @@ final class TidyUpViewModel {
     /// 延期先は日時（postponedUntil）で持っているため、将来「今夜・明日・週末・来週」の
     /// 延期機能（v2 第2回「あとで」）と同じ選択肢・計算に統合できる。
     func postpone(_ id: TidyUpEntry.ID) {
-        let tomorrow = LifeCalendar.calendar.date(byAdding: .day, value: 1, to: LifeCalendar.startOfDay(now))
-            ?? now
-        store.postponeInbox([id], until: tomorrow)
+        // 決定済み（2026-10-03）：タスクの「あとで」と同じ延期の計算（PostponeOption）を使う
+        store.postponeInbox([id], until: PostponeOption.tomorrow.date(from: now))
         entries.removeAll { $0.id == id }
     }
 
