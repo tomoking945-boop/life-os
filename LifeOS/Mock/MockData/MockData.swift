@@ -104,6 +104,16 @@ enum MockData {
     /// 共有スターターで選べる「よく買うもの」の候補
     static let starterFrequentCandidates = ["牛乳", "卵", "食パン", "米", "トイレットペーパー", "洗剤"]
 
+    // MARK: - 献立 → 買い物（Mock）
+
+    /// v2 仕様 12 の固定データ（月：カレー、火：鮭、水：外食）
+    /// TODO: 献立の入力・提案（AI）・材料の分量は未実装。高度な献立連携は Premium 候補。
+    static let mealPlan: [MealPlanDay] = [
+        MealPlanDay(id: "mon", dayLabel: "月", dish: "カレー", ingredients: ["玉ねぎ", "人参", "カレールー"]),
+        MealPlanDay(id: "tue", dayLabel: "火", dish: "鮭", ingredients: ["鮭"]),
+        MealPlanDay(id: "wed", dayLabel: "水", dish: "外食", ingredients: [])
+    ]
+
     // MARK: - 家事オートパイロット
 
     /// v2 仕様の Mock ロジック（少ない＝2件、普通＝＋風呂掃除、余裕あり＝＋掃除機・シーツ交換）

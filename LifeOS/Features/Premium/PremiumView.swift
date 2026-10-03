@@ -12,6 +12,7 @@ struct PremiumView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
                 header
                 featureCard
+                themeSection
                 trialBadge
                 planOptions
 
@@ -69,6 +70,91 @@ struct PremiumView: View {
                 }
             }
         }
+    }
+
+    // MARK: - LifeOS Themes
+
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            Text("THEMES")
+                .font(LifeTypography.label)
+                .tracking(LifeTypography.labelTracking)
+                .foregroundStyle(LifeColors.secondaryText)
+                .accessibilityHidden(true)
+            Text(viewModel.themeSectionTitle)
+                .font(LifeTypography.editorialHeadline)
+                .foregroundStyle(LifeColors.text)
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: LifeSpacing.sm) {
+                    ForEach(viewModel.themes) { theme in
+                        themePreview(theme)
+                    }
+                }
+                .padding(.vertical, LifeSpacing.xxs)
+            }
+
+            Text("テーマはPremiumで使えるようになる予定です。今は見た目の確認だけで、アプリの色は変わりません。")
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func themePreview(_ theme: LifeTheme) -> some View {
+        let isSelected = viewModel.previewTheme == theme
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                viewModel.previewTheme = theme
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                    RoundedRectangle(cornerRadius: LifeRadius.small, style: .continuous)
+                        .fill(theme.primary)
+                        .frame(height: LifeSpacing.xxl)
+                        .overlay(alignment: .bottomLeading) {
+                            Text("Good morning.")
+                                .font(LifeTypography.themePreviewTitle)
+                                .foregroundStyle(theme.background)
+                                .padding(LifeSpacing.xs)
+                        }
+                    HStack(spacing: LifeSpacing.xxs) {
+                        LifeCategoryDot(color: theme.accent)
+                        RoundedRectangle(cornerRadius: LifeSpacing.categoryBar)
+                            .fill(theme.text.opacity(0.25))
+                            .frame(height: LifeSpacing.xxs)
+                    }
+                    RoundedRectangle(cornerRadius: LifeSpacing.categoryBar)
+                        .fill(theme.text.opacity(0.15))
+                        .frame(width: LifeSpacing.xxl, height: LifeSpacing.xxs)
+                }
+                .padding(LifeSpacing.xs)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(
+                    RoundedRectangle(cornerRadius: LifeRadius.medium, style: .continuous)
+                        .fill(theme.background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: LifeRadius.medium, style: .continuous)
+                        .stroke(isSelected ? LifeColors.primary : LifeColors.divider, lineWidth: isSelected ? 2 : 1)
+                )
+
+                Text(theme.name)
+                    .font(LifeTypography.bodyEmphasis)
+                    .foregroundStyle(LifeColors.text)
+                Text(theme.caption)
+                    .font(LifeTypography.caption)
+                    .foregroundStyle(LifeColors.secondaryText)
+            }
+            .frame(width: LifeSpacing.themePreviewWidth, height: LifeSpacing.themePreviewHeight + LifeSpacing.xxl)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("テーマ \(theme.name)、\(theme.caption)")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
     }
 
     private var trialBadge: some View {

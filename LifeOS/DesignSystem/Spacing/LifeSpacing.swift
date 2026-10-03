@@ -37,4 +37,7 @@ enum LifeSpacing {
     static let categoryBar: CGFloat = 3
     /// ヒーローカードの最低の高さ
     static let heroMinHeight: CGFloat = 180
+    /// テーマのプレビューの大きさ
+    static let themePreviewWidth: CGFloat = 132
+    static let themePreviewHeight: CGFloat = 168
 }

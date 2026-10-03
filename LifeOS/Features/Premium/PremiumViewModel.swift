@@ -29,6 +29,13 @@ final class PremiumViewModel {
 
     let options = PremiumBillingOption.allCases
 
+    // MARK: - LifeOS Themes（プレビューのみ）
+
+    let themeSectionTitle = "自分らしい生活OSに"
+    let themes = LifeTheme.allCases
+    /// プレビューで選んでいるテーマ（Mock。アプリには適用しない）
+    var previewTheme: LifeTheme = .forest
+
     var isPremium: Bool { appState.isPremium }
 
     var ctaTitle: String {

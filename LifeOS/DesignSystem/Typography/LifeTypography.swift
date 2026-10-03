@@ -48,6 +48,8 @@ enum LifeTypography {
     static let numeral = Font.system(.callout, design: .serif).monospacedDigit()
     /// キャッチコピー（今日も、無理なく。）
     static let editorialCopy = Font.system(.body, design: .serif)
+    /// テーマのプレビューの小さな挨拶
+    static let themePreviewTitle = Font.system(.caption, design: .serif).italic()
 
     /// セクションラベルの字間
     static let labelTracking: CGFloat = 1.6

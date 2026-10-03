@@ -176,6 +176,41 @@ final class LifeStore {
         save()
     }
 
+    // MARK: - 買い物
+
+    /// 買い物を追加する（ワンタップ追加・献立から作成）。同じ品名の未完了の買い物があれば追加しない。
+    /// - Returns: 実際に追加した件数
+    @discardableResult
+    func addShopping(_ names: [String], ownership: Ownership, now: Date = LifeCalendar.now) -> Int {
+        let today = LifeCalendar.startOfDay(now)
+        let open = Set(items
+            .filter { $0.kind == .shopping && !$0.isCompleted && !$0.isDropped }
+            .map { ShoppingCategorizer.itemName(from: $0.title) })
+        let newItems = names
+            .filter { !open.contains($0) }
+            .map { name in
+                LifeItem(
+                    title: "\(name)を買う",
+                    kind: .shopping,
+                    ownership: ownership,
+                    date: today,
+                    assignee: ownership == .shared ? .either : .me
+                )
+            }
+        guard !newItems.isEmpty else { return 0 }
+        items.append(contentsOf: newItems)
+        save()
+        return newItems.count
+    }
+
+    /// 買えたとき：よく買うものの「前回購入」を今日にする
+    func markPurchased(_ title: String, now: Date = LifeCalendar.now) {
+        let name = ShoppingCategorizer.itemName(from: title)
+        guard let index = frequentPurchases.firstIndex(where: { $0.title == name }) else { return }
+        frequentPurchases[index].lastPurchasedAt = now
+        save()
+    }
+
     // MARK: - 共有スターター
 
     /// 二人の生活OSを30秒で作る：選んだものだけ反映する（どれも省略できる）
@@ -188,7 +223,7 @@ final class LifeStore {
             }
         }
         for title in frequentTitles where !frequentPurchases.contains(where: { $0.title == title }) {
-            frequentPurchases.append(FrequentPurchase(title: title, categories: [.other]))
+            frequentPurchases.append(FrequentPurchase(title: title, categories: ShoppingCategorizer.categories(for: title)))
         }
         if let commonEvent {
             items.append(LifeItem(
