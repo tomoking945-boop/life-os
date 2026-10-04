@@ -8,7 +8,18 @@
 
 /* Begin PBXFileReference section */
 		A1B2C3D4E5F6000000000001 /* LifeOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F6000000000010 /* LifeOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3D4E5F6000000000019 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1B2C3D4E5F6000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D4E5F6000000000006;
+			remoteInfo = LifeOS;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A1B2C3D4E5F6000000000002 /* LifeOS */ = {
@@ -16,10 +27,22 @@
 			path = LifeOS;
 			sourceTree = "<group>";
 		};
+		A1B2C3D4E5F6000000000011 /* LifeOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LifeOSTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1B2C3D4E5F6000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000012 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F6000000000002 /* LifeOS */,
+				A1B2C3D4E5F6000000000011 /* LifeOSTests */,
 				A1B2C3D4E5F6000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F6000000000001 /* LifeOS.app */,
+				A1B2C3D4E5F6000000000010 /* LifeOSTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = A1B2C3D4E5F6000000000001 /* LifeOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D4E5F6000000000015 /* LifeOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F6000000000016 /* Build configuration list for PBXNativeTarget "LifeOSTests" */;
+			buildPhases = (
+				A1B2C3D4E5F6000000000013 /* Sources */,
+				A1B2C3D4E5F6000000000012 /* Frameworks */,
+				A1B2C3D4E5F6000000000014 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1B2C3D4E5F600000000001A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F6000000000011 /* LifeOSTests */,
+			);
+			name = LifeOSTests;
+			packageProductDependencies = (
+			);
+			productName = LifeOSTests;
+			productReference = A1B2C3D4E5F6000000000010 /* LifeOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					A1B2C3D4E5F6000000000006 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					A1B2C3D4E5F6000000000015 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A1B2C3D4E5F6000000000006;
 					};
 				};
 			};
@@ -101,12 +153,20 @@
 			projectRoot = "";
 			targets = (
 				A1B2C3D4E5F6000000000006 /* LifeOS */,
+				A1B2C3D4E5F6000000000015 /* LifeOSTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A1B2C3D4E5F6000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000014 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -123,7 +183,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F6000000000013 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1B2C3D4E5F600000000001A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D4E5F6000000000006 /* LifeOS */;
+			targetProxy = A1B2C3D4E5F6000000000019 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1B2C3D4E5F600000000000E /* Debug */ = {
@@ -301,6 +376,44 @@
 			};
 			name = Release;
 		};
+		A1B2C3D4E5F6000000000017 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.LifeOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeOS";
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F6000000000018 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.LifeOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeOS";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -318,6 +431,15 @@
 			buildConfigurations = (
 				A1B2C3D4E5F600000000000C /* Debug */,
 				A1B2C3D4E5F600000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6000000000016 /* Build configuration list for PBXNativeTarget "LifeOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6000000000017 /* Debug */,
+				A1B2C3D4E5F6000000000018 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
