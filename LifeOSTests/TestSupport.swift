@@ -38,6 +38,8 @@ func makeStore(now: Date = TestDates.friday) -> LifeStore {
         memories: MockData.memories(now: now),
         choreTemplates: MockData.choreTemplates,
         autopilot: nil,
-        frequentPurchases: MockData.frequentPurchases(now: now)
+        frequentPurchases: MockData.frequentPurchases(now: now),
+        habits: MockData.habits(now: now),
+        suggestionDecisions: []
     )
 }

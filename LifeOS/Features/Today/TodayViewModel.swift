@@ -230,7 +230,7 @@ final class TodayViewModel {
     }
 
     func toggle(_ item: LifeItem) {
-        store.toggleCompletion(of: item.id)
+        store.toggleCompletion(of: item.id, at: now)
     }
 
     // MARK: - あとで
@@ -418,20 +418,23 @@ final class TodayViewModel {
 
         switch memory.action {
         case let .addToShopping(title):
-            let item = LifeItem(title: title, kind: .shopping, ownership: .personal, date: today, assignee: .me)
+            let item = LifeItem(title: title, kind: .shopping, ownership: .personal, date: today, assignee: .me, memoryID: memory.id)
             store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
+            store.recordMemoryDecision(memory.id, choice: .accepted, at: now)
             notify("「\(title)」を買い物に追加しました", undo: undo(removing: item))
         case let .addOnSaturday(title):
             let saturday = PostponeOption.weekend.date(from: now)
-            let item = LifeItem(title: title, kind: .chore, ownership: .personal, date: saturday, assignee: .me)
+            let item = LifeItem(title: title, kind: .chore, ownership: .personal, date: saturday, assignee: .me, memoryID: memory.id)
             store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
+            store.recordMemoryDecision(memory.id, choice: .accepted, at: now)
             notify("「\(title)」を\(LifeFormatters.shortDate(saturday))に追加しました", undo: undo(removing: item))
         case let .addToTodo(title):
-            let item = LifeItem(title: title, kind: .todo, ownership: .personal, date: today, assignee: .me)
+            let item = LifeItem(title: title, kind: .todo, ownership: .personal, date: today, assignee: .me, memoryID: memory.id)
             store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
+            store.recordMemoryDecision(memory.id, choice: .accepted, at: now)
             notify("「\(title)」をやることに追加しました", undo: undo(removing: item))
         case .notifyOnly:
             store.hideMemory(memory.id, until: tomorrow)
@@ -444,6 +447,7 @@ final class TodayViewModel {
         let memoryBefore = memory
         let store = self.store
         store.restartMemoryCycle(memory.id, from: now)
+        store.recordMemoryDecision(memory.id, choice: .skipped, at: now)
         notify("「\(memory.title)」は今回スキップしました", undo: { store.restoreMemory(memoryBefore) })
     }
 
@@ -475,11 +479,103 @@ final class TodayViewModel {
         return "\(autopilotChores.count)つ・合計\(total)分"
     }
 
-    // MARK: - 習慣
+    // MARK: - 習慣（Calm Future 第3段階：生活リズム）
 
-    /// 今日の習慣（できていなくても警告などは出さない）
-    var habits: [LifeItem] {
-        todaysItems.filter(\.isHabit)
+    /// 余力が少ない日に、軽くない習慣も開いているか
+    var isShowingAllHabits = false
+
+    /// 今日の習慣（毎日くり返す。できていなくても警告などは出さない）
+    var todaysHabits: [Habit] {
+        store.habits(on: now)
+    }
+
+    /// 余力が「少ない」日か
+    private var isLowEnergy: Bool { energy == .low }
+
+    /// 画面に出す習慣（余力が少ない日は軽い習慣だけ。開けば全部）
+    var visibleHabits: [Habit] {
+        guard isLowEnergy && !isShowingAllHabits else { return todaysHabits }
+        return todaysHabits.filter(\.isLight)
+    }
+
+    /// 余力が少ない日に、軽くない習慣を開閉するボタンを出すか
+    var canToggleHabits: Bool {
+        isLowEnergy && todaysHabits.contains { !$0.isLight }
+    }
+
+    var habitToggleTitle: String {
+        let hidden = todaysHabits.filter { !$0.isLight }.count
+        return isShowingAllHabits ? "閉じる" : "ほかの習慣 \(hidden)件"
+    }
+
+    /// 第3段階より前に、日付つきの項目として追加した習慣（同じ名前のくり返す習慣が無いもの）。従来どおり表示する。
+    var legacyHabitItems: [LifeItem] {
+        let titles = Set(store.habits.map(\.title))
+        return todaysItems.filter { $0.isHabit && !titles.contains($0.title) }
+    }
+
+    var hasHabits: Bool {
+        !todaysHabits.isEmpty || !legacyHabitItems.isEmpty
+    }
+
+    func isHabitDone(_ habit: Habit) -> Bool {
+        habit.isDone(on: now)
+    }
+
+    func toggleHabit(_ habit: Habit) {
+        store.toggleHabit(habit.id, on: now)
+    }
+
+    /// 直近7日の点
+    func rhythmDays(_ habit: Habit) -> [HabitRhythmDay] {
+        HabitRhythm.days(for: habit, now: now)
+    }
+
+    /// 責めない一言（最近、自然に続いています など）
+    func rhythmMessage(_ habit: Habit) -> String {
+        HabitRhythm.message(for: habit, now: now)
+    }
+
+    var habitFootnote: String {
+        isLowEnergy ? "今日は軽い習慣だけで十分です。" : "できた日だけ、チェックすれば十分です。"
+    }
+
+    // MARK: - LifeOSからの提案（Calm Future 第3段階）
+
+    /// 今日出す提案（無ければ nil）。自動では変えず、「移動する」を押したときだけ変える。
+    var suggestion: LifeSuggestion? {
+        LifeSuggestionEngine.suggestion(
+            todayItems: todaysItems,
+            extraItems: extraItems,
+            energy: energy,
+            decisions: store.suggestionDecisions,
+            now: now
+        )
+    }
+
+    /// 「移動する」：提案どおりに移し、理由と「元に戻す」を出す
+    func acceptSuggestion(_ suggestion: LifeSuggestion) {
+        let store = self.store
+        guard let item = store.items.first(where: { $0.id == suggestion.itemID }) else { return }
+        let before = snapshot(of: item)
+        let decision = SuggestionDecision(kind: suggestion.kind, subject: suggestion.itemTitle, decidedAt: now, choice: .accepted)
+        store.reschedule(item.id, to: suggestion.targetDate)
+        store.recordSuggestion(decision)
+        notify(
+            "「\(suggestion.itemTitle)」を\(suggestion.targetText)へ移しました。今日に少し余裕ができます",
+            undo: {
+                store.restore(before)
+                store.removeSuggestionDecision(decision.id)
+            }
+        )
+    }
+
+    /// 「今日はそのまま」：何も変えず、今日はもう出さない
+    func keepSuggestion(_ suggestion: LifeSuggestion) {
+        let store = self.store
+        let decision = SuggestionDecision(kind: suggestion.kind, subject: suggestion.itemTitle, decidedAt: now, choice: .kept)
+        store.recordSuggestion(decision)
+        notify("今日はこのままにします", undo: { store.removeSuggestionDecision(decision.id) })
     }
 
     // MARK: - Inbox

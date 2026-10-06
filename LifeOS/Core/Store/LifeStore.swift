@@ -21,6 +21,10 @@ final class LifeStore {
     var autopilot: AutopilotDay?
     /// よく買うもの
     var frequentPurchases: [FrequentPurchase]
+    /// 習慣（毎日くり返す。Calm Future 第3段階）
+    var habits: [Habit]
+    /// LifeOSからの提案に答えた記録（Calm Future 第3段階）
+    var suggestionDecisions: [SuggestionDecision]
 
     /// true のとき、変更のたびに端末内へ保存する
     @ObservationIgnored private var persists = false
@@ -37,6 +41,9 @@ final class LifeStore {
         var choreTemplates: [ChoreTemplate]?
         var autopilot: AutopilotDay?
         var frequentPurchases: [FrequentPurchase]?
+        // Calm Future 第3段階で追加
+        var habits: [Habit]?
+        var suggestionDecisions: [SuggestionDecision]?
     }
 
     private static let fileName = "life-store.json"
@@ -50,7 +57,9 @@ final class LifeStore {
         memories: [LifeMemory] = MockData.memories(),
         choreTemplates: [ChoreTemplate] = MockData.choreTemplates,
         autopilot: AutopilotDay? = nil,
-        frequentPurchases: [FrequentPurchase] = MockData.frequentPurchases()
+        frequentPurchases: [FrequentPurchase] = MockData.frequentPurchases(),
+        habits: [Habit] = MockData.habits(),
+        suggestionDecisions: [SuggestionDecision] = []
     ) {
         self.items = items
         self.expenses = expenses
@@ -61,6 +70,8 @@ final class LifeStore {
         self.choreTemplates = choreTemplates
         self.autopilot = autopilot
         self.frequentPurchases = frequentPurchases
+        self.habits = habits
+        self.suggestionDecisions = suggestionDecisions
     }
 
     /// 端末内に保存されたデータを読み込む。初回（保存がない）ときは Mock データで始めて保存する。
@@ -76,7 +87,9 @@ final class LifeStore {
                 memories: snapshot.memories ?? MockData.memories(),
                 choreTemplates: snapshot.choreTemplates ?? MockData.choreTemplates,
                 autopilot: snapshot.autopilot,
-                frequentPurchases: snapshot.frequentPurchases ?? MockData.frequentPurchases()
+                frequentPurchases: snapshot.frequentPurchases ?? MockData.frequentPurchases(),
+                habits: snapshot.habits ?? migratedHabits(from: snapshot.items),
+                suggestionDecisions: snapshot.suggestionDecisions ?? []
             )
         } else {
             store = LifeStore()
@@ -98,7 +111,9 @@ final class LifeStore {
                 memories: memories,
                 choreTemplates: choreTemplates,
                 autopilot: autopilot,
-                frequentPurchases: frequentPurchases
+                frequentPurchases: frequentPurchases,
+                habits: habits,
+                suggestionDecisions: suggestionDecisions
             ),
             to: Self.fileName
         )
@@ -115,14 +130,55 @@ final class LifeStore {
         choreTemplates = MockData.choreTemplates
         autopilot = nil
         frequentPurchases = MockData.frequentPurchases()
+        habits = MockData.habits()
+        suggestionDecisions = []
         save()
+    }
+
+    /// 第3段階より前の保存データ：日付つきの習慣の項目（水を飲む など）から、毎日くり返す習慣を作る。
+    /// もとの項目は消さない（カレンダーのその日には今までどおり出る）。今日画面では同じ名前の習慣として表示する。
+    /// 習慣の項目が無ければ Mock の習慣で始める。
+    static func migratedHabits(from items: [LifeItem]) -> [Habit] {
+        let habitItems = items.filter { $0.isHabit && !$0.isDropped }
+        guard !habitItems.isEmpty else { return MockData.habits() }
+        var titles: [String] = []
+        for item in habitItems where !titles.contains(item.title) {
+            titles.append(item.title)
+        }
+        return titles.map { title in
+            let sameTitle = habitItems.filter { $0.title == title }
+            let startedAt = sameTitle.map(\.displayDate).min() ?? LifeCalendar.now
+            let doneDays = sameTitle.filter(\.isCompleted).map { LifeCalendar.startOfDay($0.displayDate) }
+            return Habit(
+                title: title,
+                isLight: MockData.lightHabitTitles.contains(title),
+                startedAt: startedAt,
+                doneDays: Array(Set(doneDays))
+            )
+        }
     }
 
     // MARK: - 項目
 
     func toggleCompletion(of id: LifeItem.ID) {
+        toggleCompletion(of: id, at: LifeCalendar.now)
+    }
+
+    /// 完了を切り替える。暮らしメモリーから追加した項目なら、完了で「前回」の記録を残し、取り消しで記録を消す。
+    func toggleCompletion(of id: LifeItem.ID, at now: Date) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].isCompleted.toggle()
+        let item = items[index]
+        if let memoryID = item.memoryID, let memoryIndex = memories.firstIndex(where: { $0.id == memoryID }) {
+            var history = memories[memoryIndex].history ?? []
+            history.removeAll { $0.itemID == item.id }
+            if item.isCompleted {
+                // 新しい解釈：この端末で完了した人を「対応した人」とする。パートナー担当の項目はパートナー。
+                // TODO: 共有の同期をつないだら、実際に完了したメンバーを記録する。
+                history.append(MemoryRecord(date: now, by: item.assignee == .partner ? .partner : .me, itemID: item.id))
+            }
+            memories[memoryIndex].history = history
+        }
         save()
     }
 
@@ -315,6 +371,47 @@ final class LifeStore {
         if case let .sinceLast(_, dueAfterDays) = memories[index].rule {
             memories[index].rule = .sinceLast(lastDate: date, dueAfterDays: dueAfterDays)
         }
+        save()
+    }
+
+    /// 暮らしメモリーの提案に答えた記録を残す（買い物に追加＝採用、今回はスキップ＝スキップ）
+    func recordMemoryDecision(_ id: LifeMemory.ID, choice: SuggestionChoice, at date: Date) {
+        guard let index = memories.firstIndex(where: { $0.id == id }) else { return }
+        var decisions = memories[index].decisions ?? []
+        decisions.append(MemoryDecision(decidedAt: date, choice: choice))
+        memories[index].decisions = decisions
+        save()
+    }
+
+    // MARK: - 習慣（Calm Future 第3段階）
+
+    /// その日に出す習慣（始めた日以降で、くり返しのルール上ある日）
+    func habits(on day: Date) -> [Habit] {
+        habits.filter { $0.isActive(on: day) }
+    }
+
+    /// その日にできたかを切り替える
+    func toggleHabit(_ id: Habit.ID, on day: Date) {
+        guard let index = habits.firstIndex(where: { $0.id == id }) else { return }
+        let start = LifeCalendar.startOfDay(day)
+        if habits[index].isDone(on: start) {
+            habits[index].doneDays.removeAll { LifeCalendar.isSameDay($0, start) }
+        } else {
+            habits[index].doneDays.append(start)
+        }
+        save()
+    }
+
+    // MARK: - LifeOSからの提案（Calm Future 第3段階）
+
+    func recordSuggestion(_ decision: SuggestionDecision) {
+        suggestionDecisions.append(decision)
+        save()
+    }
+
+    /// 「元に戻す」：答えた記録を消す（同じ日にまた提案が出る）
+    func removeSuggestionDecision(_ id: SuggestionDecision.ID) {
+        suggestionDecisions.removeAll { $0.id == id }
         save()
     }
 

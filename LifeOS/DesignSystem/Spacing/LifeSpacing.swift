@@ -65,4 +65,10 @@ enum LifeSpacing {
     static let budgetLine: CGFloat = 2
     /// なんでも追加の小さな Orb の直径
     static let orbSize: CGFloat = 30
+    /// 習慣のリズムの点（第3段階）
+    static let rhythmDot: CGFloat = 8
+    /// 習慣のリズムの「今日」の点のまわりの輪
+    static let rhythmRing: CGFloat = 14
+    /// 習慣のリズムの点の間隔
+    static let rhythmGap: CGFloat = 4
 }

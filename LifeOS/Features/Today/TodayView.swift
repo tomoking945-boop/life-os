@@ -45,6 +45,12 @@ struct TodayView: View {
                     timelineSection
                 }
 
+                // LifeOSからの提案（第3段階）：短い提案だけ。押したときだけ変え、「元に戻す」を出す
+                if let suggestion = viewModel.suggestion {
+                    suggestionCard(suggestion)
+                        .transition(.opacity)
+                }
+
                 if !viewModel.leftovers.isEmpty {
                     leftoverSection
                 }
@@ -57,7 +63,7 @@ struct TodayView: View {
 
                 autopilotSection
 
-                if !viewModel.habits.isEmpty {
+                if viewModel.hasHabits {
                     habitSection
                 }
                 if viewModel.inboxCount > 0 {
@@ -421,6 +427,19 @@ struct TodayView: View {
         LifeCapsuleButton(title, systemImage: systemImage, isFullWidth: true, action: action)
     }
 
+    // MARK: - LifeOSからの提案（第3段階）
+
+    private func suggestionCard(_ suggestion: LifeSuggestion) -> some View {
+        LifeSuggestionCard(
+            message: suggestion.message,
+            reason: suggestion.reason,
+            primaryTitle: suggestion.acceptTitle,
+            primarySystemImage: "arrow.turn.down.right",
+            onPrimary: { animate { viewModel.acceptSuggestion(suggestion) } },
+            onSecondary: { animate { viewModel.keepSuggestion(suggestion) } }
+        )
+    }
+
     // MARK: - 家族招待：静かな提案として
 
     private var inviteCard: some View {
@@ -554,21 +573,54 @@ struct TodayView: View {
         }
     }
 
-    // MARK: - 習慣：余白だけで区切る
+    // MARK: - 習慣：余白だけで区切る（第3段階：7日の柔らかい点で生活リズムとして見せる）
 
     private var habitSection: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-            compactHeading(eyebrow: "HABIT", title: "習慣")
+            compactHeading(eyebrow: "RHYTHM", title: "習慣")
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(viewModel.habits) { item in
+                ForEach(viewModel.visibleHabits) { habit in
+                    LifeHabitRow(
+                        title: habit.title,
+                        message: viewModel.rhythmMessage(habit),
+                        days: viewModel.rhythmDays(habit),
+                        isDone: viewModel.isHabitDone(habit)
+                    ) {
+                        animate { viewModel.toggleHabit(habit) }
+                    }
+                }
+                // 第3段階より前に日付つきで追加した習慣は、従来どおりの行で出す
+                ForEach(viewModel.legacyHabitItems) { item in
                     LifeTaskRow(title: item.title, isCompleted: item.isCompleted, tint: LifeCategoryColors.lavenderGray) {
                         animate { viewModel.toggle(item) }
                     }
                 }
             }
-            Text("できた日だけ、チェックすれば十分です。")
+
+            if viewModel.canToggleHabits {
+                Button {
+                    animate { viewModel.isShowingAllHabits.toggle() }
+                } label: {
+                    HStack(spacing: LifeSpacing.xs) {
+                        Text(viewModel.habitToggleTitle)
+                            .font(LifeTypography.callout)
+                        Image(systemName: viewModel.isShowingAllHabits ? "chevron.up" : "chevron.down")
+                            .font(LifeTypography.footnote)
+                            .accessibilityHidden(true)
+                        Spacer()
+                    }
+                    .foregroundStyle(LifeColors.secondaryText)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(viewModel.isShowingAllHabits ? "軽い習慣だけにします" : "ほかの習慣も表示します")
+            }
+
+            Text(viewModel.habitFootnote)
                 .font(LifeTypography.footnote)
                 .foregroundStyle(LifeColors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

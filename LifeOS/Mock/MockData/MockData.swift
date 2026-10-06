@@ -43,12 +43,7 @@ enum MockData {
                      date: today, assignee: .either),
             LifeItem(title: "クリーニング受取", kind: .chore, ownership: .shared,
                      date: today, assignee: .partner),
-            // 習慣（v2 仕様の例）
-            // TODO: 習慣を毎日くり返す仕組み（くり返し設定）は未実装。現状は Mock の日付の分だけ表示する。
-            LifeItem(title: "水を飲む", kind: .habit, ownership: .personal,
-                     date: today, assignee: .me),
-            LifeItem(title: "ストレッチ", kind: .habit, ownership: .personal,
-                     date: today, assignee: .me),
+            // 習慣（水を飲む・ストレッチ）は Calm Future 第3段階から、毎日くり返す `Habit` として `habits()` に置く。
             // 昨日残ったもの（v2「未完了救済」の確認用 Mock）
             LifeItem(title: "粗大ゴミの申し込み", kind: .todo, ownership: .personal,
                      date: yesterday, assignee: .me),
@@ -57,9 +52,31 @@ enum MockData {
         ]
     }
 
+    // MARK: - 習慣（Calm Future 第3段階）
+
+    /// 余力が「少ない」日にも出す軽い習慣（Mock）。
+    /// 新しい解釈：仕様に区別が無いため、「水を飲む」を軽い習慣、「ストレッチ」を通常の習慣とした。
+    static let lightHabitTitles: Set<String> = ["水を飲む"]
+
+    /// v2 仕様の習慣の例。リズムの見え方を確認できるよう、直近のできた日を入れておく。
+    /// 水を飲む：6日中5日（最近、自然に続いています）／ストレッチ：6日中3日（少しずつ、リズムができています）
+    static func habits(now: Date = LifeCalendar.now) -> [Habit] {
+        let today = LifeCalendar.startOfDay(now)
+        func daysAgo(_ days: Int) -> Date {
+            LifeCalendar.calendar.date(byAdding: .day, value: -days, to: today) ?? today
+        }
+        return [
+            Habit(title: "水を飲む", isLight: lightHabitTitles.contains("水を飲む"),
+                  startedAt: daysAgo(30), doneDays: [1, 2, 4, 5, 6].map(daysAgo)),
+            Habit(title: "ストレッチ", isLight: lightHabitTitles.contains("ストレッチ"),
+                  startedAt: daysAgo(30), doneDays: [2, 4, 6].map(daysAgo))
+        ]
+    }
+
     // MARK: - 暮らしメモリー
 
     /// v2 仕様の Mock 例（シャンプー・歯医者・エアコンフィルター・家賃・ゴミ）
+    /// Calm Future 第3段階：前回・平均周期・誰が対応したか・季節・提案の履歴を確認できるよう、記録の例を入れている。
     static func memories(now: Date = LifeCalendar.now) -> [LifeMemory] {
         let today = LifeCalendar.startOfDay(now)
         func daysAgo(_ days: Int) -> Date {
@@ -68,13 +85,37 @@ enum MockData {
         return [
             LifeMemory(title: "シャンプー",
                        rule: .sinceLast(lastDate: daysAgo(49), dueAfterDays: 42),
-                       action: .addToShopping("シャンプーを買う")),
+                       action: .addToShopping("シャンプーを買う"),
+                       history: [
+                           MemoryRecord(date: daysAgo(140), by: .me),
+                           MemoryRecord(date: daysAgo(93), by: .me),
+                           MemoryRecord(date: daysAgo(49), by: .partner)
+                       ],
+                       decisions: [
+                           MemoryDecision(decidedAt: daysAgo(95), choice: .accepted),
+                           MemoryDecision(decidedAt: daysAgo(51), choice: .accepted)
+                       ]),
             LifeMemory(title: "歯医者",
                        rule: .sinceLast(lastDate: daysAgo(182), dueAfterDays: 180),
-                       action: .addToTodo("歯医者を予約する")),
+                       action: .addToTodo("歯医者を予約する"),
+                       history: [
+                           MemoryRecord(date: daysAgo(365), by: .me),
+                           MemoryRecord(date: daysAgo(182), by: .me)
+                       ]),
+            // 新しい解釈：季節の例として、冷暖房を使う月（6〜9月・12〜2月）は30日ごとにする
             LifeMemory(title: "エアコンフィルター掃除",
                        rule: .sinceLast(lastDate: daysAgo(61), dueAfterDays: 60),
-                       action: .addOnSaturday("エアコンフィルター掃除")),
+                       action: .addOnSaturday("エアコンフィルター掃除"),
+                       history: [
+                           MemoryRecord(date: daysAgo(128), by: .me),
+                           MemoryRecord(date: daysAgo(95), by: .partner),
+                           MemoryRecord(date: daysAgo(61), by: .me)
+                       ],
+                       decisions: [
+                           MemoryDecision(decidedAt: daysAgo(96), choice: .skipped)
+                       ],
+                       seasonal: SeasonalCycle(months: [6, 7, 8, 9, 12, 1, 2], dueAfterDays: 30,
+                                               note: "冷暖房を使う季節（6〜9月・12〜2月）")),
             LifeMemory(title: "家賃",
                        rule: .monthlyDay(day: 27, noticeDaysBefore: 3),
                        action: .addToTodo("家賃を払う")),

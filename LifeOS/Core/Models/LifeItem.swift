@@ -105,6 +105,9 @@ struct LifeItem: Identifiable, Hashable, Codable {
     /// 柔らかい時間表現（帰宅時・余力があれば・今週中 など）。
     /// Calm Future で追加。以前の保存データには無いため Optional。無ければ種類から自動で決める（LivingTimelineBuilder）。
     var softTime: SoftTime?
+    /// 暮らしメモリーから追加した項目なら、そのメモリー（完了したときに「前回」の記録を残すため）。
+    /// Calm Future 第3段階で追加。以前の保存データには無いため Optional。
+    var memoryID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -117,7 +120,8 @@ struct LifeItem: Identifiable, Hashable, Codable {
         isCompleted: Bool = false,
         deferredTo: Date? = nil,
         droppedAt: Date? = nil,
-        softTime: SoftTime? = nil
+        softTime: SoftTime? = nil,
+        memoryID: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -130,6 +134,7 @@ struct LifeItem: Identifiable, Hashable, Codable {
         self.deferredTo = deferredTo
         self.droppedAt = droppedAt
         self.softTime = softTime
+        self.memoryID = memoryID
     }
 
     /// 画面に表示する日時（あとで・救済で回した先。無ければ元の日付）
