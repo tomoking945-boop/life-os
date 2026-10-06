@@ -6,14 +6,25 @@ struct QuickAddConfirmView: View {
     let onComplete: () -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.lg) {
-                Text(viewModel.foundText)
-                    .font(LifeTypography.title)
-                    .foregroundStyle(LifeColors.text)
-                    .accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                    Text("詳しく整える")
+                        .font(LifeTypography.label)
+                        .tracking(LifeTypography.labelTracking)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .accessibilityHidden(true)
+                    Text(viewModel.foundText)
+                        .font(LifeTypography.title)
+                        .foregroundStyle(LifeColors.text)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("追加しないものは、チェックを外してください。")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                }
 
                 // 一人モードでは共有を前面に出さないため、追加先は出さない（常に「自分」）
                 if appState.usageStyle == .shared {
@@ -23,16 +34,16 @@ struct QuickAddConfirmView: View {
                     }
                 }
 
-                LifeCard {
-                    VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                        ForEach(Array(viewModel.candidates.enumerated()), id: \.element.id) { index, candidate in
-                            if index > 0 {
-                                LifeDivider()
-                            }
-                            candidateRow(candidate)
+                VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                    ForEach(Array(viewModel.candidates.enumerated()), id: \.element.id) { index, candidate in
+                        if index > 0 {
+                            LifeDivider()
                         }
+                        candidateRow(candidate)
                     }
                 }
+                .padding(LifeSpacing.md)
+                .lifeSurface(.normal, cornerRadius: LifeRadius.insight)
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.lg)
@@ -53,7 +64,7 @@ struct QuickAddConfirmView: View {
 
     private func candidateRow(_ candidate: QuickAddCandidate) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                 viewModel.toggleCandidate(candidate.id)
             }
         } label: {
@@ -66,7 +77,7 @@ struct QuickAddConfirmView: View {
                     Text(viewModel.displayTitle(for: candidate.item))
                         .font(LifeTypography.body)
                         .foregroundStyle(LifeColors.text)
-                    Text(candidate.item.kind.label)
+                    Text(viewModel.detailText(for: candidate.item))
                         .font(LifeTypography.footnote)
                         .foregroundStyle(LifeColors.secondaryText)
                 }
@@ -77,7 +88,7 @@ struct QuickAddConfirmView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(viewModel.displayTitle(for: candidate.item))、\(candidate.item.kind.label)")
+        .accessibilityLabel("\(viewModel.displayTitle(for: candidate.item))、\(viewModel.detailText(for: candidate.item))")
         .accessibilityValue(candidate.isSelected ? "選択中" : "未選択")
         .accessibilityAddTraits(.isButton)
     }

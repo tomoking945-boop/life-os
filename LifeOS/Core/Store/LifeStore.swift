@@ -287,6 +287,19 @@ final class LifeStore {
         save()
     }
 
+    /// 「元に戻す」：Inbox のメモを前の状態に戻す（消したものは戻し、変えたものは元の内容にする）
+    func restoreInbox(_ snapshots: [InboxItem]) {
+        guard !snapshots.isEmpty else { return }
+        for snapshot in snapshots {
+            if let index = inbox.firstIndex(where: { $0.id == snapshot.id }) {
+                inbox[index] = snapshot
+            } else {
+                inbox.append(snapshot)
+            }
+        }
+        save()
+    }
+
     // MARK: - 暮らしメモリー
 
     /// 指定日時まで今日画面に出さない

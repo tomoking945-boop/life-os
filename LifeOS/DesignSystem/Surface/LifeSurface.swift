@@ -50,6 +50,9 @@ extension LifeColors {
     static let glassTint = surface.opacity(0.55)
     /// ガラスの面の縁
     static let glassStroke = divider
+    /// なんでも追加の Orb の面と輪（Deep Forest の上に淡く）
+    static let orbFill = onPrimary.opacity(0.14)
+    static let orbRing = accent.opacity(0.7)
 }
 
 extension View {

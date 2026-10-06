@@ -28,6 +28,18 @@ enum ShoppingCategorizer {
         return rules.first { rule in rule.keywords.contains { name.contains($0) } }?.categories ?? [.other]
     }
 
+    /// 知っている品名か（「牛乳」「低脂肪牛乳」は○、「水曜」「パンフレット」「水道代」は×）。
+    /// 品名がそのまま一致するか、短い言葉（3文字まで）が前に付いているだけのときに限る。
+    static func isKnownProduct(_ name: String) -> Bool {
+        let particles: [Character] = ["を", "に", "へ", "で", "が", "は"]
+        guard !name.contains(where: { particles.contains($0) }) else { return false }
+        return rules.contains { rule in
+            rule.keywords.contains { keyword in
+                name == keyword || (name.hasSuffix(keyword) && name.count - keyword.count <= 3)
+            }
+        }
+    }
+
     /// 売り場でまとめるときのカテゴリー（冷蔵 → 飲料 → 日用品 → 食品 → その他 の順で優先）
     static func aisle(for title: String) -> ShoppingCategory {
         let categories = categories(for: title)

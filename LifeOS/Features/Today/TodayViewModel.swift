@@ -1,18 +1,6 @@
 import Foundation
 import Observation
 
-/// 操作のあとに短く出す一言と「元に戻す」（Calm Future）
-struct TodayFeedback: Equatable {
-    let id = UUID()
-    let message: String
-    /// nil なら「元に戻す」を出さない
-    let undo: (() -> Void)?
-
-    static func == (lhs: TodayFeedback, rhs: TodayFeedback) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
 @Observable
 final class TodayViewModel {
     private let store: LifeStore
@@ -28,7 +16,7 @@ final class TodayViewModel {
     /// 「今日これだけ」の残りを開いているか
     var isShowingRest = false
     /// 操作のあとに短く出す一言（例：明日に回しました）と「元に戻す」
-    var feedback: TodayFeedback?
+    var feedback: LifeFeedback?
 
     init(store: LifeStore, appState: AppState, now: Date = LifeCalendar.now) {
         self.store = store
@@ -261,7 +249,7 @@ final class TodayViewModel {
     // MARK: - 元に戻す（Calm Future）
 
     private func notify(_ message: String, undo: (() -> Void)?) {
-        feedback = TodayFeedback(message: message, undo: undo)
+        feedback = LifeFeedback(message: message, undo: undo)
     }
 
     /// 「元に戻す」を押したとき

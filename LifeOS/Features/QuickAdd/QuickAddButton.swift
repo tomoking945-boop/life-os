@@ -1,18 +1,33 @@
 import SwiftUI
 
-/// 画面下部に浮かぶ「＋ なんでも追加」ボタン
+/// 画面下部に浮かぶ「＋ なんでも追加」ボタン。
+/// Calm Future：左に小さな Orb（淡い面と Brass の細い輪）を置き、LifeOS の入口として見せる。
+/// 何をするボタンか分かるよう「なんでも追加」の文字は残す。
 struct QuickAddButton: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Label("なんでも追加", systemImage: "plus")
-                .font(LifeTypography.button)
-                .foregroundStyle(LifeColors.onPrimary)
-                .padding(.horizontal, LifeSpacing.lg)
-                .frame(minHeight: LifeSpacing.buttonHeight)
-                .background(Capsule().fill(LifeColors.primary))
-                .contentShape(Capsule())
+            HStack(spacing: LifeSpacing.sm) {
+                ZStack {
+                    Circle()
+                        .fill(LifeColors.orbFill)
+                    Circle()
+                        .stroke(LifeColors.orbRing, lineWidth: LifeSpacing.timelineLine)
+                    Image(systemName: "plus")
+                        .font(LifeTypography.footnoteEmphasis)
+                }
+                .frame(width: LifeSpacing.orbSize, height: LifeSpacing.orbSize)
+                .accessibilityHidden(true)
+                Text("なんでも追加")
+            }
+            .font(LifeTypography.button)
+            .foregroundStyle(LifeColors.onPrimary)
+            .padding(.leading, LifeSpacing.xs + LifeSpacing.xxs)
+            .padding(.trailing, LifeSpacing.lg)
+            .frame(minHeight: LifeSpacing.buttonHeight)
+            .background(Capsule().fill(LifeColors.primary))
+            .contentShape(Capsule())
         }
         .buttonStyle(LifePressButtonStyle())
         .lifeShadow(LifeShadow.floating)

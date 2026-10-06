@@ -63,4 +63,6 @@ enum LifeSpacing {
     static let ambientGlowRadius: CGFloat = 420
     /// お金の予算の細い線の太さ
     static let budgetLine: CGFloat = 2
+    /// なんでも追加の小さな Orb の直径
+    static let orbSize: CGFloat = 30
 }

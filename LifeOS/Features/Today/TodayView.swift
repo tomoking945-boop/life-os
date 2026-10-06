@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// 今日画面の遷移先
 enum TodayRoute: Hashable {
@@ -81,16 +80,8 @@ struct TodayView: View {
             LifeAmbientBackground(timeOfDay: viewModel.timeOfDay)
                 .animation(LifeMotion.animation(LifeMotion.gentle, reduceMotion: reduceMotion), value: viewModel.timeOfDay)
         )
-        .overlay(alignment: .top) {
-            if let feedback = viewModel.feedback {
-                LifeUndoBanner(
-                    message: feedback.message,
-                    onUndo: feedback.undo == nil ? nil : { animate { viewModel.performUndo() } }
-                )
-                .padding(.horizontal, LifeSpacing.screenHorizontal)
-                .padding(.top, LifeSpacing.xs)
-                .transition(bannerTransition)
-            }
+        .lifeFeedbackBanner($viewModel.feedback) {
+            viewModel.performUndo()
         }
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
@@ -113,24 +104,11 @@ struct TodayView: View {
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             animate { viewModel.postpone(item, to: option) }
         }
-        .task(id: viewModel.feedback) {
-            // 一言は数秒で消す（「元に戻す」付きは押す時間を残して長め）
-            guard let feedback = viewModel.feedback else { return }
-            UIAccessibility.post(notification: .announcement, argument: feedback.message)
-            let seconds = feedback.undo == nil ? LifeMotion.bannerSeconds : LifeMotion.undoBannerSeconds
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            animate { viewModel.feedback = nil }
-        }
     }
 
     /// Reduce Motion のときはアニメーションしない
     private func animate(_ changes: () -> Void) {
         withLifeAnimation(reduceMotion: reduceMotion, changes)
-    }
-
-    private var bannerTransition: AnyTransition {
-        reduceMotion ? AnyTransition.opacity : AnyTransition.move(edge: .top).combined(with: .opacity)
     }
 
     // MARK: - ヘッダー・Ambient Header

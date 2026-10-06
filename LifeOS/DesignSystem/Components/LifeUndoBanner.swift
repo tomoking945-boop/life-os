@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 操作のあとに静かに現れる一言と「元に戻す」（Calm Future）。
 /// すりガラスの面に浮かべる。強い色・警告色は使わない。
@@ -37,6 +38,46 @@ struct LifeUndoBanner: View {
         .frame(minHeight: LifeSpacing.minTapTarget)
         .lifeGlassSurface(cornerRadius: LifeRadius.medium)
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// 一言と「元に戻す」を画面上部に浮かべ、数秒で消す（Calm Future）。
+/// VoiceOver では一言を読み上げる。Reduce Motion のときはフェードだけにする。
+private struct LifeFeedbackBannerModifier: ViewModifier {
+    @Binding var feedback: LifeFeedback?
+    let onUndo: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let current = feedback {
+                    LifeUndoBanner(
+                        message: current.message,
+                        onUndo: current.undo == nil ? nil : {
+                            withLifeAnimation(reduceMotion: reduceMotion) { onUndo() }
+                        }
+                    )
+                    .padding(.horizontal, LifeSpacing.screenHorizontal)
+                    .padding(.top, LifeSpacing.xs)
+                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .task(id: feedback) {
+                guard let current = feedback else { return }
+                UIAccessibility.post(notification: .announcement, argument: current.message)
+                let seconds = current.undo == nil ? LifeMotion.bannerSeconds : LifeMotion.undoBannerSeconds
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                withLifeAnimation(reduceMotion: reduceMotion) { feedback = nil }
+            }
+    }
+}
+
+extension View {
+    /// 操作のあとの一言と「元に戻す」を表示する
+    func lifeFeedbackBanner(_ feedback: Binding<LifeFeedback?>, onUndo: @escaping () -> Void) -> some View {
+        modifier(LifeFeedbackBannerModifier(feedback: feedback, onUndo: onUndo))
     }
 }
 
