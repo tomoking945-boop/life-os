@@ -149,3 +149,30 @@ final class CompatibilityTests: XCTestCase {
         XCTAssertEqual(decoded.softTime, .thisWeek)
     }
 }
+
+final class LeftoverPresentationTests: XCTestCase {
+    func testYesterdayOnlyTitleAndNoToggle() {
+        let viewModel = TodayViewModel(store: makeStore(), appState: AppState(), now: TestDates.friday)
+        XCTAssertEqual(viewModel.leftoverTitle, "昨日残ったもの")
+        XCTAssertEqual(viewModel.visibleLeftovers.count, 2)
+        XCTAssertFalse(viewModel.hasHiddenLeftovers)
+    }
+
+    func testOlderItemsChangeTitleAndCollapse() {
+        let store = makeStore()
+        let older = TestDates.daysAgo(3, from: TestDates.friday)
+        store.add([
+            LifeItem(title: "書類を出す", kind: .todo, ownership: .personal, date: older, assignee: .me),
+            LifeItem(title: "電球を替える", kind: .chore, ownership: .personal, date: older, assignee: .me)
+        ])
+        let viewModel = TodayViewModel(store: store, appState: AppState(), now: TestDates.friday)
+
+        XCTAssertEqual(viewModel.leftoverTitle, "残っているもの")
+        XCTAssertEqual(viewModel.leftovers.count, 4)
+        XCTAssertEqual(viewModel.visibleLeftovers.count, 3)
+        XCTAssertEqual(viewModel.leftoverToggleTitle, "あと1件")
+
+        viewModel.isShowingAllLeftovers = true
+        XCTAssertEqual(viewModel.visibleLeftovers.count, 4)
+    }
+}

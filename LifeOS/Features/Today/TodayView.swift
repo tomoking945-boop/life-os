@@ -363,10 +363,30 @@ struct TodayView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 LifeDivider()
-                ForEach(viewModel.leftovers) { item in
+                ForEach(viewModel.visibleLeftovers) { item in
                     leftoverRow(item)
                     LifeDivider()
                 }
+            }
+
+            if viewModel.hasHiddenLeftovers {
+                Button {
+                    animate { viewModel.isShowingAllLeftovers.toggle() }
+                } label: {
+                    HStack(spacing: LifeSpacing.xs) {
+                        Text(viewModel.leftoverToggleTitle)
+                            .font(LifeTypography.callout)
+                        Image(systemName: viewModel.isShowingAllLeftovers ? "chevron.up" : "chevron.down")
+                            .font(LifeTypography.footnote)
+                            .accessibilityHidden(true)
+                        Spacer()
+                    }
+                    .foregroundStyle(LifeColors.secondaryText)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(viewModel.isShowingAllLeftovers ? "残っているものを閉じます" : "残っているものをすべて表示します")
             }
         }
     }
@@ -509,13 +529,13 @@ struct TodayView: View {
     private var autopilotSection: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.sm) {
             compactHeading(eyebrow: "ENERGY", title: "今日の余力")
-            HStack(spacing: LifeSpacing.xs) {
-                ForEach(EnergyLevel.allCases) { level in
-                    LifeChip(title: "\(level.emoji) \(level.label)", isSelected: viewModel.energy == level) {
-                        animate { viewModel.selectEnergy(level) }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel("余力 \(level.label)")
+            // 絵文字を上・文字を下にして、3つ並べても文字が切れないようにする
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: LifeSpacing.xs) {
+                    energyTiles
+                }
+                VStack(spacing: LifeSpacing.xs) {
+                    energyTiles
                 }
             }
 
@@ -544,6 +564,16 @@ struct TodayView: View {
         .padding(LifeSpacing.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+    }
+
+    @ViewBuilder
+    private var energyTiles: some View {
+        ForEach(EnergyLevel.allCases) { level in
+            LifeChoiceTile(symbol: level.emoji, title: level.label, isSelected: viewModel.energy == level) {
+                animate { viewModel.selectEnergy(level) }
+            }
+            .accessibilityLabel("余力 \(level.label)")
+        }
     }
 
     // MARK: - 習慣：余白だけで区切る

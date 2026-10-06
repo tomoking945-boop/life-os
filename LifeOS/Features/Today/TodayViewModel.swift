@@ -284,7 +284,30 @@ final class TodayViewModel {
     // MARK: - 未完了救済（昨日残ったもの）
 
     /// 責めないための見出し（赤字・警告は使わない）
-    let leftoverTitle = "昨日残ったもの"
+    /// 昨日の分だけなら「昨日残ったもの」、2日以上前の分もあれば「残っているもの」
+    var leftoverTitle: String {
+        let yesterday = LifeCalendar.calendar.date(byAdding: .day, value: -1, to: LifeCalendar.startOfDay(now)) ?? now
+        let onlyYesterday = leftovers.allSatisfy { LifeCalendar.isSameDay($0.displayDate, yesterday) }
+        return onlyYesterday ? "昨日残ったもの" : "残っているもの"
+    }
+
+    /// 最初に見せる件数（多い日も詰め込みすぎない）
+    let leftoverPreviewLimit = 3
+
+    /// 残りをすべて開いているか
+    var isShowingAllLeftovers = false
+
+    /// 画面に出す分（ふだんは3件まで）
+    var visibleLeftovers: [LifeItem] {
+        isShowingAllLeftovers ? leftovers : Array(leftovers.prefix(leftoverPreviewLimit))
+    }
+
+    /// 「あと◯件」を出すか
+    var hasHiddenLeftovers: Bool { leftovers.count > leftoverPreviewLimit }
+
+    var leftoverToggleTitle: String {
+        isShowingAllLeftovers ? "閉じる" : "あと\(leftovers.count - leftoverPreviewLimit)件"
+    }
 
     /// 選択肢を開いている行（ふだんは1行だけ表示して、押したときだけ選択肢を出す）
     var expandedLeftoverID: LifeItem.ID?
