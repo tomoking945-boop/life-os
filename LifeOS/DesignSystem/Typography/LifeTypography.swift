@@ -53,4 +53,15 @@ enum LifeTypography {
 
     /// セクションラベルの字間
     static let labelTracking: CGFloat = 1.6
+
+    // MARK: - Calm Future
+
+    /// Ambient Header の一言（10:30の歯医者まで1時間20分）
+    static let ambientMessage = Font.system(.title2, design: .serif)
+    /// Living Timeline の時刻（10:30）
+    static let timelineTime = Font.system(.title3, design: .serif).monospacedDigit()
+    /// 大きな数字（今日の支出など）
+    static let bigNumeral = Font.system(.largeTitle, design: .serif).monospacedDigit()
+    /// 注釈（強調）。「元に戻す」など
+    static let footnoteEmphasis = Font.system(.footnote).weight(.semibold)
 }

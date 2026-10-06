@@ -59,6 +59,10 @@ final class AppState {
     /// パートナーが参加済みか（Mock。招待の流れを確認するため開発用設定で切り替える）
     var partnerJoined = true
 
+    /// 開発用：時間帯の背景を確かめるための切り替え（nil なら現在時刻から決める）。保存しない。
+    /// Mock の現在時刻は 9:10 固定のため、昼・夕方・夜の見え方はここで確認する。
+    var ambientPreview: LifeTimeOfDay? = nil
+
     var isPremium: Bool { plan == .premium }
 
     // MARK: - 端末内への保存

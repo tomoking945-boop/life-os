@@ -14,4 +14,8 @@ enum LifeRadius {
     static let sheet: CGFloat = 32
     /// ヒーローカード
     static let hero: CGFloat = 32
+    /// 暮らしメモリーなどの小さめのカード（Calm Future）
+    static let insight: CGFloat = medium
+    /// 背景面を切り替えるセクション（Calm Future）
+    static let band: CGFloat = large
 }

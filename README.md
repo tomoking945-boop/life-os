@@ -9,6 +9,8 @@
 - [UIプロトタイプ 実装メモ（動かし方・TODO）](docs/IMPLEMENTATION_NOTES.md)
 - [Repository 設計（Firestore 移行の準備）](docs/REPOSITORY_DESIGN.md)
 - [v2 改修の報告](docs/V2_REPORT.md)
+- [Calm Future Living OS デザイン改修 仕様](docs/CALM_FUTURE_SPEC.md)
+- [Calm Future 改修の報告](docs/CALM_FUTURE_REPORT.md)
 
 ## UIプロトタイプの動かし方
 

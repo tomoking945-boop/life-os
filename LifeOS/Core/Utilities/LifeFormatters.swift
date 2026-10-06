@@ -77,6 +77,17 @@ enum LifeFormatters {
         spokenDateFormatter.string(from: date)
     }
 
+    /// 1時間20分（「あと」を付けない。過ぎている・0分のときは nil）
+    static func duration(from now: Date, to target: Date) -> String? {
+        let minutes = Int(target.timeIntervalSince(now) / 60)
+        guard minutes > 0 else { return nil }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        if hours > 0 && rest > 0 { return "\(hours)時間\(rest)分" }
+        if hours > 0 { return "\(hours)時間" }
+        return "\(rest)分"
+    }
+
     /// あと1時間20分
     static func remaining(from now: Date, to target: Date) -> String {
         let minutes = Int(target.timeIntervalSince(now) / 60)

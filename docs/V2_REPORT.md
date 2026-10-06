@@ -2,7 +2,7 @@
 
 仕様：[LIFE_OS_V2_SPEC.md](LIFE_OS_V2_SPEC.md)／詳しい解釈と決定事項：[IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md)
 
-2026-10-02〜03 に6回に分けて実装しました。各回ごとに Mac の Xcode でビルドと Simulator 確認を行っています（第6回は確認待ち）。
+2026-10-02〜04 に6回に分けて実装しました。各回ごとに Mac の Xcode でビルドと Simulator 確認を行い、すべて完了しています。
 外部サービス（Firebase・OpenAI API・StoreKit・AdMob など）には一切接続していません。
 
 ## 1. 変更したファイル
@@ -88,15 +88,15 @@ Firebase／Firestore／Firebase Storage／OpenAI API（AI 分類・AI 自然文�
 
 ## 8. Unit Test 結果
 
-テストは `LifeOSTests` に 11 グループ・38 件。第6回のファイルを入れたあと、Xcode で ⌘U を実行して確認する（この報告の作成時点では未実行）。
+テストは `LifeOSTests` に 11 グループ・38 件。2026-10-04 に Xcode で ⌘U を実行し、すべて成功。
 
 ## 9. Xcode Build 結果
 
-第1〜5回：Mac の Xcode でビルド成功を確認済み。第6回：確認待ち。
+第1〜6回：Mac の Xcode でビルド成功を確認済み（2026-10-04 時点で最新）。
 
 ## 10. Simulator 確認結果
 
-第1〜5回：各回の確認項目を Simulator で確認済み（既存の5タブ・すべて/自分/共有・QuickAdd・Profile・PhotosPicker・保存・Free/Premium・Money・Lists・Calendar も動作）。第6回は画面の変更なし。
+第1〜6回：各回の確認項目を Simulator で確認済み（既存の5タブ・すべて/自分/共有・QuickAdd・Profile・PhotosPicker・保存・Free/Premium・Money・Lists・Calendar も動作）。第6回は画面の変更なし（お金・リストの動作を確認）。
 
 ## 11. Firebase 導入前に直すべき点
 

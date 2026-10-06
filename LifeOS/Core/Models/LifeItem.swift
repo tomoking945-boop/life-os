@@ -102,6 +102,9 @@ struct LifeItem: Identifiable, Hashable, Codable {
     var deferredTo: Date?
     /// 「もうやらない」を選んだ日時。削除はせず、一覧に出さないだけにする。
     var droppedAt: Date?
+    /// 柔らかい時間表現（帰宅時・余力があれば・今週中 など）。
+    /// Calm Future で追加。以前の保存データには無いため Optional。無ければ種類から自動で決める（LivingTimelineBuilder）。
+    var softTime: SoftTime?
 
     init(
         id: UUID = UUID(),
@@ -113,7 +116,8 @@ struct LifeItem: Identifiable, Hashable, Codable {
         assignee: Assignee? = nil,
         isCompleted: Bool = false,
         deferredTo: Date? = nil,
-        droppedAt: Date? = nil
+        droppedAt: Date? = nil,
+        softTime: SoftTime? = nil
     ) {
         self.id = id
         self.title = title
@@ -125,6 +129,7 @@ struct LifeItem: Identifiable, Hashable, Codable {
         self.isCompleted = isCompleted
         self.deferredTo = deferredTo
         self.droppedAt = droppedAt
+        self.softTime = softTime
     }
 
     /// 画面に表示する日時（あとで・救済で回した先。無ければ元の日付）

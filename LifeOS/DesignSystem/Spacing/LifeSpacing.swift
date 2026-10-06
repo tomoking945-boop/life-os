@@ -40,4 +40,27 @@ enum LifeSpacing {
     /// テーマのプレビューの大きさ
     static let themePreviewWidth: CGFloat = 132
     static let themePreviewHeight: CGFloat = 168
+
+    // MARK: - Calm Future
+
+    /// Living Timeline の線の列の幅
+    static let timelineRail: CGFloat = 16
+    /// Living Timeline の点（通常）
+    static let timelineDot: CGFloat = 7
+    /// Living Timeline の「いま」の点のまわりの輪
+    static let timelineRing: CGFloat = 15
+    /// Living Timeline の点を置く高さ（見出しの1行分）
+    static let timelineMarkerHeight: CGFloat = 22
+    /// Living Timeline の線の太さ
+    static let timelineLine: CGFloat = 1
+    /// Living Timeline の項目の左のずらし（番号の幅）
+    static let timelineNumeralWidth: CGFloat = 22
+    /// 暮らしメモリーの横スクロールのカード幅
+    static let insightCardWidth: CGFloat = 248
+    /// カード上辺の細い光の長さ
+    static let insightAccentLength: CGFloat = 28
+    /// 背景の弱い光の半径
+    static let ambientGlowRadius: CGFloat = 420
+    /// お金の予算の細い線の太さ
+    static let budgetLine: CGFloat = 2
 }

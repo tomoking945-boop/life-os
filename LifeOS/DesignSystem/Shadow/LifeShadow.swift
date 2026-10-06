@@ -13,6 +13,10 @@ enum LifeShadow {
     static let card = LifeShadowStyle(color: LifeColors.shadow, radius: 18, x: 0, y: 6)
     /// 浮いているボタン（なんでも追加）
     static let floating = LifeShadowStyle(color: LifeColors.floatingShadow, radius: 14, x: 0, y: 6)
+    /// 影なし（Calm Future の Surface で、奥行きを付けない面に使う）
+    static let flat = LifeShadowStyle(color: .clear, radius: 0, x: 0, y: 0)
+    /// 少しだけ浮かせる（Calm Future：提案・浮遊する面）
+    static let lifted = LifeShadowStyle(color: LifeColors.shadow, radius: 24, x: 0, y: 10)
 }
 
 extension View {

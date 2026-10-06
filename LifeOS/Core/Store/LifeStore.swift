@@ -176,6 +176,33 @@ final class LifeStore {
         save()
     }
 
+    // MARK: - 元に戻す（Calm Future）
+
+    /// 「元に戻す」：あとで・救済・もうやらない・共有 の前の状態に戻す。
+    /// 戻すのは表示先・もうやらない・持ち主・担当だけ。その間に変えた完了チェックやタイトルは残す。
+    func restore(_ snapshot: LifeItem) {
+        guard let index = items.firstIndex(where: { $0.id == snapshot.id }) else { return }
+        items[index].deferredTo = snapshot.deferredTo
+        items[index].droppedAt = snapshot.droppedAt
+        items[index].ownership = snapshot.ownership
+        items[index].assignee = snapshot.assignee
+        save()
+    }
+
+    /// 「元に戻す」：直前に追加した項目を取り除く
+    func removeItems(withIDs ids: Set<LifeItem.ID>) {
+        guard !ids.isEmpty else { return }
+        items.removeAll { ids.contains($0.id) }
+        save()
+    }
+
+    /// 「元に戻す」：暮らしメモリーを前の状態（周期・表示しない期間）に戻す
+    func restoreMemory(_ snapshot: LifeMemory) {
+        guard let index = memories.firstIndex(where: { $0.id == snapshot.id }) else { return }
+        memories[index] = snapshot
+        save()
+    }
+
     // MARK: - 買い物
 
     /// 買い物を追加する（ワンタップ追加・献立から作成）。同じ品名の未完了の買い物があれば追加しない。

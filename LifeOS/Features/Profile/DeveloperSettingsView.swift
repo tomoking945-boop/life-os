@@ -9,6 +9,9 @@ struct DeveloperSettingsView: View {
     @State private var isConfirmingReset = false
     @State private var didReset = false
 
+    /// 自動＋朝・昼・夕方・夜
+    private let ambientOptions: [LifeTimeOfDay?] = [nil] + LifeTimeOfDay.allCases.map { Optional($0) }
+
     var body: some View {
         @Bindable var appState = appState
 
@@ -30,6 +33,17 @@ struct DeveloperSettingsView: View {
                         .disabled(appState.usageStyle == .solo)
                         .frame(minHeight: LifeSpacing.minTapTarget)
                     Text("ひとり：共有を前面に出さず「すべて / 自分 / 共有」を隠します。家族・パートナー：共有ボタンを出し、未参加なら招待画面を出します。")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                    LifeSectionTitle("時間帯の背景（確認用）")
+                    LifeSegmentControl(ambientOptions, selection: $appState.ambientPreview) { option in
+                        option?.label ?? "自動"
+                    }
+                    Text("今日画面の背景と挨拶を、時間帯ごとに確かめられます。保存はされず、アプリを終了すると「自動」に戻ります。")
                         .font(LifeTypography.footnote)
                         .foregroundStyle(LifeColors.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)

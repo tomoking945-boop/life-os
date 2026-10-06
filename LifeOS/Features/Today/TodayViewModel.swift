@@ -1,6 +1,18 @@
 import Foundation
 import Observation
 
+/// 操作のあとに短く出す一言と「元に戻す」（Calm Future）
+struct TodayFeedback: Equatable {
+    let id = UUID()
+    let message: String
+    /// nil なら「元に戻す」を出さない
+    let undo: (() -> Void)?
+
+    static func == (lhs: TodayFeedback, rhs: TodayFeedback) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 @Observable
 final class TodayViewModel {
     private let store: LifeStore
@@ -15,8 +27,8 @@ final class TodayViewModel {
     var invitingItem: LifeItem?
     /// 「今日これだけ」の残りを開いているか
     var isShowingRest = false
-    /// 操作のあとに短く出す一言（例：明日に回しました）
-    var feedbackMessage: String?
+    /// 操作のあとに短く出す一言（例：明日に回しました）と「元に戻す」
+    var feedback: TodayFeedback?
 
     init(store: LifeStore, appState: AppState, now: Date = LifeCalendar.now) {
         self.store = store
@@ -32,11 +44,51 @@ final class TodayViewModel {
     var japaneseDateTitle: String { LifeFormatters.headerDate(now) }
     var spokenDateTitle: String { LifeFormatters.spokenDate(now) }
 
-    /// 決定済み：プロトタイプでは現在時刻を 9:10 に固定するため、挨拶も固定（2026-09-28）。
-    /// TODO: 実時刻にする段階で、時間帯による挨拶の切り替えを決める。
-    let greeting = "Good morning."
-    /// v2 の目標イメージに合わせたキャッチコピー
+    /// 時間帯（背景の空気感と挨拶）。開発用設定で切り替えたときはそちらを使う。
+    var timeOfDay: LifeTimeOfDay {
+        appState.ambientPreview ?? LifeTimeOfDay(date: now)
+    }
+
+    /// 挨拶（時間帯で変わる。Mock の現在時刻 9:10 では従来どおり Good morning.）
+    var greeting: String { timeOfDay.greeting }
+    /// v2 の目標イメージに合わせたキャッチコピー（Ambient Header に一言が無いときに使う）
     let subtitle = "今日も、無理なく。"
+
+    // MARK: - Ambient Header（Calm Future）
+
+    /// いちばん上に出す一言。
+    /// 次の予定があれば「10:30の歯医者まで1時間20分」、無ければ余白を伝える。
+    var ambientMessage: String {
+        if isFocusCompleted {
+            return focusCompletedMessage
+        }
+        if let next = nextEvent, let duration = LifeFormatters.duration(from: now, to: next.displayDate) {
+            return "\(timeText(for: next))の\(next.title)まで\(duration)"
+        }
+        if timelineSections.isEmpty {
+            return "今日は少し余白があります"
+        }
+        return subtitle
+    }
+
+    /// 二つ目の一言（今日これだけ の件数・余力）。責めない言い方だけを使う。
+    var ambientSubMessage: String {
+        if energy == .low {
+            return "今日は軽めで大丈夫です"
+        }
+        let open = focusItems.filter { !$0.isCompleted }.count
+        if open > 0 {
+            return "今日は\(open)つだけで十分です"
+        }
+        if !extraItems.isEmpty {
+            return "ほかは、余力があればで大丈夫です"
+        }
+        return subtitle
+    }
+
+    var ambientSpokenText: String {
+        "\(greeting)。\(ambientMessage)。\(ambientSubMessage)"
+    }
 
     // MARK: - フィルター
 
@@ -69,8 +121,9 @@ final class TodayViewModel {
     /// パートナーと共有：参加済みならすぐ共有、未参加なら招待を出す
     func shareTapped(_ item: LifeItem) {
         if appState.partnerJoined {
+            let before = snapshot(of: item)
             store.share(item.id)
-            feedbackMessage = "「\(item.title)」をパートナーと共有しました"
+            notify("「\(item.title)」をパートナーと共有しました", undo: undoRestoring(before))
         } else {
             invitingItem = item
             isShowingInvite = true
@@ -99,11 +152,71 @@ final class TodayViewModel {
         String(format: "%02d", index + 1)
     }
 
+    /// タイムライン上の番号（今日これだけ の項目だけ。完了しても番号は変えない）
+    func focusNumber(for item: LifeItem) -> String? {
+        guard let index = focusSplit.focus.firstIndex(where: { $0.id == item.id }) else { return nil }
+        return focusNumber(index)
+    }
+
     /// 折りたたむ残り
     var restItems: [LifeItem] { focusSplit.rest }
 
+    // MARK: - Living Timeline（Calm Future）
+
+    /// 今日これだけ・NEXT・このあと をひとつにしたタイムライン
+    private var timeline: LivingTimelineBuilder.Timeline {
+        let split = focusSplit
+        return LivingTimelineBuilder.build(focus: split.focus, rest: split.rest, now: now)
+    }
+
+    var timelineSections: [TimelineSection] { timeline.sections }
+
+    /// 「余力があれば」に折りたたむ項目
+    var extraItems: [LifeItem] { timeline.extra }
+
     var restToggleTitle: String {
-        isShowingRest ? "閉じる" : "あと\(restItems.count)件"
+        isShowingRest ? "閉じる" : "あと\(extraItems.count)件"
+    }
+
+    /// 区間の点の色に使う種類（最初の項目の種類）
+    func markerKind(for section: TimelineSection) -> LifeItemKind {
+        section.items.first?.kind ?? .todo
+    }
+
+    /// 「いま」の区間か
+    func isCurrent(_ section: TimelineSection) -> Bool {
+        section.slot == .now
+    }
+
+    func isTime(_ section: TimelineSection) -> Bool {
+        if case .time(_) = section.slot { return true }
+        return false
+    }
+
+    /// タイムラインの行の補足（予定は残り時間、それ以外は従来の補足）
+    func timelineDetail(for item: LifeItem) -> String? {
+        if item.kind == .event && item.showsTime && item.displayDate > now {
+            var parts = [remainingText(for: item)]
+            if let assignee = item.assignee, assignee != .me {
+                parts.append("担当：\(appState.profile.displayName(for: assignee))")
+            }
+            return parts.joined(separator: "・")
+        }
+        if item.showsTime {
+            // 時刻はタイムラインの見出しに出ているので、補足には種類と担当だけ
+            var parts: [String] = []
+            if item.kind != .todo && item.kind != .event { parts.append(item.kind.label) }
+            if let assignee = item.assignee, assignee != .me {
+                parts.append("担当：\(appState.profile.displayName(for: assignee))")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: "・")
+        }
+        return detailText(for: item)
+    }
+
+    /// 次の予定（タイムラインで「パートナーと共有」を出す項目）か
+    func isNextEvent(_ item: LifeItem) -> Bool {
+        nextEvent?.id == item.id
     }
 
     /// 3つとも終わったか
@@ -139,8 +252,33 @@ final class TodayViewModel {
     }
 
     func postpone(_ item: LifeItem, to option: PostponeOption) {
+        let before = snapshot(of: item)
+        expandedLeftoverID = nil
         store.reschedule(item.id, to: option.date(from: now))
-        feedbackMessage = "「\(item.title)」を\(option.doneMessage)"
+        notify("「\(item.title)」を\(option.doneMessage)", undo: undoRestoring(before))
+    }
+
+    // MARK: - 元に戻す（Calm Future）
+
+    private func notify(_ message: String, undo: (() -> Void)?) {
+        feedback = TodayFeedback(message: message, undo: undo)
+    }
+
+    /// 「元に戻す」を押したとき
+    func performUndo() {
+        guard let undo = feedback?.undo else { return }
+        undo()
+        notify("元に戻しました", undo: nil)
+    }
+
+    /// 変更前の状態（保存されている最新のもの）
+    private func snapshot(of item: LifeItem) -> LifeItem {
+        store.items.first(where: { $0.id == item.id }) ?? item
+    }
+
+    private func undoRestoring(_ before: LifeItem) -> () -> Void {
+        let store = self.store
+        return { store.restore(before) }
     }
 
     // MARK: - 未完了救済（昨日残ったもの）
@@ -164,8 +302,10 @@ final class TodayViewModel {
     }
 
     func showToday(_ item: LifeItem) {
+        let before = snapshot(of: item)
+        expandedLeftoverID = nil
         store.reschedule(item.id, to: LifeCalendar.startOfDay(now))
-        feedbackMessage = "「\(item.title)」を今日に表示します"
+        notify("「\(item.title)」を今日に表示します", undo: undoRestoring(before))
     }
 
     func moveToThisWeek(_ item: LifeItem) {
@@ -173,8 +313,10 @@ final class TodayViewModel {
     }
 
     func dropLeftover(_ item: LifeItem) {
+        let before = snapshot(of: item)
+        expandedLeftoverID = nil
         store.drop(item.id, at: now)
-        feedbackMessage = "「\(item.title)」はもうやらないことにしました"
+        notify("「\(item.title)」はもうやらないことにしました", undo: undoRestoring(before))
     }
 
     // MARK: - NEXT
@@ -232,6 +374,16 @@ final class TodayViewModel {
         }
     }
 
+    /// カードの細い光の色に使う種類（買い物・家事・やること）
+    func memoryKind(_ memory: LifeMemory) -> LifeItemKind {
+        switch memory.action {
+        case .addToShopping(_): return .shopping
+        case .addOnSaturday(_): return .chore
+        case .addToTodo(_): return .todo
+        case .notifyOnly: return .event
+        }
+    }
+
     /// 「今回はスキップ」を出すか（前回からの周期のものだけ）
     func canSkipMemory(_ memory: LifeMemory) -> Bool {
         if case .sinceLast(_, _) = memory.rule { return true }
@@ -241,20 +393,35 @@ final class TodayViewModel {
     func performMemoryAction(_ memory: LifeMemory) {
         let today = LifeCalendar.startOfDay(now)
         let tomorrow = PostponeOption.tomorrow.date(from: now)
+        let memoryBefore = memory
+        let store = self.store
+
+        /// 追加した項目を取り除き、メモリーを前の状態に戻す
+        func undo(removing item: LifeItem?) -> () -> Void {
+            let ids: Set<LifeItem.ID> = item.map { Set([$0.id]) } ?? Set<LifeItem.ID>()
+            return {
+                store.removeItems(withIDs: ids)
+                store.restoreMemory(memoryBefore)
+            }
+        }
+
         switch memory.action {
         case let .addToShopping(title):
-            store.add([LifeItem(title: title, kind: .shopping, ownership: .personal, date: today, assignee: .me)])
+            let item = LifeItem(title: title, kind: .shopping, ownership: .personal, date: today, assignee: .me)
+            store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
-            feedbackMessage = "「\(title)」を買い物に追加しました"
+            notify("「\(title)」を買い物に追加しました", undo: undo(removing: item))
         case let .addOnSaturday(title):
             let saturday = PostponeOption.weekend.date(from: now)
-            store.add([LifeItem(title: title, kind: .chore, ownership: .personal, date: saturday, assignee: .me)])
+            let item = LifeItem(title: title, kind: .chore, ownership: .personal, date: saturday, assignee: .me)
+            store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
-            feedbackMessage = "「\(title)」を\(LifeFormatters.shortDate(saturday))に追加しました"
+            notify("「\(title)」を\(LifeFormatters.shortDate(saturday))に追加しました", undo: undo(removing: item))
         case let .addToTodo(title):
-            store.add([LifeItem(title: title, kind: .todo, ownership: .personal, date: today, assignee: .me)])
+            let item = LifeItem(title: title, kind: .todo, ownership: .personal, date: today, assignee: .me)
+            store.add([item])
             store.hideMemory(memory.id, until: tomorrow)
-            feedbackMessage = "「\(title)」をやることに追加しました"
+            notify("「\(title)」をやることに追加しました", undo: undo(removing: item))
         case .notifyOnly:
             store.hideMemory(memory.id, until: tomorrow)
         }
@@ -263,8 +430,10 @@ final class TodayViewModel {
     /// 今回はスキップ：周期を今日から数え直す
     /// TODO: 「今回はスキップ」で周期を数え直すか、一定期間だけ隠すかは仕様に明記がない。現状は数え直す。
     func skipMemory(_ memory: LifeMemory) {
+        let memoryBefore = memory
+        let store = self.store
         store.restartMemoryCycle(memory.id, from: now)
-        feedbackMessage = "「\(memory.title)」は今回スキップしました"
+        notify("「\(memory.title)」は今回スキップしました", undo: { store.restoreMemory(memoryBefore) })
     }
 
     // MARK: - 家事オートパイロット
@@ -309,7 +478,7 @@ final class TodayViewModel {
     var inboxSummary: String { "未整理 \(inboxCount)件・今日の整理は30秒" }
 
     var hasNoSchedule: Bool {
-        nextEvent == nil && focusItems.isEmpty
+        timelineSections.isEmpty && extraItems.isEmpty
     }
 
     // MARK: - MONEY
@@ -322,6 +491,18 @@ final class TodayViewModel {
     }
 
     var monthSpending: Int { store.budget.spent }
+
+    var monthlyBudget: Int { store.budget.budget }
+
+    /// 今月の予算に対する割合（0〜1。細い線の長さに使う）
+    var budgetRatio: Double {
+        guard monthlyBudget > 0 else { return 0 }
+        return min(max(Double(monthSpending) / Double(monthlyBudget), 0), 1)
+    }
+
+    var budgetText: String {
+        "予算 \(LifeFormatters.yen(monthlyBudget))"
+    }
 
     // MARK: - 広告
 
