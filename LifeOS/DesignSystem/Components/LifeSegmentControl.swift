@@ -7,6 +7,7 @@ struct LifeSegmentControl<Option: Hashable>: View {
     private let title: (Option) -> String
 
     @Namespace private var namespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(_ options: [Option], selection: Binding<Option>, title: @escaping (Option) -> String) {
         self.options = options
@@ -28,7 +29,7 @@ struct LifeSegmentControl<Option: Hashable>: View {
     private func segment(for option: Option) -> some View {
         let isSelected = option == selection
         return Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                 selection = option
             }
         } label: {

@@ -26,6 +26,16 @@ final class ListsViewModel {
     // MARK: - リスト内の項目（端末内に保存）
 
     /// 空白だけの入力は追加しない
+    /// 一覧に小さく添える中身の例（例：箱根の温泉・近所の新しいカフェ）。空なら nil。
+    /// Calm Future 第4段階：カードの代わりに、中身が少し見える行にした。
+    func previewText(for list: LifeList) -> String? {
+        let titles = list.items.prefix(Self.previewCount).map(\.title)
+        return titles.isEmpty ? nil : titles.joined(separator: "・")
+    }
+
+    /// 一覧に添える項目の数
+    static let previewCount = 2
+
     func addItem(_ title: String, toList id: LifeList.ID) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }

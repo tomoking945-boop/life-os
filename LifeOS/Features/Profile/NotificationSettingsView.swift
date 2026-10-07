@@ -10,7 +10,7 @@ struct NotificationSettingsView: View {
         @Bindable var appState = appState
 
         SettingsScreen(title: "通知") {
-            LifeCard(padding: LifeSpacing.md) {
+            LifeGroupedSection {
                 VStack(spacing: 0) {
                     SettingsToggleRow(
                         title: "今日の予定",

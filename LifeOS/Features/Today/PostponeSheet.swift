@@ -45,9 +45,7 @@ extension View {
                 onSelect(target, option)
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(LifeRadius.sheet)
-            .presentationBackground(LifeColors.background)
+            .lifeSheetPresentation()
         }
     }
 }

@@ -52,7 +52,7 @@ struct SharedStarterView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.lg)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationBarTitleDisplayMode(.inline)
     }
 

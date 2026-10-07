@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// プロフィール（「今日」画面右上のプロフィール画像から開く）
+/// Calm Future 第4段階：白いカードをやめ、紙色の面で行をまとめる。背景は時間帯の背景。
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
     @Environment(AppState.self) private var appState
@@ -14,7 +15,7 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
                 photoSection
 
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection("わが家") {
                     VStack(spacing: 0) {
                         ProfileLinkRow(title: "アカウント") {
                             AccountSettingsView()
@@ -30,7 +31,7 @@ struct ProfileView: View {
                     }
                 }
 
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection("設定") {
                     VStack(spacing: 0) {
                         ProfileLinkRow(title: "通知") {
                             NotificationSettingsView()
@@ -42,7 +43,7 @@ struct ProfileView: View {
                     }
                 }
 
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection("プラン") {
                     VStack(spacing: 0) {
                         ProfileLinkRow(title: "Premium", value: viewModel.planLabel) {
                             PremiumView(appState: appState)
@@ -57,7 +58,7 @@ struct ProfileView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("プロフィール")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()
@@ -67,7 +68,7 @@ struct ProfileView: View {
         VStack(spacing: LifeSpacing.md) {
             LifeAvatar(name: viewModel.name, image: appState.profileImage, size: .extraLarge)
             Text(viewModel.name)
-                .font(LifeTypography.title)
+                .font(LifeTypography.editorialTitle)
                 .foregroundStyle(LifeColors.text)
             NavigationLink {
                 PhotoChangeView()

@@ -57,7 +57,7 @@ struct PhotoChangeView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.bottom, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("写真を変更")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()

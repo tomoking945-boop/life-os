@@ -3,6 +3,7 @@ import SwiftUI
 /// リスト詳細：項目の追加と、左スワイプでの削除ができる。
 /// 決定済み：追加・削除に対応（2026-10-01）。
 /// TODO: 項目の編集・並び替え・チェック（行った / 観た など）は未実装。
+/// Calm Future 第4段階：List の白い面をやめ、時間帯の背景の上に細い線で並べる（左スワイプの削除はそのまま）。
 struct ListDetailView: View {
     let listID: LifeList.ID
     @Bindable var viewModel: ListsViewModel
@@ -16,8 +17,9 @@ struct ListDetailView: View {
                 List {
                     Section {
                         addItemRow
+                            .listRowSeparator(.hidden)
                     }
-                    .listRowBackground(LifeColors.surface)
+                    .listRowBackground(Color.clear)
 
                     Section {
                         if list.items.isEmpty {
@@ -44,7 +46,8 @@ struct ListDetailView: View {
                                 .foregroundStyle(LifeColors.secondaryText)
                         }
                     }
-                    .listRowBackground(LifeColors.surface)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorTint(LifeColors.divider)
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
@@ -53,7 +56,7 @@ struct ListDetailView: View {
                 LifeEmptyState(systemImage: "exclamationmark.circle", title: "リストが見つかりません")
             }
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationBarTitleDisplayMode(.large)
         .tint(LifeColors.primary)
         .quickAddAccessory()
@@ -77,7 +80,9 @@ struct ListDetailView: View {
             .disabled(newItemTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel("項目を追加")
         }
-        .frame(minHeight: LifeSpacing.minTapTarget)
+        .padding(.leading, LifeSpacing.md)
+        .frame(minHeight: LifeSpacing.buttonHeight)
+        .lifeSurface(.normal, cornerRadius: LifeRadius.field)
     }
 
     private func addItem() {

@@ -15,8 +15,7 @@ struct GroupSettingsView: View {
             SettingsTextField(label: "グループ名", text: $draftName, onCommit: commit)
 
             VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-                LifeSectionTitle("メンバー", trailing: "\(appState.profile.members.count)人")
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection("メンバー", trailing: "\(appState.profile.members.count)人") {
                     VStack(spacing: 0) {
                         ForEach(Array(appState.profile.members.enumerated()), id: \.element.id) { index, member in
                             if index > 0 {
@@ -57,9 +56,7 @@ struct GroupSettingsView: View {
         .sheet(isPresented: $isShowingInviteNotice) {
             // v2：1タップ家族招待の Mock 画面（実際の招待は送らない）
             SharingFlowView(item: nil, store: store)
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(LifeRadius.sheet)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
         }
     }
 

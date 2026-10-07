@@ -6,7 +6,7 @@ import SwiftUI
 struct DisplaySettingsView: View {
     var body: some View {
         SettingsScreen(title: "表示設定") {
-            LifeCard(padding: LifeSpacing.md) {
+            LifeGroupedSection {
                 VStack(spacing: 0) {
                     SettingsValueRow(title: "テーマ", value: "ライト")
                     LifeDivider()

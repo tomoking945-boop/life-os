@@ -64,17 +64,14 @@ struct InboxView: View {
         }
         .sheet(isPresented: $viewModel.isTidyUpPresented) {
             TidyUpView(store: store, edits: viewModel.edits, usageStyle: appState.usageStyle)
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(LifeRadius.sheet)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
         }
         .sheet(item: $viewModel.editingEntry) { entry in
             TidyUpEditView(entry: entry) { suggestion in
                 viewModel.update(entry.id, with: suggestion)
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(LifeColors.background)
+            .lifeSheetPresentation()
         }
     }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// お金。Calm Future 第4段階：今日画面の MONEY と同じ「大きな数字と予算の細い線」、一覧は細い線で区切る。
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
 
@@ -10,10 +11,7 @@ struct MoneyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
-                Text("お金")
-                    .font(LifeTypography.display)
-                    .foregroundStyle(LifeColors.text)
-                    .accessibilityAddTraits(.isHeader)
+                LifeScreenHeader(eyebrow: "MONEY", title: "お金")
 
                 summaryCard
                 categoryChips
@@ -22,30 +20,39 @@ struct MoneyView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
     }
 
     // MARK: - 今月
 
+    /// カードに入れず、大きなセリフ体の数字と細い線で見せる
     private var summaryCard: some View {
-        LifeCard {
-            VStack(alignment: .leading, spacing: LifeSpacing.md) {
-                LifeSectionTitle("今月")
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            HStack(spacing: LifeSpacing.xs) {
+                LifeCategoryDot(color: LifeCategoryColors.warmGold)
+                LifeSectionTitle("今月の支出")
+            }
 
-                LifeMoneyRow(title: "支出", amount: viewModel.spent, isEmphasized: true)
+            Text(LifeFormatters.yen(viewModel.spent))
+                .font(LifeTypography.bigNumeral)
+                .foregroundStyle(LifeColors.text)
+                .accessibilityLabel("今月の支出 \(LifeFormatters.yenSpoken(viewModel.spent))")
 
-                ProgressView(value: viewModel.usageRatio)
-                    .tint(LifeColors.primary)
-                    .accessibilityLabel("予算の使用率")
-                    .accessibilityValue(viewModel.usagePercentText)
+            ProgressView(value: viewModel.usageRatio)
+                .tint(LifeCategoryColors.warmGold)
+                .accessibilityLabel("予算の使用率")
+                .accessibilityValue(viewModel.usagePercentText)
 
+            VStack(alignment: .leading, spacing: 0) {
                 LifeDivider()
                 LifeMoneyRow(title: "予算", amount: viewModel.budget)
                 LifeDivider()
                 LifeMoneyRow(title: "残り", amount: viewModel.remaining)
+                LifeDivider()
             }
+            .padding(.top, LifeSpacing.xs)
         }
     }
 
@@ -75,22 +82,21 @@ struct MoneyView: View {
     private var expenseList: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.sm) {
             LifeSectionTitle("支出一覧", trailing: "\(viewModel.expenses.count)件")
-            LifeCard {
-                if viewModel.expenses.isEmpty {
-                    LifeEmptyState(systemImage: "yensign.circle", title: "支出はありません")
-                } else {
-                    VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                        ForEach(Array(viewModel.expenses.enumerated()), id: \.element.id) { index, expense in
-                            if index > 0 {
-                                LifeDivider()
-                            }
-                            LifeMoneyRow(
-                                title: expense.title,
-                                amount: expense.amount,
-                                detail: viewModel.detailText(for: expense)
-                            )
-                        }
+            if viewModel.expenses.isEmpty {
+                LifeEmptyState(systemImage: "yensign.circle", title: "支出はありません")
+                    .frame(maxWidth: .infinity)
+                    .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+            } else {
+                LifeRuledList(viewModel.expenses) { expense in
+                    HStack(spacing: LifeSpacing.sm) {
+                        LifeCategoryDot(color: LifeCategoryColors.warmGold)
+                        LifeMoneyRow(
+                            title: expense.title,
+                            amount: expense.amount,
+                            detail: viewModel.detailText(for: expense)
+                        )
                     }
+                    .padding(.vertical, LifeSpacing.xxs)
                 }
             }
         }

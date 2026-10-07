@@ -19,7 +19,7 @@ struct AccountSettingsView: View {
 
             SettingsTextField(label: "名前", text: $draftName, onCommit: commit)
 
-            LifeCard(padding: LifeSpacing.md) {
+            LifeGroupedSection {
                 SettingsValueRow(title: "ログイン方法", value: "未設定")
             }
 

@@ -1,7 +1,9 @@
 import SwiftUI
 
+/// Premium。Calm Future 第4段階：時間帯の背景・共通の見出し・紙色の面の機能一覧・選択中の面のプラン。
 struct PremiumView: View {
     @State private var viewModel: PremiumViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(appState: AppState) {
         _viewModel = State(initialValue: PremiumViewModel(appState: appState))
@@ -17,7 +19,7 @@ struct PremiumView: View {
                 planOptions
 
                 LifeButton(viewModel.ctaTitle) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                         viewModel.startTrial()
                     }
                 }
@@ -32,29 +34,18 @@ struct PremiumView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("Premium")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-            Text(viewModel.title)
-                .font(LifeTypography.label)
-                .tracking(LifeTypography.labelTracking)
-                .foregroundStyle(LifeColors.secondaryText)
-            Text(viewModel.catchCopy)
-                .font(LifeTypography.display)
-                .foregroundStyle(LifeColors.primary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
+        LifeScreenHeader(eyebrow: viewModel.title, title: viewModel.catchCopy)
     }
 
     private var featureCard: some View {
-        LifeCard {
+        LifeGroupedSection {
             VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                 ForEach(viewModel.features, id: \.self) { feature in
                     HStack(spacing: LifeSpacing.sm) {
@@ -69,6 +60,7 @@ struct PremiumView: View {
                     .frame(minHeight: LifeSpacing.minTapTarget - LifeSpacing.xs)
                 }
             }
+            .padding(.vertical, LifeSpacing.sm)
         }
     }
 
@@ -105,7 +97,7 @@ struct PremiumView: View {
     private func themePreview(_ theme: LifeTheme) -> some View {
         let isSelected = viewModel.previewTheme == theme
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                 viewModel.previewTheme = theme
             }
         } label: {
@@ -185,7 +177,7 @@ struct PremiumView: View {
     private func planCard(_ option: PremiumBillingOption) -> some View {
         let isSelected = viewModel.selectedOption == option
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                 viewModel.selectedOption = option
             }
         } label: {
@@ -211,14 +203,8 @@ struct PremiumView: View {
             }
             .padding(LifeSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: LifeRadius.medium, style: .continuous)
-                    .fill(LifeColors.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: LifeRadius.medium, style: .continuous)
-                    .stroke(isSelected ? LifeColors.primary : LifeColors.divider, lineWidth: isSelected ? 1.5 : 1)
-            )
+            // 選択中は Deep Forest をごく薄く敷いた面（DesignSystem の「選択」の面）
+            .lifeSurface(isSelected ? .selected : .normal, cornerRadius: LifeRadius.medium)
             .contentShape(RoundedRectangle(cornerRadius: LifeRadius.medium, style: .continuous))
         }
         .buttonStyle(.plain)

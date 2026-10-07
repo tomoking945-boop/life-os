@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// やること画面の「買い物」に表示する、買い物専用の画面部分
+/// Calm Future 第4段階：売り場ごとの一覧はカードに入れず、カテゴリー色の点と細い線で区切る。
 struct ShoppingSection: View {
     @Bindable var viewModel: ShoppingViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -21,12 +22,8 @@ struct ShoppingSection: View {
             .frame(minHeight: LifeSpacing.minTapTarget)
 
             if let message = viewModel.feedbackMessage {
-                Text(message)
-                    .font(LifeTypography.footnote)
-                    .foregroundStyle(LifeColors.text)
-                    .padding(.horizontal, LifeSpacing.md)
-                    .padding(.vertical, LifeSpacing.xs)
-                    .background(Capsule().fill(LifeColors.primarySubtle))
+                // 今日画面・Inbox と同じ、すりガラスの一言
+                LifeUndoBanner(message: message)
                     .transition(.opacity)
             }
 
@@ -48,11 +45,7 @@ struct ShoppingSection: View {
     }
 
     private func animate(_ changes: () -> Void) {
-        if reduceMotion {
-            changes()
-        } else {
-            withAnimation(.easeInOut(duration: 0.25)) { changes() }
-        }
+        withLifeAnimation(reduceMotion: reduceMotion, changes)
     }
 
     // MARK: - 買い物リスト（売り場ごと）
@@ -60,22 +53,18 @@ struct ShoppingSection: View {
     private var listSection: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.md) {
             if viewModel.groups.isEmpty {
-                LifeCard {
-                    LifeEmptyState(systemImage: "bag", title: "買うものはありません", message: "よく買うものから、ワンタップで追加できます。")
-                }
+                LifeEmptyState(systemImage: "bag", title: "買うものはありません", message: "よく買うものから、ワンタップで追加できます。")
+                    .frame(maxWidth: .infinity)
+                    .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
             } else {
                 ForEach(viewModel.groups) { group in
                     VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                        LifeSectionTitle(group.category.label, trailing: "\(group.items.count)件")
-                        LifeCard(padding: LifeSpacing.md) {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
-                                    if index > 0 {
-                                        LifeDivider()
-                                    }
-                                    shoppingRow(item)
-                                }
-                            }
+                        HStack(spacing: LifeSpacing.xs) {
+                            LifeCategoryDot(color: LifeCategoryColors.sage)
+                            LifeSectionTitle(group.category.label, trailing: "\(group.items.count)件")
+                        }
+                        LifeRuledList(group.items) { item in
+                            shoppingRow(item)
                         }
                     }
                 }
@@ -223,10 +212,7 @@ struct ShoppingSection: View {
                     .accessibilityHidden(true)
             }
             .padding(LifeSpacing.cardPadding)
-            .background(
-                RoundedRectangle(cornerRadius: LifeRadius.card, style: .continuous)
-                    .fill(LifeColors.paper)
-            )
+            .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

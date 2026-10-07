@@ -48,9 +48,7 @@ struct MainTabView: View {
         .sheet(isPresented: $appState.isQuickAddPresented) {
             QuickAddSheet(store: store)
                 .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(LifeRadius.sheet)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
         }
     }
 }

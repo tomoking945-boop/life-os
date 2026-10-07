@@ -53,8 +53,7 @@ struct TidyUpView: View {
                     viewModel.update(entry.id, with: suggestion)
                 }
                 .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
             }
         }
     }

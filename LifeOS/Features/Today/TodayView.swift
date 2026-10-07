@@ -103,9 +103,7 @@ struct TodayView: View {
         }
         .sheet(isPresented: $viewModel.isShowingInvite) {
             SharingFlowView(item: viewModel.invitingItem, store: store)
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(LifeRadius.sheet)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
         }
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             animate { viewModel.postpone(item, to: option) }

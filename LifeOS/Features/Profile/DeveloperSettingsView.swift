@@ -49,7 +49,7 @@ struct DeveloperSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                LifeCard {
+                LifeGroupedSection {
                     VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                         Text("Free：今日画面に広告カードを1枠表示します。")
                         Text("Premium：広告カードを表示しません。")
@@ -58,6 +58,7 @@ struct DeveloperSettingsView: View {
                     }
                     .font(LifeTypography.callout)
                     .foregroundStyle(LifeColors.text)
+                    .padding(.vertical, LifeSpacing.sm)
                 }
 
                 VStack(alignment: .leading, spacing: LifeSpacing.sm) {
@@ -76,7 +77,7 @@ struct DeveloperSettingsView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("開発用設定")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()

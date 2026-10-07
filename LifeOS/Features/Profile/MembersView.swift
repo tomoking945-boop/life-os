@@ -8,8 +8,7 @@ struct MembersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
-                LifeSectionTitle(appState.profile.groupName, trailing: "\(appState.profile.members.count)人")
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection(appState.profile.groupName, trailing: "\(appState.profile.members.count)人") {
                     VStack(spacing: 0) {
                         ForEach(Array(appState.profile.members.enumerated()), id: \.element.id) { index, member in
                             if index > 0 {
@@ -41,7 +40,7 @@ struct MembersView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("共有メンバー")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()

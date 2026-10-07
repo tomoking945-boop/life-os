@@ -77,6 +77,22 @@ final class CalendarViewModel {
         store.items(on: date, scope: appState.effectiveScope).count
     }
 
+    /// その日の項目の種類（カテゴリー色の点に使う。多い順ではなく種類の並び順で最大3つ）
+    /// Calm Future 第4段階：これまでの1色の点を、低彩度のカテゴリー色の点にした。
+    func markerKinds(on date: Date) -> [LifeItemKind] {
+        let kinds = Set(store.items(on: date, scope: appState.effectiveScope).map(\.kind))
+        return Array(LifeItemKind.allCases.filter { kinds.contains($0) }.prefix(Self.maxMarkerCount))
+    }
+
+    /// 1日に出す点の数の上限
+    static let maxMarkerCount = 3
+
+    /// 選んだ日の大きな見出し（例：10月7日（水））
+    var selectedDateHeadline: String { LifeFormatters.headerDate(selectedDate) }
+
+    /// 選んだ日の小さな見出し（今日なら TODAY）
+    var selectedDateEyebrow: String { isToday(selectedDate) ? "TODAY" : "SELECTED DAY" }
+
     func select(_ date: Date) {
         selectedDate = LifeCalendar.startOfDay(date)
     }

@@ -1,8 +1,10 @@
 import SwiftUI
 
+/// やること。Calm Future 第4段階：時間帯の背景・セリフ体の見出し・カードに入れず細い線で区切る一覧。
 struct TasksView: View {
     @State private var viewModel: TasksViewModel
     @State private var shoppingViewModel: ShoppingViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(store: LifeStore, appState: AppState) {
         _viewModel = State(initialValue: TasksViewModel(store: store, appState: appState))
@@ -12,10 +14,7 @@ struct TasksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
-                Text("やること")
-                    .font(LifeTypography.display)
-                    .foregroundStyle(LifeColors.text)
-                    .accessibilityAddTraits(.isHeader)
+                LifeScreenHeader(eyebrow: "TASKS", title: "やること")
 
                 LifeSegmentControl(TaskSegment.allCases, selection: $viewModel.segment) { $0.title }
 
@@ -29,29 +28,28 @@ struct TasksView: View {
                             .fixedSize()
                     }
 
-                    LifeCard {
-                        if viewModel.tasks.isEmpty {
-                            LifeEmptyState(systemImage: "checkmark.circle", title: viewModel.emptyTitle)
-                        } else {
-                            VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                                ForEach(viewModel.tasks) { item in
-                                    let avatar = viewModel.avatar(for: item)
-                                    LifeTaskRow(
-                                        title: item.title,
-                                        detail: viewModel.assigneeText(for: item),
-                                        trailing: viewModel.trailingText(for: item),
-                                        assigneeName: avatar?.name,
-                                        assigneeImage: avatar?.image,
-                                        isCompleted: item.isCompleted,
-                                        tint: item.kind.tint,
-                                        onLater: { viewModel.startPostponing(item) }
-                                    ) {
-                                        withAnimation(.easeInOut(duration: 0.25)) {
-                                            viewModel.toggle(item)
-                                        }
-                                    }
+                    if viewModel.tasks.isEmpty {
+                        LifeEmptyState(systemImage: "checkmark.circle", title: viewModel.emptyTitle)
+                            .frame(maxWidth: .infinity)
+                            .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+                    } else {
+                        LifeRuledList(viewModel.tasks) { item in
+                            let avatar = viewModel.avatar(for: item)
+                            LifeTaskRow(
+                                title: item.title,
+                                detail: viewModel.assigneeText(for: item),
+                                trailing: viewModel.trailingText(for: item),
+                                assigneeName: avatar?.name,
+                                assigneeImage: avatar?.image,
+                                isCompleted: item.isCompleted,
+                                tint: item.kind.tint,
+                                onLater: { viewModel.startPostponing(item) }
+                            ) {
+                                withLifeAnimation(reduceMotion: reduceMotion) {
+                                    viewModel.toggle(item)
                                 }
                             }
+                            .padding(.vertical, LifeSpacing.xxs)
                         }
                     }
                 }
@@ -59,11 +57,11 @@ struct TasksView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withLifeAnimation(reduceMotion: reduceMotion) {
                 viewModel.postpone(item, to: option)
             }
         }

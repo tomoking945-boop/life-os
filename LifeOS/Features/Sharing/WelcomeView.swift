@@ -49,7 +49,7 @@ struct WelcomeView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.lg)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $isShowingStarter) {
             SharedStarterView(store: store, onFinish: onFinish)

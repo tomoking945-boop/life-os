@@ -91,60 +91,49 @@ struct LifeMemoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
-                VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                    Text("暮らしメモリー")
-                        .font(LifeTypography.display)
-                        .foregroundStyle(LifeColors.primary)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("生活の周期や、忘れやすいことを覚えておきます。")
-                        .font(LifeTypography.callout)
-                        .foregroundStyle(LifeColors.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                LifeScreenHeader(
+                    eyebrow: "MEMORY",
+                    title: "暮らしメモリー",
+                    subtitle: "生活の周期や、忘れやすいことを覚えておきます。"
+                )
 
-                LifeCard(padding: LifeSpacing.md) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(viewModel.memories.enumerated()), id: \.element.id) { index, memory in
-                            if index > 0 {
-                                LifeDivider()
+                // Calm Future 第4段階：カードに入れず、細い線で区切る
+                LifeRuledList(viewModel.memories) { memory in
+                    HStack(alignment: .top, spacing: LifeSpacing.sm) {
+                        Image(systemName: viewModel.isDue(memory) ? "bell" : "checkmark.circle")
+                            .foregroundStyle(viewModel.isDue(memory) ? LifeColors.accent : LifeColors.secondaryText)
+                            .frame(width: LifeSpacing.lg)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                            Text(memory.title)
+                                .font(LifeTypography.editorialHeadline)
+                                .foregroundStyle(LifeColors.text)
+                            Text(viewModel.cycleText(memory))
+                                .font(LifeTypography.footnote)
+                                .foregroundStyle(LifeColors.secondaryText)
+                            Text(viewModel.statusText(memory))
+                                .font(LifeTypography.callout)
+                                .foregroundStyle(LifeColors.text)
+                            // 第3段階：前回・誰が対応したか・平均周期・次の目安・季節・提案の履歴
+                            ForEach(viewModel.recordLines(memory, profile: appState.profile), id: \.self) { line in
+                                Text(line)
+                                    .font(LifeTypography.caption)
+                                    .foregroundStyle(LifeColors.secondaryText)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            HStack(alignment: .top, spacing: LifeSpacing.sm) {
-                                Image(systemName: viewModel.isDue(memory) ? "bell" : "checkmark.circle")
-                                    .foregroundStyle(viewModel.isDue(memory) ? LifeColors.accent : LifeColors.secondaryText)
-                                    .frame(width: LifeSpacing.lg)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
-                                    Text(memory.title)
-                                        .font(LifeTypography.bodyEmphasis)
-                                        .foregroundStyle(LifeColors.text)
-                                    Text(viewModel.cycleText(memory))
-                                        .font(LifeTypography.footnote)
-                                        .foregroundStyle(LifeColors.secondaryText)
-                                    Text(viewModel.statusText(memory))
-                                        .font(LifeTypography.callout)
-                                        .foregroundStyle(LifeColors.text)
-                                    // 第3段階：前回・誰が対応したか・平均周期・次の目安・季節・提案の履歴
-                                    ForEach(viewModel.recordLines(memory, profile: appState.profile), id: \.self) { line in
-                                        Text(line)
-                                            .font(LifeTypography.caption)
-                                            .foregroundStyle(LifeColors.secondaryText)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    .padding(.top, LifeSpacing.xxs)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, LifeSpacing.xs)
-                            .padding(.vertical, LifeSpacing.sm)
-                            .accessibilityElement(children: .combine)
+                            .padding(.top, LifeSpacing.xxs)
                         }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, LifeSpacing.xs)
+                    .padding(.vertical, LifeSpacing.md)
+                    .accessibilityElement(children: .combine)
                 }
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("暮らしメモリー")
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()

@@ -18,7 +18,7 @@ struct SettingsScreen<Content: View>: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .quickAddAccessory()

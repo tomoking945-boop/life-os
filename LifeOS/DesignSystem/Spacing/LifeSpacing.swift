@@ -29,6 +29,8 @@ enum LifeSpacing {
     static let calendarDayDiameter: CGFloat = 38
     /// カレンダーの予定ドットの直径
     static let calendarDotDiameter: CGFloat = 5
+    /// カレンダーのカテゴリー色の点の間隔（Calm Future 第4段階）
+    static let calendarDotGap: CGFloat = 2
     /// 区切り線の太さ
     static let hairline: CGFloat = 0.5
     /// カテゴリー色のドットの直径

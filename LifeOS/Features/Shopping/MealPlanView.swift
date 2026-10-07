@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 将来機能「献立 → 買い物」の UI プロトタイプ（v2 仕様 12）。
 /// 献立は固定データ。［買い物リストを作成］で材料を出し、選んだものを買い物に追加する。
+/// Calm Future 第4段階：時間帯の背景、献立は紙色の面に曜日をセリフ体で並べる。
 struct MealPlanView: View {
     let viewModel: ShoppingViewModel
 
@@ -10,6 +11,7 @@ struct MealPlanView: View {
     @State private var resultMessage: String?
 
     private let plan = MockData.mealPlan
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
@@ -26,7 +28,7 @@ struct MealPlanView: View {
                         .accessibilityAddTraits(.isHeader)
                 }
 
-                LifeCard(padding: LifeSpacing.md) {
+                LifeGroupedSection {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(plan.enumerated()), id: \.element.id) { index, day in
                             if index > 0 {
@@ -50,7 +52,7 @@ struct MealPlanView: View {
                 }
 
                 LifeButton("買い物リストを作成", systemImage: "sparkles", kind: generated.isEmpty ? .primary : .secondary) {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withLifeAnimation(reduceMotion: reduceMotion) {
                         generated = plan.flatMap(\.ingredients)
                         selected = Set(generated)
                         resultMessage = nil
@@ -68,7 +70,7 @@ struct MealPlanView: View {
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .navigationTitle("献立")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -73,7 +73,7 @@ struct SharingFlowView: View {
                 .padding(.horizontal, LifeSpacing.screenHorizontal)
                 .padding(.vertical, LifeSpacing.lg)
             }
-            .background(LifeColors.background.ignoresSafeArea())
+            .lifeScreenBackground()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -113,10 +113,7 @@ struct SharedItemPreview: View {
             Spacer(minLength: 0)
         }
         .padding(LifeSpacing.cardPadding)
-        .background(
-            RoundedRectangle(cornerRadius: LifeRadius.card, style: .continuous)
-                .fill(LifeColors.paper)
-        )
+        .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
         .accessibilityElement(children: .combine)
     }
 

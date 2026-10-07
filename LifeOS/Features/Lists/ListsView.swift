@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// リスト。Calm Future 第4段階：セリフ体の見出し、リストはカードに入れず細い線で区切り、中身を少し見せる。
 struct ListsView: View {
     @State private var viewModel: ListsViewModel
 
@@ -10,12 +11,7 @@ struct ListsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("リスト")
-                        .font(LifeTypography.display)
-                        .foregroundStyle(LifeColors.text)
-                        .accessibilityAddTraits(.isHeader)
-                    Spacer()
+                LifeScreenHeader(eyebrow: "LISTS", title: "リスト") {
                     Button {
                         viewModel.startCreatingList()
                     } label: {
@@ -29,19 +25,17 @@ struct ListsView: View {
                     .accessibilityLabel("新しいリストを作成")
                 }
 
-                VStack(spacing: LifeSpacing.md) {
-                    ForEach(viewModel.lists) { list in
-                        NavigationLink(value: list.id) {
-                            listCard(list)
-                        }
-                        .buttonStyle(.plain)
+                LifeRuledList(viewModel.lists) { list in
+                    NavigationLink(value: list.id) {
+                        listRow(list)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
-        .background(LifeColors.background.ignoresSafeArea())
+        .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
         .navigationDestination(for: LifeList.ID.self) { id in
@@ -50,29 +44,35 @@ struct ListsView: View {
         .sheet(isPresented: $viewModel.isCreatingList) {
             NewListView(viewModel: viewModel)
                 .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(LifeRadius.sheet)
-                .presentationBackground(LifeColors.background)
+                .lifeSheetPresentation()
         }
     }
 
-    private func listCard(_ list: LifeList) -> some View {
-        LifeCard {
-            HStack {
+    private func listRow(_ list: LifeList) -> some View {
+        HStack(alignment: .center, spacing: LifeSpacing.sm) {
+            VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
                 Text(list.title)
-                    .font(LifeTypography.headline)
+                    .font(LifeTypography.editorialHeadline)
                     .foregroundStyle(LifeColors.text)
-                Spacer()
-                Text(viewModel.itemCountText(for: list))
-                    .font(LifeTypography.footnote)
-                    .foregroundStyle(LifeColors.secondaryText)
-                Image(systemName: "chevron.right")
-                    .font(LifeTypography.footnote)
-                    .foregroundStyle(LifeColors.secondaryText)
-                    .accessibilityHidden(true)
+                if let preview = viewModel.previewText(for: list) {
+                    Text(preview)
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .lineLimit(1)
+                }
             }
-            .frame(minHeight: LifeSpacing.minTapTarget)
+            Spacer(minLength: LifeSpacing.xs)
+            Text(viewModel.itemCountText(for: list))
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.secondaryText)
+            Image(systemName: "chevron.right")
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.secondaryText)
+                .accessibilityHidden(true)
         }
+        .padding(.vertical, LifeSpacing.md)
+        .frame(minHeight: LifeSpacing.minTapTarget)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("リストの詳細を開きます")
     }
