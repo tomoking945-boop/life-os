@@ -10,6 +10,7 @@ final class PremiumViewModel {
 
     init(appState: AppState) {
         self.appState = appState
+        self.previewTheme = appState.selectedTheme
     }
 
     let title = "生活OS Premium"
@@ -29,12 +30,34 @@ final class PremiumViewModel {
 
     let options = PremiumBillingOption.allCases
 
-    // MARK: - LifeOS Themes（プレビューのみ）
+    // MARK: - LifeOS Themes（テーマとダークモード 2026-10-08：Premium で選んだテーマをアプリ全体に反映）
 
     let themeSectionTitle = "自分らしい生活OSに"
     let themes = LifeTheme.allCases
-    /// プレビューで選んでいるテーマ（Mock。アプリには適用しない）
-    var previewTheme: LifeTheme = .forest
+    /// プレビューで選んでいるテーマ（最初は今のテーマ）
+    var previewTheme: LifeTheme
+
+    /// いまアプリで使っているテーマ（Free は Forest）
+    var currentTheme: LifeTheme { appState.effectiveTheme }
+
+    /// 「このテーマを使う」を押せるか（Premium で、今と違うテーマを選んでいるとき）
+    var canApplyTheme: Bool { isPremium && previewTheme != currentTheme }
+
+    var applyThemeTitle: String {
+        previewTheme == currentTheme ? "\(currentTheme.name) を使用中" : "\(previewTheme.name) を使う"
+    }
+
+    var themeNote: String {
+        isPremium
+            ? "選んだテーマはアプリ全体の色になります（反映すると、最初の画面に戻ります）。ライト／ダークはプロフィール →「表示設定」で選べます。"
+            : "テーマは Premium で使えます。Free の今は見た目の確認だけで、アプリは Forest のままです。"
+    }
+
+    /// 選んだテーマをアプリ全体に反映する（Premium のときだけ）
+    func applyTheme() {
+        guard canApplyTheme else { return }
+        appState.selectTheme(previewTheme)
+    }
 
     var isPremium: Bool { appState.isPremium }
 

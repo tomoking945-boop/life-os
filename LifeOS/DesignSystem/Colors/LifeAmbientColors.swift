@@ -8,7 +8,7 @@ import SwiftUI
 /// - 夕方：Ivory ＋ Terracotta
 /// - 夜：Deep Forest ＋ Midnight
 ///
-/// 新しい解釈：当面はライトモード固定のため、夜も背景は Ivory のまま。
+/// 新しい解釈：ライトでは夜も背景は Ivory のまま（ダークモードでは、テーマのダークの背景の上に同じ色をごく弱く重ねる）。
 /// Deep Forest と Midnight を上部にごく弱く重ねて「夜の気配」だけを出す（文字は濃い色のまま読める）。
 enum LifeAmbientColors {
     static let warmIvory = LifeColors.background

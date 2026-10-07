@@ -12,11 +12,32 @@ struct LifeOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            LifeThemedRoot()
                 .environment(appState)
                 .environment(store)
-                // 決定済み：当面はライトモード固定（2026-10-01）。ダーク配色はデザインを詰める段階で追加する。
-                .preferredColorScheme(.light)
         }
+    }
+}
+
+/// テーマとダークモード（2026-10-08）：アプリの一番外側でテーマとライト／ダークを反映する。
+/// - ライト／ダーク：表示設定の選択（端末に合わせる／ライト／ダーク）
+/// - テーマ：Premium で選んだテーマ（Free は Forest）。変わったときは画面を描き直して新しい色にする
+///   （色はその場で決まるしくみのため、描き直しで全画面が新しいテーマになる。開いていた画面は最初の画面に戻る）
+struct LifeThemedRoot: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let theme = apply(appState.effectiveTheme)
+        MainTabView()
+            .id(theme)
+            .preferredColorScheme(appState.appearanceMode.colorScheme)
+    }
+
+    /// 色が参照するテーマを切り替える（描き直す前に反映する）
+    private func apply(_ theme: LifeTheme) -> LifeTheme {
+        if LifeThemeRuntime.theme != theme {
+            LifeThemeRuntime.theme = theme
+        }
+        return theme
     }
 }

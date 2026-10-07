@@ -65,6 +65,31 @@ final class AppState {
 
     var isPremium: Bool { plan == .premium }
 
+    // MARK: - テーマとダークモード（2026-10-08）
+
+    /// ライト／ダーク（表示設定）。新しい解釈：初期値は「端末に合わせる」
+    var appearanceMode: LifeAppearanceMode = .system
+    /// Premium で選んだテーマ（Free に戻しても選んだものは覚えておく）
+    var selectedTheme: LifeTheme = .forest
+
+    /// 実際に使うテーマ。テーマは Premium の機能なので、Free のときは Forest
+    var effectiveTheme: LifeTheme {
+        isPremium ? selectedTheme : .forest
+    }
+
+    /// テーマを選んで保存する（Premium のときだけ選べる）
+    func selectTheme(_ theme: LifeTheme) {
+        guard isPremium else { return }
+        selectedTheme = theme
+        save()
+    }
+
+    /// ライト／ダークを選んで保存する
+    func setAppearanceMode(_ mode: LifeAppearanceMode) {
+        appearanceMode = mode
+        save()
+    }
+
     // MARK: - 端末内への保存
 
     /// true のとき、save() で端末内へ保存する（プレビューでは保存しない）
@@ -78,6 +103,9 @@ final class AppState {
         /// v2 で追加。以前の保存データには無いため Optional
         var usageStyle: UsageStyle?
         var partnerJoined: Bool?
+        /// テーマとダークモード（2026-10-08）で追加。以前の保存データには無いため Optional
+        var appearanceMode: LifeAppearanceMode?
+        var selectedTheme: LifeTheme?
     }
 
     private static let fileName = "app-settings.json"
@@ -91,6 +119,8 @@ final class AppState {
             state.notificationSettings = settings.notificationSettings
             state.usageStyle = settings.usageStyle ?? .shared
             state.partnerJoined = settings.partnerJoined ?? true
+            state.appearanceMode = settings.appearanceMode ?? .system
+            state.selectedTheme = settings.selectedTheme ?? .forest
         }
         state.persists = true
         state.save()
@@ -106,7 +136,9 @@ final class AppState {
                 profile: profile,
                 notificationSettings: notificationSettings,
                 usageStyle: usageStyle,
-                partnerJoined: partnerJoined
+                partnerJoined: partnerJoined,
+                appearanceMode: appearanceMode,
+                selectedTheme: selectedTheme
             ),
             to: Self.fileName
         )

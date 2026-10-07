@@ -87,7 +87,14 @@ struct PremiumView: View {
                 .padding(.vertical, LifeSpacing.xxs)
             }
 
-            Text("テーマはPremiumで使えるようになる予定です。今は見た目の確認だけで、アプリの色は変わりません。")
+            if viewModel.isPremium {
+                LifeButton(viewModel.applyThemeTitle, systemImage: "paintpalette", kind: .secondary) {
+                    viewModel.applyTheme()
+                }
+                .disabled(!viewModel.canApplyTheme)
+            }
+
+            Text(viewModel.themeNote)
                 .font(LifeTypography.footnote)
                 .foregroundStyle(LifeColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

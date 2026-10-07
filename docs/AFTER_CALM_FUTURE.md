@@ -40,7 +40,7 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 
 ### ビルド結果
 
-この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。Mac での ⌘B・⌘U（合計120件）は確認待ち。
+この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。2026-10-08 に Mac の Xcode でビルド成功・テスト120件成功・Simulator 確認済み。
 
 ### Simulator で確認すべき操作
 
@@ -50,3 +50,49 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 4. 種類を決めて追加の「予定」で「19時 美容院」→ 19:00 の予定
 5. Inbox のメモ → 修正 → 時刻を決める・いつごろ → 決定 →「修正済み」→ Inbox を閉じて開き直しても残る
 6. アプリを終了して開き直しても、修正済みが残る
+
+## 2. テーマとダークモード（2026-10-08）
+
+### 変更したファイル
+
+新規
+- DesignSystem/Colors：`LifePalette.swift`（テーマごとのライト・ダークの基本色、`LifeThemeRuntime`、`LifeAppearanceMode`）
+- LifeOSTests：`ThemeTests.swift`（8件）
+
+変更
+- DesignSystem/Colors：`LifeColors.swift`（各色をテーマとライト／ダークに合わせて決まる色に）、`LifeThemes.swift`（プレビューの色を基本色から）、`LifeAmbientColors.swift`（説明のみ）
+- App：`LifeOSApp.swift`（`LifeThemedRoot`：テーマとライト／ダークの反映）、`AppState.swift`（ライト／ダーク・選んだテーマの保存）、`LifeAppearance.swift`（タブバー・ナビゲーションバーの色）
+- Features：Profile の `DisplaySettingsView`（ライト／ダークの選択・カラーテーマ）、Premium（`PremiumView`・`PremiumViewModel`：テーマを使う）
+- docs：`IMPLEMENTATION_NOTES.md`、本書
+
+### 見た目・動きの変化
+
+- 表示設定で「端末に合わせる／ライト／ダーク」を選べる。ダークは深い森のような暗い背景で、文字は明るいアイボリー。
+- Premium のとき、Premium 画面でテーマを選んで［◯◯ を使う］を押すと、アプリ全体がそのテーマの色になる。
+- Free のときはテーマはプレビューだけで、アプリは Forest のまま。
+
+### 維持した既存機能
+
+すべての画面の表示と操作、Forest のライトの色（これまでと同じ）、時間帯の背景、すりガラス、カテゴリー色、Free／Premium（広告の有無）、Dynamic Type・VoiceOver・視差効果を減らす・透明度を下げる、保存データ。
+
+### 未実装・将来対応
+
+- テーマを変えたときに、開いている画面を戻さずに色だけ変えること
+- 時間帯でテーマやライト／ダークを自動で変えること（例：夜だけダーク）
+- カテゴリー色のダーク向けの調整（今はライトと同じ低彩度の色）
+
+### ビルド結果
+
+この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。Mac での ⌘B・⌘U（合計128件）は確認待ち。
+
+### Simulator で確認すべき操作
+
+1. プロフィール → 表示設定 →「ダーク」：全画面が暗い色に。今日・カレンダー・やること・リスト・お金・なんでも追加・Inbox・Premium を見て、文字が読めること
+2. 「ライト」に戻す：これまでと同じ色
+3. 「端末に合わせる」：Simulator の Features → Toggle Appearance（⇧⌘A）でライト／ダークが切り替わること
+4. Free のまま Premium 画面：テーマのプレビューを押しても、アプリの色は変わらない（説明文に Free の案内）
+5. 開発用設定で Premium にする → Premium 画面で「Hotel」→［Hotel を使う］→ 今日画面に戻り、全体がエスプレッソと真鍮の色に
+6. ほかのテーマ（Sage・Midnight・Terracotta）もライトとダークで確認
+7. 開発用設定で Free に戻す → Forest に戻る。Premium に戻す → 選んだテーマに戻る
+8. アプリを終了して開き直しても、ライト／ダークとテーマが残っていること
+9. 設定アプリ → アクセシビリティ → 透明度を下げる：タブバーが不透明になり、色はテーマに合うこと
