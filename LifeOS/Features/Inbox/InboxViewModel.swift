@@ -11,8 +11,14 @@ final class InboxViewModel {
     /// 修正中のメモ
     var editingEntry: TidyUpEntry?
     /// 「修正」で変えた理解（メモごと）。
-    /// TODO: 修正した内容を保存するかは未定。現状はこの画面を開いている間だけ保持し、まとめて整理にも引き継ぐ。
-    private(set) var edits: [InboxItem.ID: InboxSuggestion] = [:]
+    /// 「入力をもっと賢く」（2026-10-07）：メモ（`InboxItem.edit`）に保存し、アプリを閉じても残す。まとめて整理にも引き継ぐ。
+    var edits: [InboxItem.ID: InboxSuggestion] {
+        var result: [InboxItem.ID: InboxSuggestion] = [:]
+        for memo in store.inbox {
+            if let edit = memo.edit { result[memo.id] = edit }
+        }
+        return result
+    }
     /// 操作のあとの一言と「元に戻す」
     var feedback: LifeFeedback?
 
@@ -116,7 +122,7 @@ final class InboxViewModel {
         if updated.title.isEmpty, let current = store.inbox.first(where: { $0.id == id }) {
             updated.title = self.suggestion(for: current).title
         }
-        edits[id] = updated
+        store.saveInboxEdit(id, suggestion: updated)
         editingEntry = nil
     }
 

@@ -19,8 +19,15 @@ enum InboxClassifier {
     private static let listSeparators: [Character] = ["と", "、", ",", "，", "・", " ", "　"]
 
     static func suggest(for text: String) -> InboxSuggestion {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var clues: [String] = []
+
+        // 「入力をもっと賢く」（2026-10-07）：時刻を先に読み取り、残りの文で分類する（「10:30 歯医者」→ 歯医者・10:30）
+        let timeMatch = TimeReader.read(trimmed)
+        if let timeMatch, !timeMatch.remainingText.isEmpty {
+            trimmed = timeMatch.remainingText
+        }
+        let time = (timeMatch?.remainingText.isEmpty == false) ? timeMatch?.time : nil
 
         var day = InboxDay.today
         if let match = dayKeywords.first(where: { trimmed.contains($0.word) }) {
@@ -46,11 +53,16 @@ enum InboxClassifier {
             kind = .shopping
             clues.append(names[0])
         } else {
-            kind = .todo
+            // 新しい解釈：時刻があって、ほかに手がかりが無ければ「予定」（「10:30 歯医者」）
+            kind = time == nil ? .todo : .event
         }
 
-        // 新しい解釈：今日の買い物は「帰宅時」に出す（仕様の例「帰宅時に表示」）
-        let softTime: SoftTime? = (kind == .shopping && day == .today) ? .onTheWayHome : nil
+        if let timeMatch, time != nil {
+            clues.insert(timeMatch.clue, at: 0)
+        }
+
+        // 新しい解釈：今日の買い物は「帰宅時」に出す（仕様の例「帰宅時に表示」）。時刻があれば時刻を優先する
+        let softTime: SoftTime? = (time == nil && kind == .shopping && day == .today) ? .onTheWayHome : nil
 
         return InboxSuggestion(
             title: cleanTitle(trimmed, kind: kind),
@@ -58,7 +70,8 @@ enum InboxClassifier {
             ownership: sharedWord == nil ? .personal : .shared,
             day: day,
             softTime: softTime,
-            clues: clues
+            clues: clues,
+            time: time
         )
     }
 
@@ -92,7 +105,7 @@ enum InboxClassifier {
     /// 「明日牛乳買う」→「牛乳を買う」のように、日付の言葉を外して整える
     static func cleanTitle(_ text: String, kind: LifeItemKind) -> String {
         var title = text
-        let words = ["明日", "今日", "土曜日に", "土曜に", "土曜日", "土曜", "日曜日に", "日曜に", "日曜日", "日曜",
+        let words = ["明日の", "今日の", "土曜の", "日曜の", "明日", "今日", "土曜日に", "土曜に", "土曜日", "土曜", "日曜日に", "日曜に", "日曜日", "日曜",
                      "週末に", "週末", "妻と", "夫と"]
         for word in words {
             title = title.replacingOccurrences(of: word, with: "")

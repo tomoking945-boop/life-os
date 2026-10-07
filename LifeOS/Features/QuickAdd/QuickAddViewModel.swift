@@ -82,7 +82,7 @@ final class QuickAddViewModel {
     /// 「すぐ追加」：整理せず、入力欄の内容をそのまま指定の種類で今日に1件追加する。
     /// 決定済み（2026-10-01）。
     /// 決定済み：すぐ追加した項目は「自分」として追加する（2026-10-01）。
-    /// TODO: 予定の時刻は入力から読み取らない（終日の予定として追加）。
+    /// 「入力をもっと賢く」（2026-10-07）：予定は「19時 美容院」のような時刻を読み取り、時刻つきで追加する（無ければ終日）。
     /// - Returns: 追加できたら true（シートを閉じる）
     func quickAdd(_ type: QuickAddType) -> Bool {
         guard canQuickAdd else { return false }
@@ -96,9 +96,16 @@ final class QuickAddViewModel {
             case .event: kind = .event
             default: kind = .shopping
             }
-            store.add([
-                LifeItem(title: trimmedInput, kind: kind, ownership: .personal, date: today, assignee: .me)
-            ])
+            if kind == .event, let match = TimeReader.read(trimmedInput), !match.remainingText.isEmpty {
+                store.add([
+                    LifeItem(title: match.remainingText, kind: .event, ownership: .personal,
+                             date: match.time.date(on: today), hasTime: true, assignee: .me)
+                ])
+            } else {
+                store.add([
+                    LifeItem(title: trimmedInput, kind: kind, ownership: .personal, date: today, assignee: .me)
+                ])
+            }
 
         case .expense:
             // 例：「ランチ 1200」→ 品目「ランチ」・金額 1,200円
@@ -222,6 +229,26 @@ final class QuickAddViewModel {
     var addButtonTitle: String { "\(selectedCount)件を追加" }
 
     var canAdd: Bool { selectedCount > 0 }
+
+    /// 柔らかい時間の選択肢（決めない＋帰宅時・夜・余力があれば・今週中）
+    static let softTimeOptions: [SoftTime?] = [nil] + SoftTime.allCases.map { Optional($0) }
+
+    /// 柔らかい時間を選べるか（時刻の決まっている項目は時刻を優先するため選べない）
+    func canChooseSoftTime(_ item: LifeItem) -> Bool {
+        !item.hasTime
+    }
+
+    /// 柔らかい時間の表示（決めない／帰宅時 など）
+    static func softTimeLabel(_ softTime: SoftTime?) -> String {
+        softTime?.label ?? "決めない"
+    }
+
+    /// 「詳しく整える」で、項目ごとに柔らかい時間を選ぶ（「入力をもっと賢く」2026-10-07）
+    func setSoftTime(_ softTime: SoftTime?, for id: QuickAddCandidate.ID) {
+        guard let index = candidates.firstIndex(where: { $0.id == id }),
+              canChooseSoftTime(candidates[index].item) else { return }
+        candidates[index].item.softTime = softTime
+    }
 
     func toggleCandidate(_ id: QuickAddCandidate.ID) {
         guard let index = candidates.firstIndex(where: { $0.id == id }) else { return }

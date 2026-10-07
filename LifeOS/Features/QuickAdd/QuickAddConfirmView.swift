@@ -39,7 +39,12 @@ struct QuickAddConfirmView: View {
                         if index > 0 {
                             LifeDivider()
                         }
-                        candidateRow(candidate)
+                        VStack(alignment: .leading, spacing: 0) {
+                            candidateRow(candidate)
+                            if viewModel.canChooseSoftTime(candidate.item) {
+                                softTimeMenu(candidate)
+                            }
+                        }
                     }
                 }
                 .padding(LifeSpacing.md)
@@ -60,6 +65,39 @@ struct QuickAddConfirmView: View {
             .padding(.vertical, LifeSpacing.sm)
             .background(LifeColors.background)
         }
+    }
+
+    /// 「いつごろ」：帰宅時・夜・余力があれば・今週中を選ぶ（「入力をもっと賢く」2026-10-07）
+    private func softTimeMenu(_ candidate: QuickAddCandidate) -> some View {
+        Menu {
+            ForEach(QuickAddViewModel.softTimeOptions, id: \.self) { option in
+                Button {
+                    viewModel.setSoftTime(option, for: candidate.id)
+                } label: {
+                    if option == candidate.item.softTime {
+                        Label(QuickAddViewModel.softTimeLabel(option), systemImage: "checkmark")
+                    } else {
+                        Text(QuickAddViewModel.softTimeLabel(option))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: LifeSpacing.xxs) {
+                Image(systemName: "clock")
+                    .accessibilityHidden(true)
+                Text("いつごろ：\(QuickAddViewModel.softTimeLabel(candidate.item.softTime))")
+                Image(systemName: "chevron.down")
+                    .font(LifeTypography.caption)
+                    .accessibilityHidden(true)
+            }
+            .font(LifeTypography.footnote)
+            .foregroundStyle(LifeColors.primary)
+            .padding(.leading, LifeSpacing.xl)
+            .frame(minHeight: LifeSpacing.minTapTarget)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("\(candidate.item.title)のいつごろ")
+        .accessibilityValue(QuickAddViewModel.softTimeLabel(candidate.item.softTime))
     }
 
     private func candidateRow(_ candidate: QuickAddCandidate) -> some View {

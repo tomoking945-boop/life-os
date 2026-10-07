@@ -11,6 +11,7 @@
 - [v2 改修の報告](docs/V2_REPORT.md)
 - [Calm Future Living OS デザイン改修 仕様](docs/CALM_FUTURE_SPEC.md)
 - [Calm Future 改修の報告](docs/CALM_FUTURE_REPORT.md)
+- [Calm Future のあと：計画と報告](docs/AFTER_CALM_FUTURE.md)
 
 ## UIプロトタイプの動かし方
 

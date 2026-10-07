@@ -55,7 +55,7 @@ final class TidyUpViewModel {
             .filter { $0.isReady(at: now) }
             .sorted { $0.createdAt < $1.createdAt }
             .map { memo -> TidyUpEntry in
-                var suggestion = edits[memo.id] ?? InboxClassifier.suggest(for: memo.text)
+                var suggestion = edits[memo.id] ?? memo.edit ?? InboxClassifier.suggest(for: memo.text)
                 if !usageStyle.showsScopeFilter { suggestion.ownership = .personal }
                 return TidyUpEntry(inboxID: memo.id, originalText: memo.text, suggestion: suggestion)
             }
@@ -136,6 +136,8 @@ final class TidyUpViewModel {
         updated.title = updated.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if updated.title.isEmpty { updated.title = entries[index].suggestion.title }
         entries[index].suggestion = updated
+        // 「入力をもっと賢く」：修正内容をメモにも保存する（スキップ・後でにしても残る）
+        store.saveInboxEdit(id, suggestion: updated)
         editingEntry = nil
     }
 

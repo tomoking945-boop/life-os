@@ -215,7 +215,8 @@ struct TidyUpView: View {
     }
 }
 
-/// おまかせ整理の「修正」：タイトル・種類・自分/共有・日付を変える
+/// おまかせ整理の「修正」：タイトル・種類・自分/共有・日付を変える。
+/// 「入力をもっと賢く」（2026-10-07）：時刻と、いつごろ（帰宅時・夜・余力があれば・今週中）も選べる。
 struct TidyUpEditView: View {
     let entry: TidyUpEntry
     let onSave: (InboxSuggestion) -> Void
@@ -228,6 +229,58 @@ struct TidyUpEditView: View {
         GridItem(.flexible(), spacing: LifeSpacing.xs),
         GridItem(.flexible(), spacing: LifeSpacing.xs)
     ]
+
+    /// 時刻を決めたときの初期値（9:00）
+    private static let defaultTime = ClockTime(hour: 9, minute: 0)
+
+    /// 時刻：決めるかどうかと、時刻の選択
+    private var timeSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            LifeSectionTitle("時刻")
+            Toggle("時刻を決める", isOn: hasTimeBinding)
+                .font(LifeTypography.body)
+                .tint(LifeColors.primary)
+                .frame(minHeight: LifeSpacing.minTapTarget)
+            if draft.time != nil {
+                DatePicker("時刻", selection: timeBinding, displayedComponents: .hourAndMinute)
+                    .font(LifeTypography.body)
+                    .tint(LifeColors.primary)
+                    .environment(\.locale, Locale(identifier: "ja_JP"))
+            }
+        }
+    }
+
+    /// いつごろ：決めない・帰宅時・夜・余力があれば・今週中
+    private var softTimeSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            LifeSectionTitle("いつごろ")
+            LazyVGrid(columns: kindColumns, spacing: LifeSpacing.xs) {
+                ForEach(QuickAddViewModel.softTimeOptions, id: \.self) { option in
+                    LifeChip(title: QuickAddViewModel.softTimeLabel(option), isSelected: draft.softTime == option) {
+                        draft.softTime = option
+                        draft.isSoftTimeChosen = true
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private var hasTimeBinding: Binding<Bool> {
+        Binding(
+            get: { draft.time != nil },
+            set: { isOn in
+                draft.time = isOn ? (draft.time ?? Self.defaultTime) : nil
+            }
+        )
+    }
+
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: { (draft.time ?? Self.defaultTime ?? ClockTime(date: LifeCalendar.now)).date(on: LifeCalendar.now) },
+            set: { draft.time = ClockTime(date: $0) }
+        )
+    }
 
     init(entry: TidyUpEntry, onSave: @escaping (InboxSuggestion) -> Void) {
         self.entry = entry
@@ -265,6 +318,12 @@ struct TidyUpEditView: View {
                     VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                         LifeSectionTitle("いつ")
                         LifeSegmentControl(InboxDay.allCases, selection: $draft.day) { $0.label }
+                    }
+
+                    timeSection
+
+                    if draft.time == nil {
+                        softTimeSection
                     }
                 }
                 .padding(.horizontal, LifeSpacing.screenHorizontal)

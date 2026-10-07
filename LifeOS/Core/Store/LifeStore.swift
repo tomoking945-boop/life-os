@@ -343,6 +343,13 @@ final class LifeStore {
         save()
     }
 
+    /// 「修正」した理解を保存する（nil で修正前に戻す）。「入力をもっと賢く」2026-10-07
+    func saveInboxEdit(_ id: InboxItem.ID, suggestion: InboxSuggestion?) {
+        guard let index = inbox.firstIndex(where: { $0.id == id }) else { return }
+        inbox[index].edit = suggestion
+        save()
+    }
+
     /// 「元に戻す」：Inbox のメモを前の状態に戻す（消したものは戻し、変えたものは元の内容にする）
     func restoreInbox(_ snapshots: [InboxItem]) {
         guard !snapshots.isEmpty else { return }

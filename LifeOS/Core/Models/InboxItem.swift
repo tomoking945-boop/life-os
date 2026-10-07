@@ -10,12 +10,16 @@ struct InboxItem: Identifiable, Hashable, Codable {
     /// 「後で」を選んだとき、この日時までおまかせ整理に出さない。
     /// 日時で持つことで、将来の「今夜・明日・週末・来週」の延期と同じ仕組みに統合できる。
     var postponedUntil: Date?
+    /// 「修正」で自分で変えた理解。アプリを閉じても残す（「入力をもっと賢く」2026-10-07）。
+    /// 以前の保存データには無いため Optional。
+    var edit: InboxSuggestion?
 
-    init(id: UUID = UUID(), text: String, createdAt: Date, postponedUntil: Date? = nil) {
+    init(id: UUID = UUID(), text: String, createdAt: Date, postponedUntil: Date? = nil, edit: InboxSuggestion? = nil) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.postponedUntil = postponedUntil
+        self.edit = edit
     }
 
     /// 指定時点でおまかせ整理の対象か（「後で」の期限が過ぎているか）
@@ -69,7 +73,8 @@ enum InboxDay: String, CaseIterable, Identifiable, Hashable, Codable {
 }
 
 /// Inbox の1件に対する整理の候補（AI分類候補風の Mock）
-struct InboxSuggestion: Hashable {
+/// 「入力をもっと賢く」（2026-10-07）：時刻を持てるようにし、修正内容を保存できるよう Codable にした。
+struct InboxSuggestion: Hashable, Codable {
     var title: String
     var kind: LifeItemKind
     var ownership: Ownership
@@ -80,6 +85,10 @@ struct InboxSuggestion: Hashable {
     var clues: [String] = []
     /// 「修正」で自分で変えたか
     var isEditedByUser = false
+    /// 時刻（「10:30 歯医者」の 10:30）。あれば時刻つきで追加し、柔らかい時間は使わない
+    var time: ClockTime? = nil
+    /// 柔らかい時間を自分で選んだか（選んでいれば、修正のあとも自動で変えない）
+    var isSoftTimeChosen = false
 
     /// 「買い物・明日」「共有ToDo・今日」のような短い説明
     var summary: String {
@@ -97,18 +106,19 @@ struct InboxSuggestion: Hashable {
         return "\(kind.label)・\(categories.map(\.label).joined(separator: "／"))"
     }
 
-    /// 日時候補（今日・帰宅時に表示・明日 10/7（水）など）
+    /// 日時候補（今日・帰宅時に表示・明日 10/7（水）・今日 10:30 など）
     func timingText(now: Date) -> String {
         let base: String
         switch day {
         case .today:
-            if let softTime { return "\(softTime.label)に表示" }
+            if time == nil, let softTime { return "\(softTime.label)に表示" }
             base = "今日"
         case .tomorrow:
             base = "明日 \(LifeFormatters.shortDate(day.date(from: now)))"
         case .saturday, .sunday:
             base = LifeFormatters.shortDate(day.date(from: now))
         }
+        if let time { return "\(base) \(time.text)" }
         if let softTime { return "\(base)・\(softTime.label)" }
         return base
     }
@@ -118,9 +128,14 @@ struct InboxSuggestion: Hashable {
         ownership == .shared ? "家族と共有" : "自分"
     }
 
-    /// 「修正」で変えたあとに呼ぶ：今日の買い物だけ帰宅時に出し、理由を「修正した内容」にする
+    /// 「修正」で変えたあとに呼ぶ：理由を「修正した内容」にする。
+    /// 時刻があれば柔らかい時間は使わない。柔らかい時間を自分で選んでいなければ、今日の買い物だけ帰宅時に出す。
     mutating func applyUserEdit() {
-        softTime = (kind == .shopping && day == .today) ? .onTheWayHome : nil
+        if time != nil {
+            softTime = nil
+        } else if !isSoftTimeChosen {
+            softTime = (kind == .shopping && day == .today) ? .onTheWayHome : nil
+        }
         clues = []
         isEditedByUser = true
     }
@@ -143,14 +158,17 @@ struct InboxSuggestion: Hashable {
     }
 
     /// 今日の日付をもとに LifeItem にする
+    /// 時刻があれば、その日のその時刻の項目にする
     func makeItem(today: Date) -> LifeItem {
-        LifeItem(
+        let dayStart = day.date(from: today)
+        return LifeItem(
             title: title,
             kind: kind,
             ownership: ownership,
-            date: day.date(from: today),
+            date: time?.date(on: dayStart) ?? dayStart,
+            hasTime: time != nil,
             assignee: ownership == .shared ? .either : .me,
-            softTime: softTime
+            softTime: time == nil ? softTime : nil
         )
     }
 }
