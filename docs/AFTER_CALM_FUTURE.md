@@ -105,7 +105,7 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 
 新規
 - Features/Habits：`HabitsView.swift`（一覧・追加・編集の画面）、`HabitsViewModel.swift`
-- LifeOSTests：`HabitEditingTests.swift`（11件）
+- LifeOSTests：`HabitEditingTests.swift`（10件）
 
 変更
 - Core：`LifeStore.swift`（習慣の追加・編集・外す・元に戻す、種類「習慣」の項目を習慣に登録）
@@ -115,7 +115,7 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 
 ### ビルド結果
 
-この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。Mac での ⌘B・⌘U（合計139件）は確認待ち。
+この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。Mac での ⌘B・⌘U（合計138件）は確認待ち。
 
 ### Simulator で確認すべき操作
 
