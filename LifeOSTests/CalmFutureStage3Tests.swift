@@ -90,7 +90,8 @@ final class HabitRhythmTests: XCTestCase {
     /// 第3段階より前に日付つきで追加した習慣も表示を続ける（同じ名前の習慣があれば重ねない）
     func testLegacyHabitItemsStayVisible() {
         let store = makeStore()
-        store.add([
+        // 以前に保存された項目（習慣の追加・編集より前は、追加しても習慣に登録されなかった）
+        store.items.append(contentsOf: [
             LifeItem(title: "読書", kind: .habit, ownership: .personal, date: TestDates.friday, assignee: .me),
             LifeItem(title: "水を飲む", kind: .habit, ownership: .personal, date: TestDates.friday, assignee: .me)
         ])

@@ -184,7 +184,17 @@ final class LifeStore {
 
     func add(_ newItems: [LifeItem]) {
         items.append(contentsOf: newItems)
+        registerHabits(from: newItems)
         save()
+    }
+
+    /// 習慣の追加・編集（2026-10-08）：種類「習慣」で追加した項目（Inbox の修正・詳しく整える など）は、
+    /// 毎日くり返す習慣としても登録する。習慣の id は項目と同じにして、「元に戻す」で項目と一緒に消せるようにする。
+    /// 同じ名前の習慣がすでにあれば登録しない。
+    private func registerHabits(from newItems: [LifeItem]) {
+        for item in newItems where item.isHabit && !habits.contains(where: { $0.title == item.title }) {
+            habits.append(Habit(id: item.id, title: item.title, startedAt: item.date))
+        }
     }
 
     /// 指定日に表示する項目（フィルター適用・時刻のあるものを先に、その後にタスク）
@@ -249,6 +259,8 @@ final class LifeStore {
     func removeItems(withIDs ids: Set<LifeItem.ID>) {
         guard !ids.isEmpty else { return }
         items.removeAll { ids.contains($0.id) }
+        // 項目と一緒に登録した習慣も取り除く（id が同じ）
+        habits.removeAll { ids.contains($0.id) }
         save()
     }
 
@@ -395,6 +407,44 @@ final class LifeStore {
     /// その日に出す習慣（始めた日以降で、くり返しのルール上ある日）
     func habits(on day: Date) -> [Habit] {
         habits.filter { $0.isActive(on: day) }
+    }
+
+    /// 習慣を追加する（名前が空、または同じ名前の習慣があれば追加しない）
+    /// - Returns: 追加した習慣
+    @discardableResult
+    func addHabit(title: String, isLight: Bool, repeatRule: HabitRepeat, startedAt: Date) -> Habit? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !habits.contains(where: { $0.title == trimmed }) else { return nil }
+        let habit = Habit(title: trimmed, repeatRule: repeatRule, isLight: isLight, startedAt: startedAt)
+        habits.append(habit)
+        save()
+        return habit
+    }
+
+    /// 習慣の名前・軽い習慣か・くり返しを変える（できた日の記録はそのまま）。名前が空なら名前は変えない
+    func updateHabit(_ id: Habit.ID, title: String, isLight: Bool, repeatRule: HabitRepeat) {
+        guard let index = habits.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { habits[index].title = trimmed }
+        habits[index].isLight = isLight
+        habits[index].repeatRule = repeatRule
+        save()
+    }
+
+    /// 習慣を削除する。「元に戻す」のため、消した習慣と位置を返す
+    @discardableResult
+    func removeHabit(_ id: Habit.ID) -> (habit: Habit, index: Int)? {
+        guard let index = habits.firstIndex(where: { $0.id == id }) else { return nil }
+        let habit = habits.remove(at: index)
+        save()
+        return (habit, index)
+    }
+
+    /// 「元に戻す」：消した習慣を同じ位置に戻す（できた日の記録も戻る）
+    func restoreHabit(_ habit: Habit, at index: Int) {
+        guard !habits.contains(where: { $0.id == habit.id }) else { return }
+        habits.insert(habit, at: min(max(index, 0), habits.count))
+        save()
     }
 
     /// その日にできたかを切り替える

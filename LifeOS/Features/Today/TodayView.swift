@@ -5,6 +5,8 @@ enum TodayRoute: Hashable {
     case profile
     case inbox
     case memories
+    /// 習慣の一覧・追加・編集（2026-10-08）
+    case habits
 }
 
 /// 今日画面（Calm Future：生活のコックピット）。
@@ -65,6 +67,8 @@ struct TodayView: View {
 
                 if viewModel.hasHabits {
                     habitSection
+                } else {
+                    addHabitLink
                 }
                 if viewModel.inboxCount > 0 {
                     inboxRow
@@ -99,6 +103,8 @@ struct TodayView: View {
                 InboxView(store: store)
             case .memories:
                 LifeMemoryView(store: store)
+            case .habits:
+                HabitsView(store: store)
             }
         }
         .sheet(isPresented: $viewModel.isShowingInvite) {
@@ -573,9 +579,36 @@ struct TodayView: View {
 
     // MARK: - 習慣：余白だけで区切る（第3段階：7日の柔らかい点で生活リズムとして見せる）
 
+    /// 習慣が1つも無いときの、静かな入口
+    private var addHabitLink: some View {
+        NavigationLink(value: TodayRoute.habits) {
+            Label("習慣を追加する", systemImage: "leaf")
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.primary)
+                .frame(minHeight: LifeSpacing.minTapTarget)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("習慣の画面を開きます")
+    }
+
     private var habitSection: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-            compactHeading(eyebrow: "RHYTHM", title: "習慣")
+            HStack(alignment: .bottom) {
+                compactHeading(eyebrow: "RHYTHM", title: "習慣")
+                Spacer(minLength: LifeSpacing.xs)
+                NavigationLink(value: TodayRoute.habits) {
+                    HStack(spacing: LifeSpacing.xxs) {
+                        Text("追加・編集")
+                        Image(systemName: "chevron.right")
+                            .accessibilityHidden(true)
+                    }
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.primary)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("習慣を追加・編集")
+            }
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(viewModel.visibleHabits) { habit in
                     LifeHabitRow(
