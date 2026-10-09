@@ -46,7 +46,8 @@ final class LifeStore {
         var suggestionDecisions: [SuggestionDecision]?
     }
 
-    private static let fileName = "life-store.json"
+    /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
+    static let fileName = "life-store.json"
 
     init(
         items: [LifeItem] = MockData.items(),
@@ -76,6 +77,14 @@ final class LifeStore {
 
     /// 端末内に保存されたデータを読み込む。初回（保存がない）ときは Mock データで始めて保存する。
     static func persistent() -> LifeStore {
+        persistent(startEmptyIfNoSavedData: false)
+    }
+
+    /// はじめての設定（2026-10-09）：端末内に保存されたデータを読み込む。
+    /// 保存が無いとき、`startEmptyIfNoSavedData` が true なら空のデータ（`LifeStore.empty()`）で始める。
+    /// 新しく使い始める人には見本（Mock）データを入れず、はじめての設定で本人のデータを作る。
+    /// 保存済みのデータはこれまでどおりそのまま読み込む（以前の保存データに無い項目だけ、これまでどおり補う）。
+    static func persistent(startEmptyIfNoSavedData: Bool) -> LifeStore {
         let store: LifeStore
         if let snapshot = LocalStorage.load(Snapshot.self, from: fileName) {
             store = LifeStore(
@@ -91,6 +100,8 @@ final class LifeStore {
                 habits: snapshot.habits ?? migratedHabits(from: snapshot.items),
                 suggestionDecisions: snapshot.suggestionDecisions ?? []
             )
+        } else if startEmptyIfNoSavedData {
+            store = LifeStore.empty()
         } else {
             store = LifeStore()
         }
@@ -116,6 +127,25 @@ final class LifeStore {
                 suggestionDecisions: suggestionDecisions
             ),
             to: Self.fileName
+        )
+    }
+
+    /// 新しく使い始める人の空のデータ（保存しない。保存は persistent から）。
+    /// 予定・支出・リスト・Inbox・暮らしメモリー・よく買うもの・習慣は空。予算は 0 円。
+    /// 新しい解釈：家事オートパイロットの候補（ゴミをまとめる 等）は本人の記録ではなく「今日の余力」の選択肢なので残す。
+    static func empty(now: Date = LifeCalendar.now) -> LifeStore {
+        LifeStore(
+            items: [],
+            expenses: [],
+            budget: MonthlyBudget(month: LifeCalendar.startOfMonth(now), spent: 0, budget: 0),
+            lists: [],
+            inbox: [],
+            memories: [],
+            choreTemplates: MockData.choreTemplates,
+            autopilot: nil,
+            frequentPurchases: [],
+            habits: [],
+            suggestionDecisions: []
         )
     }
 

@@ -115,7 +115,7 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 
 ### ビルド結果
 
-この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。Mac での ⌘B・⌘U（合計138件）は確認待ち。
+この環境には Xcode が無いため、コードの読み合わせでビルドエラーが無いことを確認済み。2026-10-09 までに Mac の Xcode でビルド成功・テスト138件成功・Simulator 確認でエラーなし（池上さんの確認）。
 
 ### Simulator で確認すべき操作
 
@@ -126,3 +126,40 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 5. 「編集」→「この習慣を外す」→「元に戻す」で、点（記録）ごと戻る
 6. Inbox のメモ →「修正」→ 種類「習慣」→ このまま追加 → 今日画面の習慣に出る
 7. アプリを終了して開き直しても、追加・編集した習慣が残っていること
+
+## 4. はじめての設定（2026-10-09）
+
+仕様：[ONBOARDING_SPEC.md](ONBOARDING_SPEC.md)。新しく使い始める人が、見本データではなく自分の生活から始められるようにする。
+
+### 変更したファイル
+
+新規
+- Core/Models：`OnboardingProgress.swift`（途中経過・最初の習慣の候補）
+- Features/Onboarding：`OnboardingView.swift`、`OnboardingViewModel.swift`
+- LifeOSTests：`OnboardingTests.swift`（18件）
+- docs：`ONBOARDING_SPEC.md`（受け取った指示をそのまま保存）
+
+変更
+- App：`LifeOSApp.swift`（AppState を先に読み、空のデータか保存データかを決める。最上位で はじめての設定／MainTabView を切り替え）、`AppState.swift`（完了状態・途中経過・反映・再表示）
+- Core：`LifeStore.swift`（`persistent(startEmptyIfNoSavedData:)`・`empty()`）、`LocalStorage.swift`（テスト用の保存先・ファイルがあるか）
+- DesignSystem：`LifeScreen.swift`（細い線の一覧は空なら何も出さない）
+- Features：Profile の `DeveloperSettingsView`（はじめての設定を再表示）、Lists の `ListsView`・LifeMemory の `LifeMemoryView`（空のときの案内）
+- `README.md`、`docs/IMPLEMENTATION_NOTES.md`、本書
+
+### 初回起動の判定と、以前から使っている人の移行
+
+- 設定もデータも保存が無い → 新しく使い始める人：はじめての設定を出し、空のデータから始める
+- 設定の保存に完了状態が無い（以前のバージョン）→ 完了済みとして扱い、はじめての設定は出さない。データはそのまま
+- 完了したら完了状態を保存し、途中経過を消す
+
+### ビルド結果
+
+この環境には Xcode が無いため、ビルドとテストは実行できていない。コードの読み合わせのみ。Mac での ⌘B・⌘U（合計156件＝これまでの138件＋18件）は確認待ち。
+
+### Simulator 確認
+
+未確認（Mac での確認待ち）。確認する操作は仕様の「Simulator確認」と同じ。新しく使い始める人の確認は、Simulator のアプリを長押しして削除してから実行する。
+
+### 今回実装していないもの
+
+仕様の「変更禁止範囲」のもの（Firebase・同期・AI・StoreKit など）、すべてのデータを消す操作、予算を設定する画面（新しい人の予算は 0 円のまま）。

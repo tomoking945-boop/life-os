@@ -65,6 +65,71 @@ final class AppState {
 
     var isPremium: Bool { plan == .premium }
 
+    // MARK: - はじめての設定（2026-10-09）
+
+    /// はじめての設定が終わっているか。
+    /// 新しく使い始める人（保存データが無い）は false。以前から使っている人・設定を終えた人は true。
+    /// AppState() の初期値（プレビュー・テスト）は true（これまでどおり今日画面から）。
+    var hasCompletedOnboarding = true
+    /// はじめての設定の途中経過（終わったら nil）
+    var onboardingProgress: OnboardingProgress?
+
+    /// 途中経過を保存する（端末内だけ）
+    func saveOnboardingProgress(_ progress: OnboardingProgress) {
+        onboardingProgress = progress
+        save()
+    }
+
+    /// はじめての設定の内容を反映する：使い方・名前（自分のメンバー名も）・家族モードなら生活グループ名
+    /// - Returns: 名前が空白だけなら false（何も変えない）
+    @discardableResult
+    func applyOnboarding(usageStyle: UsageStyle, name: String, groupName: String) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return false }
+        self.usageStyle = usageStyle
+        if profile.members.contains(where: { $0.isCurrentUser }) {
+            updateName(trimmedName)
+        } else {
+            profile.name = trimmedName
+            profile.members.insert(Member(name: trimmedName, isCurrentUser: true), at: 0)
+        }
+        let trimmedGroup = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if usageStyle == .shared, !trimmedGroup.isEmpty {
+            profile.groupName = trimmedGroup
+        }
+        save()
+        return true
+    }
+
+    /// はじめての設定を終える：完了を保存し、途中経過を消して、今日タブにする
+    func markOnboardingCompleted() {
+        hasCompletedOnboarding = true
+        onboardingProgress = nil
+        selectedTab = .today
+        save()
+    }
+
+    /// 開発用：はじめての設定をもう一度出す（予定・習慣・メモなどのデータは消さない）。
+    /// 今の使い方・名前・生活グループ名を入れた状態で、最初のステップから始める。
+    func restartOnboarding() {
+        hasCompletedOnboarding = false
+        onboardingProgress = OnboardingProgress(
+            step: 0,
+            usageStyle: usageStyle,
+            name: profile.name,
+            groupName: profile.groupName,
+            selectedStarterIDs: []
+        )
+        save()
+    }
+
+    /// 新しく使い始める人のプロフィール（見本の名前や「妻」は入れない）。名前ははじめての設定で入れる
+    static let newUserProfile = UserProfile(
+        name: "",
+        groupName: "わが家",
+        members: [Member(name: "", isCurrentUser: true)]
+    )
+
     // MARK: - テーマとダークモード（2026-10-08）
 
     /// ライト／ダーク（表示設定）。新しい解釈：初期値は「端末に合わせる」
@@ -106,13 +171,21 @@ final class AppState {
         /// テーマとダークモード（2026-10-08）で追加。以前の保存データには無いため Optional
         var appearanceMode: LifeAppearanceMode?
         var selectedTheme: LifeTheme?
+        /// はじめての設定（2026-10-09）で追加。以前の保存データには無いため Optional（無ければ完了済みとして扱う）
+        var hasCompletedOnboarding: Bool?
+        var onboardingProgress: OnboardingProgress?
     }
 
     private static let fileName = "app-settings.json"
 
-    /// 端末内に保存された設定を読み込む。保存がなければ Mock の初期値で始める。
+    /// 端末内に保存された設定を読み込む。
+    /// はじめての設定（2026-10-09）：
+    /// - 設定の保存があれば読み込む。完了状態が無い（以前のバージョン）なら完了済み（初回設定を出さない）
+    /// - 設定もデータも保存が無ければ新しく使い始める人：初回設定は未完了、見本の名前は入れない
+    /// - 設定が読めないが保存ファイルはある（壊れているなど）なら、以前から使っている人として扱う（これまでどおり）
     static func persistent() -> AppState {
         let state = AppState()
+        let hasSavedFiles = LocalStorage.exists(fileName) || LocalStorage.exists(LifeStore.fileName)
         if let settings = LocalStorage.load(Settings.self, from: fileName) {
             state.plan = settings.plan
             state.profile = settings.profile
@@ -121,6 +194,15 @@ final class AppState {
             state.partnerJoined = settings.partnerJoined ?? true
             state.appearanceMode = settings.appearanceMode ?? .system
             state.selectedTheme = settings.selectedTheme ?? .forest
+            state.hasCompletedOnboarding = settings.hasCompletedOnboarding ?? true
+            state.onboardingProgress = settings.onboardingProgress
+        } else if !hasSavedFiles {
+            // 新しく使い始める人
+            state.hasCompletedOnboarding = false
+            state.onboardingProgress = nil
+            state.profile = newUserProfile
+            // まだ誰も参加していない（実際の同期は無い）
+            state.partnerJoined = false
         }
         state.persists = true
         state.save()
@@ -138,7 +220,9 @@ final class AppState {
                 usageStyle: usageStyle,
                 partnerJoined: partnerJoined,
                 appearanceMode: appearanceMode,
-                selectedTheme: selectedTheme
+                selectedTheme: selectedTheme,
+                hasCompletedOnboarding: hasCompletedOnboarding,
+                onboardingProgress: onboardingProgress
             ),
             to: Self.fileName
         )

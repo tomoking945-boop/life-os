@@ -62,6 +62,17 @@ struct DeveloperSettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                    LifeSectionTitle("はじめての設定")
+                    LifeButton("はじめての設定を再表示", systemImage: "sparkles", kind: .secondary) {
+                        appState.restartOnboarding()
+                    }
+                    Text("予定・習慣・メモなどのデータは消しません。今の名前や使い方が入った状態で始まります。同じ習慣を選んでも重複しません。")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                     LifeSectionTitle("保存データ")
                     LifeButton("データを初期化", systemImage: "arrow.counterclockwise", kind: .destructive) {
                         isConfirmingReset = true

@@ -5,11 +5,22 @@ import Foundation
 /// 決定済み：データを端末に保存し、アプリを閉じても残す（2026-10-01）。
 /// TODO: Firebase 接続時は、LifeStore / AppState の保存先をここから差し替える。
 enum LocalStorage {
+    /// テスト用：保存先を一時フォルダに差し替える（nil ならアプリ専用の保存領域）。
+    /// はじめての設定（2026-10-09）で追加。実際の利用者データと衝突させないため。
+    static var directoryOverride: URL?
+
     private static var directory: URL? {
-        FileManager.default
+        if let directoryOverride { return directoryOverride }
+        return FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("LifeOS", isDirectory: true)
+    }
+
+    /// 保存ファイルがあるか（読めるかどうかは問わない）。既存の利用者かどうかの判定に使う
+    static func exists(_ name: String) -> Bool {
+        guard let url = fileURL(name) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private static func fileURL(_ name: String) -> URL? {

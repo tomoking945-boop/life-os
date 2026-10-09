@@ -25,11 +25,18 @@ struct ListsView: View {
                     .accessibilityLabel("新しいリストを作成")
                 }
 
-                LifeRuledList(viewModel.lists) { list in
-                    NavigationLink(value: list.id) {
-                        listRow(list)
+                if viewModel.lists.isEmpty {
+                    // はじめての設定（2026-10-09）：新しく使い始める人は空から始まる
+                    LifeEmptyState(systemImage: "list.bullet", title: "リストはまだありません", message: "右上の＋から、行きたい場所や欲しいものをためておけます。")
+                        .frame(maxWidth: .infinity)
+                        .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+                } else {
+                    LifeRuledList(viewModel.lists) { list in
+                        NavigationLink(value: list.id) {
+                            listRow(list)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)

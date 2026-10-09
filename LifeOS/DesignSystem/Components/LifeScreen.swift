@@ -93,19 +93,22 @@ struct LifeRuledList<Data: RandomAccessCollection, Row: View>: View where Data.E
         self.row = row
     }
 
+    /// 項目が無いときは何も出さない（線だけが残らないように）
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if showsEdges {
-                LifeDivider()
-            }
-            ForEach(Array(data.enumerated()), id: \.element.id) { index, element in
-                if index > 0 {
+        if !data.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                if showsEdges {
                     LifeDivider()
                 }
-                row(element)
-            }
-            if showsEdges {
-                LifeDivider()
+                ForEach(Array(data.enumerated()), id: \.element.id) { index, element in
+                    if index > 0 {
+                        LifeDivider()
+                    }
+                    row(element)
+                }
+                if showsEdges {
+                    LifeDivider()
+                }
             }
         }
     }

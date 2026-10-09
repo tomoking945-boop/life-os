@@ -97,6 +97,13 @@ struct LifeMemoryView: View {
                     subtitle: "生活の周期や、忘れやすいことを覚えておきます。"
                 )
 
+                if viewModel.memories.isEmpty {
+                    // はじめての設定（2026-10-09）：新しく使い始める人は空から始まる
+                    LifeEmptyState(systemImage: "clock.arrow.circlepath", title: "まだ覚えていることはありません")
+                        .frame(maxWidth: .infinity)
+                        .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+                }
+
                 // Calm Future 第4段階：カードに入れず、細い線で区切る
                 LifeRuledList(viewModel.memories) { memory in
                     HStack(alignment: .top, spacing: LifeSpacing.sm) {
