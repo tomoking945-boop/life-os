@@ -91,10 +91,19 @@
 
 | テスト | 件数 | 結果 |
 | --- | --- | --- |
-| サーバーの単体テスト（`npm run test:unit`） | 20件 | この環境で実行：すべて成功 |
-| Rules Emulator（`npm run test:rules`） | — | **未実行**（この環境では Firebase のツールを取得できないため。Mac で実行が必要） |
-| Functions Emulator（`npm run test:functions`） | — | **未実行**（同上） |
-| XCTest（既存156件＋新規13件） | 169件 | **未実行**（この環境に Xcode が無いため。Mac で実行が必要） |
+| サーバーの単体テスト（`npm run test:unit`） | 20件 | この環境で実行：すべて成功。2026-10-11 池上さんの Mac でも20件すべて成功 |
+| Rules Emulator（`npm run test:rules`） | 19件 | 2026-10-11 池上さんの Mac で実行：すべて成功（fail 0） |
+| Functions Emulator（`npm run test:functions`） | 9件 | 2026-10-11 池上さんの Mac で実行：すべて成功（fail 0） |
+| XCTest（既存156件＋新規13件） | 169件 | この環境では未実行（Xcode が無いため）。2026-10-11 池上さんから「テスト完了」の報告あり（件数・成功数の記録は未確認） |
 | 実機2台（招待・参加・双方向同期・通知・タップ・ログアウト後の停止） | — | 第2段階のあと |
 
 `package-lock.json` はこの環境で作れなかったため入っていません（Mac で `npm install` すると作られます。コミットしてかまいません）。
+
+### Mac での実行環境（2026-10-11）
+
+Node.js v24.21.0、Java（Temurin）25.0.4.1。`npm test` の途中に出る赤い `PERMISSION_DENIED` は、テストがわざと禁止された書き込みを試して、ルールが拒否したことの記録（想定どおり）。
+
+出た警告と扱い：
+- `package.json` の Node 指定（20）と Mac の Node（24）が違う → テストは Node 24 で成功。TODO（第2段階）：本番で使う Node のバージョン（22 など）を決めて合わせる
+- `firebase-functions` が古い → TODO（第2段階）：更新を検討（大きな変更があるため、テストし直してから）
+- `npm audit` の脆弱性の表示 → テスト用の道具（firebase-tools など）の中の部品。アプリには入らない。第2段階で依存を更新するときに見直す
