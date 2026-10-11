@@ -1,0 +1,26 @@
+# パートナー共有・通知（2026-10-11）：秘密の設定・鍵はコミットしない（仕様「変更禁止」）
+# Firebase の設定ファイル（Xcode のプロジェクトには、各自の Mac で追加する。docs/FIREBASE_SETUP.md）
+GoogleService-Info.plist
+# APNs の秘密鍵
+*.p8
+# サービスアカウントの鍵
+service-account*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+# 本番の Firebase プロジェクトの指定（例は .firebaserc.example）
+.firebaserc
+
+# Cloud Functions / Emulator
+firebase/functions/node_modules/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+pubsub-debug.log
+database-debug.log
+.firebase/
+*.local
+
+# Xcode / macOS
+xcuserdata/
+.DS_Store

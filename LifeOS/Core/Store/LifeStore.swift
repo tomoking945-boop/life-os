@@ -29,6 +29,9 @@ final class LifeStore {
     /// true のとき、変更のたびに端末内へ保存する
     @ObservationIgnored private var persists = false
 
+    /// パートナー共有（2026-10-11）：項目の変更を知らせる先（observeItems で登録）
+    @ObservationIgnored private var itemObservers: [UUID: ([LifeItem]) -> Void] = [:]
+
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
     private struct Snapshot: Codable {
@@ -111,6 +114,7 @@ final class LifeStore {
     }
 
     private func save() {
+        notifyItemObservers()
         guard persists else { return }
         LocalStorage.save(
             Snapshot(
@@ -128,6 +132,26 @@ final class LifeStore {
             ),
             to: Self.fileName
         )
+    }
+
+    // MARK: - 監視（パートナー共有 2026-10-11）
+
+    /// 項目の変更を監視する（LifeItemRepository）。変更を保存するたびに、今の一覧で呼ぶ
+    func observeItems(_ onChange: @escaping ([LifeItem]) -> Void) -> RepositoryObservation {
+        let id = UUID()
+        itemObservers[id] = onChange
+        onChange(items)
+        return RepositoryObservation { [weak self] in
+            self?.itemObservers[id] = nil
+        }
+    }
+
+    private func notifyItemObservers() {
+        guard !itemObservers.isEmpty else { return }
+        let current = items
+        for observer in itemObservers.values {
+            observer(current)
+        }
     }
 
     /// 新しく使い始める人の空のデータ（保存しない。保存は persistent から）。

@@ -13,11 +13,15 @@
 - [Calm Future 改修の報告](docs/CALM_FUTURE_REPORT.md)
 - [Calm Future のあと：計画と報告](docs/AFTER_CALM_FUTURE.md)
 - [はじめての設定 仕様](docs/ONBOARDING_SPEC.md)
+- [パートナー共有・通知 実装仕様（正本）](docs/PARTNER_NOTIFICATIONS_IMPLEMENTATION.md)
+- [パートナー共有・通知 実装の報告](docs/PARTNER_NOTIFICATIONS_REPORT.md)
+- [Apple / Firebase の設定手順](docs/FIREBASE_SETUP.md)
 
 ## UIプロトタイプの動かし方
 
 Xcode 16 以降で `LifeOS.xcodeproj` を開き、iPhone Simulator（iOS 17 以降）を選んで実行してください。
 外部サービスには接続していません。データは端末内にだけ保存します。
+パートナー共有・通知のサーバー側（`firestore.rules`・`firebase/functions`）は準備中で、iPhone アプリはまだ Firebase につながっていません（[設定手順](docs/FIREBASE_SETUP.md)）。
 
 - はじめて起動したとき（保存データが無いとき）は「はじめての設定」が出ます。見本（Mock）データは入らず、空のデータから始まります。
 - 以前から使っている端末（保存データがある）では、はじめての設定は出ず、保存データをそのまま読み込みます。

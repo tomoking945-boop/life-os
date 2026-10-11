@@ -59,6 +59,14 @@ final class AppState {
     /// パートナーが参加済みか（Mock。招待の流れを確認するため開発用設定で切り替える）
     var partnerJoined = true
 
+    /// パートナー共有（2026-10-11）：本物の生活グループで確認できたメンバーの数（自分を含む）。保存しない。
+    /// 第1段階では Firebase に接続していないため、常に 0（本物の参加は確認できない）。
+    /// TODO（第2段階）：Firestore のメンバー監視の結果を入れ、Mock の partnerJoined を置き換える（仕様 7-8）。
+    var verifiedSharedMemberCount = 0
+
+    /// 「共有の更新」の通知を使えるか（仕様 7-7：本物のメンバー参加が確認できた場合だけ）
+    var canUseSharedUpdates: Bool { verifiedSharedMemberCount >= 2 }
+
     /// 開発用：時間帯の背景を確かめるための切り替え（nil なら現在時刻から決める）。保存しない。
     /// Mock の現在時刻は 9:10 固定のため、昼・夕方・夜の見え方はここで確認する。
     var ambientPreview: LifeTimeOfDay? = nil

@@ -1,0 +1,155 @@
+rules_version = '2';
+
+// 生活OS：パートナー共有の Firestore Security Rules（docs/PARTNER_NOTIFICATIONS_IMPLEMENTATION.md 4・5）
+//
+// - 共有するのは「生活グループ」の共有項目だけ。個人項目はアプリが送らず、ここにも置き場所が無い
+// - 読めるのは、自分が所属する生活グループだけ
+// - 共有項目の作成・更新は、そのグループのメンバーだけ。決まった項目・決まった種類だけを受け付ける
+// - メンバーの追加は、招待を確かめる Callable Function（acceptInvite）だけが行う（ここでは拒否）
+// - 役割（owner / member）の変更はできない（権限の昇格を拒否）
+// - 端末トークンは本人だけが登録・削除できる
+// - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function memberPath(groupID, uid) {
+      return /databases/$(database)/documents/groups/$(groupID)/members/$(uid);
+    }
+
+    function isMember(groupID) {
+      return signedIn() && exists(memberPath(groupID, request.auth.uid));
+    }
+
+    function isNullOrTimestamp(value) {
+      return value == null || value is timestamp;
+    }
+
+    function isShortText(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    // MARK: - 利用者と端末
+
+    match /users/{uid} {
+      allow read, delete: if isSelf(uid);
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['displayName', 'createdAt', 'updatedAt', 'sharedMigrationCompletedAt'])
+        && (!('displayName' in request.resource.data) || isShortText(request.resource.data.displayName, 40))
+        && (!('sharedMigrationCompletedAt' in request.resource.data)
+            || isNullOrTimestamp(request.resource.data.sharedMigrationCompletedAt));
+
+      // 通知の宛先（端末ごと）。ドキュメント ID はトークンのハッシュ
+      match /devices/{deviceID} {
+        allow read, delete: if isSelf(uid);
+        allow create, update: if isSelf(uid)
+          && request.resource.data.keys().hasOnly([
+            'fcmToken', 'platform', 'notificationsEnabled', 'sharedUpdatesEnabled', 'showsPreview', 'updatedAt'
+          ])
+          && request.resource.data.keys().hasAll(['fcmToken', 'platform', 'notificationsEnabled', 'sharedUpdatesEnabled', 'updatedAt'])
+          && isShortText(request.resource.data.fcmToken, 4096)
+          && request.resource.data.platform == 'ios'
+          && request.resource.data.notificationsEnabled is bool
+          && request.resource.data.sharedUpdatesEnabled is bool
+          && (!('showsPreview' in request.resource.data) || request.resource.data.showsPreview is bool)
+          && request.resource.data.updatedAt == request.time;
+      }
+    }
+
+    // MARK: - 生活グループ
+
+    match /groups/{groupID} {
+      allow read: if isMember(groupID);
+
+      // 作る人が、同じ書き込み（batch）で自分を owner として登録するときだけ作れる
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'createdBy', 'createdAt', 'updatedAt'])
+        && isShortText(request.resource.data.name, 50)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(memberPath(groupID, request.auth.uid));
+
+      // メンバーが変えられるのは名前と更新日時だけ
+      allow update: if isMember(groupID)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
+        && isShortText(request.resource.data.name, 50)
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+
+      match /members/{memberUID} {
+        allow read: if isMember(groupID);
+
+        // 自分で作る生活グループの owner になるときだけ（既にあるグループには入れない）。
+        // それ以外のメンバーの追加は acceptInvite（サーバー）だけが行う
+        allow create: if signedIn()
+          && memberUID == request.auth.uid
+          && request.resource.data.keys().hasOnly(['role', 'joinedAt', 'displayName'])
+          && request.resource.data.role == 'owner'
+          && request.resource.data.joinedAt == request.time
+          && isShortText(request.resource.data.displayName, 40)
+          && !exists(/databases/$(database)/documents/groups/$(groupID))
+          && getAfter(/databases/$(database)/documents/groups/$(groupID)).data.createdBy == request.auth.uid;
+
+        // 役割の変更（権限の昇格）は誰にもできない
+        allow update: if false;
+
+        // 退出：自分のメンバー情報だけ消せる
+        allow delete: if isSelf(memberUID);
+      }
+
+      // 共有項目（予定・ToDo・家事・買い物）
+      match /items/{itemID} {
+        function validItem(data) {
+          return data.keys().hasOnly([
+              'title', 'kind', 'date', 'hasTime', 'assigneeUID', 'isCompleted',
+              'deferredTo', 'droppedAt', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && data.keys().hasAll([
+              'title', 'kind', 'date', 'hasTime', 'isCompleted', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && isShortText(data.title, 200)
+            && data.kind in ['event', 'todo', 'chore', 'shopping']
+            && data.date is timestamp
+            && data.hasTime is bool
+            && data.isCompleted is bool
+            && (!('assigneeUID' in data) || data.assigneeUID == null
+                || (data.assigneeUID is string && exists(memberPath(groupID, data.assigneeUID))))
+            && (!('deferredTo' in data) || isNullOrTimestamp(data.deferredTo))
+            && (!('droppedAt' in data) || isNullOrTimestamp(data.droppedAt))
+            && data.updatedBy == request.auth.uid
+            && data.updatedAt == request.time;
+        }
+
+        allow read: if isMember(groupID);
+
+        allow create: if isMember(groupID)
+          && validItem(request.resource.data)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+
+        allow update: if isMember(groupID)
+          && validItem(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt;
+
+        allow delete: if isMember(groupID);
+      }
+
+      // notificationLog など、ここに書かれていない場所はすべて拒否（Functions は管理者として書く）
+    }
+
+    // 招待：アプリからは読み書きできない（createInvite / acceptInvite だけが扱う）
+    match /invites/{tokenHash} {
+      allow read, write: if false;
+    }
+  }
+}

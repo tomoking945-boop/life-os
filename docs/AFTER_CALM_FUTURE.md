@@ -165,3 +165,14 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 ### 今回実装していないもの
 
 仕様の「変更禁止範囲」のもの（Firebase・同期・AI・StoreKit など）、すべてのデータを消す操作、予算を設定する画面（新しい人の予算は 0 円のまま）。
+
+## 5. パートナー共有・通知（2026-10-11 第1段階）
+
+仕様：[PARTNER_NOTIFICATIONS_IMPLEMENTATION.md](PARTNER_NOTIFICATIONS_IMPLEMENTATION.md)。報告は [PARTNER_NOTIFICATIONS_REPORT.md](PARTNER_NOTIFICATIONS_REPORT.md)、設定の手順は [FIREBASE_SETUP.md](FIREBASE_SETUP.md)。
+
+- 第1段階：サーバー側（Security Rules・Cloud Functions・Emulator テスト）と、iPhone 側の Firebase を使わない部分
+- 第2段階：池上さんの Firebase・Apple の設定のあと、iPhone アプリを Firebase につなぐ
+
+### ビルド結果
+
+この環境には Xcode が無いため、ビルドと XCTest は実行していない（コードの読み合わせのみ）。サーバーの単体テスト20件はこの環境で成功。Rules・Functions の Emulator テストは未実行（Mac で実行が必要）。

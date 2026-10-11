@@ -344,6 +344,18 @@ Calm Future の4段階が完了したあと、報告書の提案から池上さ�
 | 空のときの表示 | リスト・暮らしメモリー | 空のときの案内を追加。細い線の一覧（`LifeRuledList`）は項目が無いと何も出さない |
 | テスト | 保存先 | `LocalStorage.directoryOverride` でテストごとの一時フォルダに保存し、実際の利用者データと衝突させない |
 
+## パートナー共有・通知（2026-10-11 第1段階）
+
+仕様：[PARTNER_NOTIFICATIONS_IMPLEMENTATION.md](PARTNER_NOTIFICATIONS_IMPLEMENTATION.md)／報告：[PARTNER_NOTIFICATIONS_REPORT.md](PARTNER_NOTIFICATIONS_REPORT.md)／設定：[FIREBASE_SETUP.md](FIREBASE_SETUP.md)
+
+| 箇所 | 内容 |
+| --- | --- |
+| サーバー | `firestore.rules`、`firebase/functions`（`createInvite`・`acceptInvite`・`onSharedItemWritten`）。判定は `src/` に分けて単体テスト |
+| テスト | `firebase/functions` で `npm test`（単体・Rules Emulator・Functions Emulator）。Emulator は Mac で Node.js と Java が必要 |
+| iPhone | `Core/Sharing`：送ってよい項目の選別、Firestore に送る形、招待リンク・通知タップの読み取り、移行の対象選び。Firebase のライブラリはまだ入れていない |
+| Repository | `observeItems`・`addAsync` など（既定の実装で、既存の端末内保存をそのまま呼ぶ） |
+| 通知設定 | 「共有の更新」は `AppState.canUseSharedUpdates`（本物のメンバーが2人以上）まで無効。Mock の参加済みでは有効にならない |
+
 ## 今回やっていないこと（仕様どおり）
 
 Firebase / Apple Sign In / OpenAI API / StoreKit / AdMob / Push通知 / WidgetKit / レシートOCR / Apple Calendar同期 / 位置情報 / 家計分担ロジック / PDFアップロード / 音声入力 / カメラ撮影 / カレンダー週表示

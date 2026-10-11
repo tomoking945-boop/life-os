@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.example.LifeOS"],
+        "components": [
+          { "/": "/invite", "?": { "token": "?*" }, "comment": "生活OS の招待リンク" }
+        ]
+      }
+    ]
+  }
+}

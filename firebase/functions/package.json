@@ -1,0 +1,24 @@
+{
+  "name": "lifeos-functions",
+  "private": true,
+  "description": "生活OS：パートナー共有・通知の Cloud Functions",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "test:unit": "node --test test/unit/*.test.js",
+    "test:rules": "firebase emulators:exec --config ../../firebase.json --project demo-lifeos --only firestore \"node --test $PWD/test/emulator/rules.test.js\"",
+    "test:functions": "firebase emulators:exec --config ../../firebase.json --project demo-lifeos --only auth,firestore,functions \"node --test $PWD/test/emulator/functions.test.js\"",
+    "test": "npm run test:unit && npm run test:rules && npm run test:functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.0.2",
+    "firebase-tools": "^13.24.0"
+  }
+}

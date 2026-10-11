@@ -6,6 +6,14 @@ import SwiftUI
 struct NotificationSettingsView: View {
     @Environment(AppState.self) private var appState
 
+    /// 本物のメンバー参加が確認できるまでは、オフとして表示する（保存されている値は変えない）
+    private var sharedUpdatesBinding: Binding<Bool> {
+        Binding(
+            get: { appState.canUseSharedUpdates && appState.notificationSettings.sharedUpdates },
+            set: { appState.notificationSettings.sharedUpdates = $0 }
+        )
+    }
+
     var body: some View {
         @Bindable var appState = appState
 
@@ -24,11 +32,16 @@ struct NotificationSettingsView: View {
                         isOn: $appState.notificationSettings.taskReminder
                     )
                     LifeDivider()
+                    // パートナー共有（2026-10-11）：本物のメンバー参加が確認できた場合だけ使える（仕様 7-7）。
+                    // まだ同期していないのに届くと誤解されないよう、それまでは切り替えられない
                     SettingsToggleRow(
                         title: "共有の更新",
-                        detail: "共有メンバーが追加・更新したときにお知らせします",
-                        isOn: $appState.notificationSettings.sharedUpdates
+                        detail: appState.canUseSharedUpdates
+                            ? "共有メンバーが追加・変更したときにお知らせします"
+                            : "パートナーが参加して同期が始まると使えます（いまは同期していません）",
+                        isOn: sharedUpdatesBinding
                     )
+                    .disabled(!appState.canUseSharedUpdates)
                 }
             }
 
