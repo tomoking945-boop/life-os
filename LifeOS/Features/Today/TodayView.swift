@@ -74,6 +74,11 @@ struct TodayView: View {
                     inboxRow
                 }
 
+                // 保証書管理（2026-10-13）：保証終了まで30日以内の保証書があるときだけ、小さく案内する
+                if let warranty = WarrantyExpiration.nearestExpiringSoon(store.warranties, now: viewModel.now) {
+                    WarrantyTodayNotice(document: warranty, now: viewModel.now)
+                }
+
                 moneySection
 
                 // Free のときだけ表示。Premium では条件ごと外れるので余白も残らない。
@@ -107,6 +112,7 @@ struct TodayView: View {
                 HabitsView(store: store)
             }
         }
+        .warrantyDestinations()
         .sheet(isPresented: $viewModel.isShowingInvite) {
             SharingFlowView(item: viewModel.invitingItem, store: store)
                 .lifeSheetPresentation()

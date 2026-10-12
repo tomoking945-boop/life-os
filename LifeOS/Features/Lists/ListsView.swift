@@ -25,6 +25,9 @@ struct ListsView: View {
                     .accessibilityLabel("新しいリストを作成")
                 }
 
+                // 保証書管理（2026-10-13）：Premium「大切な書類」。通常のリストより上に小さく置く
+                ImportantDocumentsSection()
+
                 if viewModel.lists.isEmpty {
                     // はじめての設定（2026-10-09）：新しく使い始める人は空から始まる
                     LifeEmptyState(systemImage: "list.bullet", title: "リストはまだありません", message: "右上の＋から、行きたい場所や欲しいものをためておけます。")
@@ -48,6 +51,7 @@ struct ListsView: View {
         .navigationDestination(for: LifeList.ID.self) { id in
             ListDetailView(listID: id, viewModel: viewModel)
         }
+        .warrantyDestinations()
         .sheet(isPresented: $viewModel.isCreatingList) {
             NewListView(viewModel: viewModel)
                 .presentationDetents([.medium])

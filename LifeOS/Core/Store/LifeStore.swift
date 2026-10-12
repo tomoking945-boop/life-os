@@ -25,6 +25,13 @@ final class LifeStore {
     var habits: [Habit]
     /// LifeOSからの提案に答えた記録（Calm Future 第3段階）
     var suggestionDecisions: [SuggestionDecision]
+    /// 保証書（Premium「大切な書類」2026-10-13）。端末内にだけ保存する
+    var warranties: [WarrantyDocument]
+    /// 保証書の写真の情報（写真そのものは WarrantyAttachmentStorage が別のファイルに保存する）
+    var warrantyAttachments: [WarrantyAttachment]
+
+    /// 保証書の写真の保存先（テストでは一時フォルダに差し替える）
+    @ObservationIgnored var warrantyStorage = WarrantyAttachmentStorage()
 
     /// true のとき、変更のたびに端末内へ保存する
     @ObservationIgnored private var persists = false
@@ -47,6 +54,9 @@ final class LifeStore {
         // Calm Future 第3段階で追加
         var habits: [Habit]?
         var suggestionDecisions: [SuggestionDecision]?
+        // 保証書管理（2026-10-13）で追加。以前の保存データには無いため Optional（無ければ空）
+        var warranties: [WarrantyDocument]?
+        var warrantyAttachments: [WarrantyAttachment]?
     }
 
     /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
@@ -63,7 +73,9 @@ final class LifeStore {
         autopilot: AutopilotDay? = nil,
         frequentPurchases: [FrequentPurchase] = MockData.frequentPurchases(),
         habits: [Habit] = MockData.habits(),
-        suggestionDecisions: [SuggestionDecision] = []
+        suggestionDecisions: [SuggestionDecision] = [],
+        warranties: [WarrantyDocument] = [],
+        warrantyAttachments: [WarrantyAttachment] = []
     ) {
         self.items = items
         self.expenses = expenses
@@ -76,6 +88,8 @@ final class LifeStore {
         self.frequentPurchases = frequentPurchases
         self.habits = habits
         self.suggestionDecisions = suggestionDecisions
+        self.warranties = warranties
+        self.warrantyAttachments = warrantyAttachments
     }
 
     /// 端末内に保存されたデータを読み込む。初回（保存がない）ときは Mock データで始めて保存する。
@@ -101,7 +115,9 @@ final class LifeStore {
                 autopilot: snapshot.autopilot,
                 frequentPurchases: snapshot.frequentPurchases ?? MockData.frequentPurchases(),
                 habits: snapshot.habits ?? migratedHabits(from: snapshot.items),
-                suggestionDecisions: snapshot.suggestionDecisions ?? []
+                suggestionDecisions: snapshot.suggestionDecisions ?? [],
+                warranties: snapshot.warranties ?? [],
+                warrantyAttachments: snapshot.warrantyAttachments ?? []
             )
         } else if startEmptyIfNoSavedData {
             store = LifeStore.empty()
@@ -110,6 +126,8 @@ final class LifeStore {
         }
         store.persists = true
         store.save()
+        // 保証書：前回の途中で残った一時ファイルと、どの保証書からも参照されていない写真を消す
+        store.cleanUpWarrantyFiles()
         return store
     }
 
@@ -128,7 +146,9 @@ final class LifeStore {
                 autopilot: autopilot,
                 frequentPurchases: frequentPurchases,
                 habits: habits,
-                suggestionDecisions: suggestionDecisions
+                suggestionDecisions: suggestionDecisions,
+                warranties: warranties,
+                warrantyAttachments: warrantyAttachments
             ),
             to: Self.fileName
         )
@@ -174,6 +194,7 @@ final class LifeStore {
     }
 
     /// 開発用：保存したデータを捨てて、今日の日付の Mock データに戻す
+    /// 保証書（2026-10-13）は利用者の書類のため、ここでは消さない（Mock の保証書は無い）
     func resetToMock() {
         items = MockData.items()
         expenses = MockData.expenses()
@@ -586,4 +607,102 @@ final class LifeStore {
         }
         save()
     }
+
+    // MARK: - 保証書（Premium「大切な書類」2026-10-13）
+
+    func warranty(id: WarrantyDocument.ID) -> WarrantyDocument? {
+        warranties.first { $0.id == id }
+    }
+
+    /// 保証書の写真（保証書の並び順どおり）
+    func attachments(for documentID: WarrantyDocument.ID) -> [WarrantyAttachment] {
+        guard let document = warranty(id: documentID) else {
+            return warrantyAttachments.filter { $0.documentID == documentID }
+        }
+        return document.attachmentIDs.compactMap { id in
+            warrantyAttachments.first { $0.id == id && $0.documentID == documentID }
+        }
+    }
+
+    /// 同じ画像（SHA-256 が同じ）がすでに登録されている保証書
+    func warrantyContainingImage(sha256: String) -> WarrantyDocument? {
+        guard let attachment = warrantyAttachments.first(where: { $0.sha256 == sha256 }) else { return nil }
+        return warranty(id: attachment.documentID)
+    }
+
+    /// 保証書を追加・更新する。新しい写真は原本のまま保存先へ移し、取り除いた写真は消す。
+    /// 写真の保存に失敗したら、データは何も変えずに throw する（移した写真は一時フォルダへ戻っている）。
+    @discardableResult
+    func saveWarranty(
+        _ document: WarrantyDocument,
+        adding newFiles: [WarrantyStagedFile] = [],
+        removing removedAttachmentIDs: Set<WarrantyAttachment.ID> = [],
+        now: Date = Date()
+    ) throws -> WarrantyDocument {
+        let title = document.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw WarrantySaveError.missingTitle }
+
+        let keptIDs = document.attachmentIDs.filter { id in
+            !removedAttachmentIDs.contains(id)
+                && warrantyAttachments.contains { $0.id == id && $0.documentID == document.id }
+        }
+        guard keptIDs.count + newFiles.count <= WarrantyDocument.maxAttachments else {
+            throw WarrantyAttachmentError.tooManyAttachments
+        }
+
+        let committed = try warrantyStorage.commit(newFiles, documentID: document.id, now: now)
+
+        var saved = document
+        saved.title = title
+        saved.attachmentIDs = keptIDs + committed.map(\.id)
+        saved.updatedAt = now
+        let removed = warrantyAttachments.filter { $0.documentID == document.id && !saved.attachmentIDs.contains($0.id) }
+        warrantyAttachments.removeAll { $0.documentID == document.id && !saved.attachmentIDs.contains($0.id) }
+        warrantyAttachments.append(contentsOf: committed)
+        if let index = warranties.firstIndex(where: { $0.id == document.id }) {
+            saved.createdAt = warranties[index].createdAt
+            warranties[index] = saved
+        } else {
+            warranties.append(saved)
+        }
+        save()
+        removed.forEach(warrantyStorage.delete)
+        return saved
+    }
+
+    /// 保証書を削除する：データとすべての写真を消す（通知は、保証書の一覧が変わったときに予約し直して消える）
+    func deleteWarranty(id: WarrantyDocument.ID) {
+        warranties.removeAll { $0.id == id }
+        warrantyAttachments.removeAll { $0.documentID == id }
+        save()
+        warrantyStorage.deleteFiles(for: id)
+    }
+
+    /// 写真を1枚消す（Premium 終了後も、容量を空けるために使える）
+    func deleteWarrantyAttachment(id: WarrantyAttachment.ID) {
+        guard let attachment = warrantyAttachments.first(where: { $0.id == id }) else { return }
+        warrantyAttachments.removeAll { $0.id == id }
+        if let index = warranties.firstIndex(where: { $0.id == attachment.documentID }) {
+            warranties[index].attachmentIDs.removeAll { $0 == id }
+        }
+        save()
+        warrantyStorage.delete(attachment)
+    }
+
+    /// 写真の合計の大きさ（この iPhone の中で使っている容量）
+    var warrantyAttachmentByteCount: Int64 {
+        warrantyAttachments.reduce(0) { $0 + $1.byteCount }
+    }
+
+    /// 起動時：一時ファイルと、どの保証書からも参照されていない写真を消す
+    func cleanUpWarrantyFiles() {
+        warrantyStorage.clearStaging()
+        warrantyStorage.removeOrphans(keeping: warrantyAttachments)
+    }
+}
+
+/// 保証書を保存できなかった理由
+enum WarrantySaveError: Error, Equatable {
+    /// 製品名が空
+    case missingTitle
 }

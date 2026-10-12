@@ -17,6 +17,9 @@ enum LocalStorage {
             .appendingPathComponent("LifeOS", isDirectory: true)
     }
 
+    /// 保証書管理（2026-10-13）：写真の保存先（WarrantyAttachmentStorage）も同じアプリ専用の保存領域を使う
+    static var rootDirectory: URL? { directory }
+
     /// 保存ファイルがあるか（読めるかどうかは問わない）。既存の利用者かどうかの判定に使う
     static func exists(_ name: String) -> Bool {
         guard let url = fileURL(name) else { return false }

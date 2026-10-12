@@ -42,10 +42,17 @@ struct NotificationSettingsView: View {
                         isOn: sharedUpdatesBinding
                     )
                     .disabled(!appState.canUseSharedUpdates)
+                    LifeDivider()
+                    // 保証書管理（2026-10-13）：Premium の保証書の期限（30日前・7日前・当日 9:00）。端末内の通知
+                    SettingsToggleRow(
+                        title: "保証書の期限",
+                        detail: "保証が終わる前にお知らせします（Premium）",
+                        isOn: $appState.notificationSettings.warrantyRemindersEnabled
+                    )
                 }
             }
 
-            SettingsNote(text: "試作版のため、実際の通知は送られません。設定はこの端末の中に保存されます。")
+            SettingsNote(text: "「保証書の期限」は、この iPhone の中で実際にお知らせします。そのほかの通知は試作版のため送られません。設定はこの端末の中に保存されます。")
         }
     }
 }

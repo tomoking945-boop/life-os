@@ -13,6 +13,8 @@ struct LifeOSApp: App {
         _appState = State(initialValue: state)
         _store = State(initialValue: LifeStore.persistent(startEmptyIfNoSavedData: !state.hasCompletedOnboarding))
         LifeAppearance.configure()
+        // 保証書管理（2026-10-13）：前回の書き出しで残った一時ファイルを消す
+        WarrantyExporter.clearTemporaryFiles()
     }
 
     var body: some Scene {

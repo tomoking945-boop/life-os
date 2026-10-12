@@ -22,6 +22,14 @@ struct NotificationSettings: Hashable, Codable {
     var taskReminder = true
     /// 共有メンバーが追加・更新したとき
     var sharedUpdates = false
+    /// 保証書の期限（2026-10-13 追加）。以前の保存データには無いため Optional（無ければ ON）
+    var warrantyReminders: Bool?
+
+    /// 保証書の期限のお知らせを使うか（初期値 ON）
+    var warrantyRemindersEnabled: Bool {
+        get { warrantyReminders ?? true }
+        set { warrantyReminders = newValue }
+    }
 }
 
 /// 本人のプロフィール

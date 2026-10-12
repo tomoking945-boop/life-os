@@ -180,3 +180,13 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 ### 状態（2026-10-13）
 
 一時停止中。再開は [FIREBASE_SETUP.md](FIREBASE_SETUP.md) の B-1 から（Apple Developer Program と Firebase の準備ができてから）。
+
+## 6. Premium「大切な書類」保証書管理 MVP（2026-10-13）
+
+仕様：[WARRANTY_MANAGEMENT_MVP_SPEC.md](WARRANTY_MANAGEMENT_MVP_SPEC.md)。報告は [WARRANTY_MANAGEMENT_REPORT.md](WARRANTY_MANAGEMENT_REPORT.md)、確認の手順は [WARRANTY_MANUAL_CHECK.md](WARRANTY_MANUAL_CHECK.md)。
+
+決定（2026-10-13 池上さん）：予定・タスクの通知は main に無いため作らず、保証書の通知だけを統合スケジューラーで予約する。
+
+### ビルド結果
+
+この環境には Xcode が無いため、ビルドとテストは実行していない（コードの読み合わせのみ）。テストは 207件（これまでの169件＋38件）の予定。

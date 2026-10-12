@@ -101,8 +101,28 @@ protocol InboxRepository: AnyObject {
     func postponeInbox(_ ids: Set<InboxItem.ID>, until date: Date)
 }
 
+/// 保証書（Premium「大切な書類」2026-10-13）。端末内にだけ保存する
+protocol WarrantyRepository: AnyObject {
+    var warranties: [WarrantyDocument] { get }
+    var warrantyAttachments: [WarrantyAttachment] { get }
+    var warrantyStorage: WarrantyAttachmentStorage { get }
+    func warranty(id: WarrantyDocument.ID) -> WarrantyDocument?
+    func attachments(for documentID: WarrantyDocument.ID) -> [WarrantyAttachment]
+    func warrantyContainingImage(sha256: String) -> WarrantyDocument?
+    @discardableResult
+    func saveWarranty(
+        _ document: WarrantyDocument,
+        adding newFiles: [WarrantyStagedFile],
+        removing removedAttachmentIDs: Set<WarrantyAttachment.ID>,
+        now: Date
+    ) throws -> WarrantyDocument
+    func deleteWarranty(id: WarrantyDocument.ID)
+    func deleteWarrantyAttachment(id: WarrantyAttachment.ID)
+}
+
 // 今は LifeStore がすべての窓口を担当する（メソッドはすでに同じ形で持っている）
 extension LifeStore: LifeItemRepository {}
 extension LifeStore: ExpenseRepository {}
 extension LifeStore: ListRepository {}
 extension LifeStore: InboxRepository {}
+extension LifeStore: WarrantyRepository {}

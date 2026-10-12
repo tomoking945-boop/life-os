@@ -356,6 +356,19 @@ Calm Future の4段階が完了したあと、報告書の提案から池上さ�
 | Repository | `observeItems`・`addAsync` など（既定の実装で、既存の端末内保存をそのまま呼ぶ） |
 | 通知設定 | 「共有の更新」は `AppState.canUseSharedUpdates`（本物のメンバーが2人以上）まで無効。Mock の参加済みでは有効にならない |
 
+## 保証書管理 MVP（2026-10-13）
+
+仕様：[WARRANTY_MANAGEMENT_MVP_SPEC.md](WARRANTY_MANAGEMENT_MVP_SPEC.md)／報告：[WARRANTY_MANAGEMENT_REPORT.md](WARRANTY_MANAGEMENT_REPORT.md)／確認：[WARRANTY_MANUAL_CHECK.md](WARRANTY_MANUAL_CHECK.md)
+
+| 箇所 | 内容 |
+| --- | --- |
+| データ | `WarrantyDocument`・`WarrantyAttachment`（Core/Models/Warranty.swift）。LifeStore の Snapshot に Optional で追加 |
+| 写真 | `WarrantyAttachmentStorage`：原本のまま、UUID のファイル名、`.complete`、一時フォルダ→保存先へ移動、失敗時ロールバック、起動時に孤立ファイルを掃除 |
+| 読み取り | `WarrantyTextRecognizer`（Vision・端末内）→ `WarrantyFieldExtractor`（候補だけ）→ 確認画面 →「候補を反映」 |
+| プラン | `WarrantyAccess`：Free（保存なし）＝説明、Premium＝すべて、Premium 終了後（保存あり）＝閲覧・書き出し・削除 |
+| 通知 | `LifeNotificationService`：統合スケジューラー（保証書18・予定40・タスク1、合計59）。`lifeos.` の通知だけ入れ替える。予定・タスクの通知は未作成（TODO） |
+| 画面 | Features/Documents/Warranty。リストの一番上に入口、今日画面に期限30日以内の案内 |
+
 ## 今回やっていないこと（仕様どおり）
 
 Firebase / Apple Sign In / OpenAI API / StoreKit / AdMob / Push通知 / WidgetKit / レシートOCR / Apple Calendar同期 / 位置情報 / 家計分担ロジック / PDFアップロード / 音声入力 / カメラ撮影 / カレンダー週表示

@@ -20,6 +20,7 @@ final class PremiumViewModel {
     /// 表示のみ（今回はどの機能も外部サービスに接続しない）
     let features = [
         "広告なし",
+        "大切な書類（保証書の管理）",
         "AI利用拡張",
         "レシート読み取り",
         "Appleカレンダー連携",
