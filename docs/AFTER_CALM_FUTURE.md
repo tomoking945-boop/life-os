@@ -176,3 +176,7 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 ### ビルド結果
 
 この環境には Xcode が無いため、ビルドと XCTest は実行していない（コードの読み合わせのみ）。サーバーの単体テスト20件はこの環境で成功。2026-10-11、池上さんの Mac で `npm test` を実行：単体20件・Rules 19件・Functions 9件、すべて成功。XCTest は池上さんから「テスト完了」の報告（件数は未記録）。
+
+### 状態（2026-10-13）
+
+一時停止中。再開は [FIREBASE_SETUP.md](FIREBASE_SETUP.md) の B-1 から（Apple Developer Program と Firebase の準備ができてから）。

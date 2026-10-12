@@ -12,6 +12,8 @@
 | 第1段階（2026-10-11） | サーバー側（Security Rules・Cloud Functions・Emulator テスト）と、iPhone 側の Firebase を使わない部分、設定手順書 | 実装済み。Mac でのビルド・テストは未確認 |
 | 第2段階 | Firebase SDK の追加、Sign in with Apple、Firestore との同期、FCM トークン、通知タップ、移行の画面、Mock の参加済みの置き換え | 池上さんの Firebase 設定が済んでから |
 
+**2026-10-13 時点：一時停止中。** 第1段階は完了（Mac で Emulator テスト48件すべて成功）。次は [FIREBASE_SETUP.md](FIREBASE_SETUP.md) の B-1（Bundle Identifier を決める）から。Apple Developer Program の登録と Firebase の Blaze プランが必要なため、池上さんの準備ができてから再開する。
+
 外部設定が無い状態でもアプリは起動し、これまでどおり端末内だけで動きます（第1段階では iPhone アプリはネットワークに一切つながりません）。
 
 ## 仕様の実装順と対応
