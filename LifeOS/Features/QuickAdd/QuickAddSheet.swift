@@ -39,12 +39,28 @@ struct QuickAddSheet: View {
                 .padding(.horizontal, LifeSpacing.screenHorizontal)
                 .padding(.vertical, LifeSpacing.lg)
                 .animation(LifeMotion.animation(LifeMotion.quick, reduceMotion: reduceMotion), value: viewModel.understanding)
+                // 2026-10-17：入力欄やボタン以外の場所（余白）を触ったら、キーボードを閉じる。
+                // 背景にだけ置くので、ボタン・入力欄・候補の操作は妨げない
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { isInputFocused = false }
+                        .accessibilityHidden(true)
+                }
             }
+            // スクロールしたらキーボードを閉じる
+            .scrollDismissesKeyboard(.immediately)
             .background(LifeAmbientBackground(timeOfDay: appState.ambientPreview ?? LifeTimeOfDay(date: LifeCalendar.now)))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
                         .foregroundStyle(LifeColors.secondaryText)
+                }
+                // キーボードの上の「完了」でも閉じられる
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完了") { isInputFocused = false }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -79,7 +95,7 @@ struct QuickAddSheet: View {
                 .font(LifeTypography.title)
                 .foregroundStyle(LifeColors.text)
                 .accessibilityAddTraits(.isHeader)
-            Text("思いついたことを、そのまま。LifeOS が整えます。")
+            Text("思いついたことを、そのまま。くらしOS が整えます。")
                 .font(LifeTypography.callout)
                 .foregroundStyle(LifeColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,7 +154,7 @@ struct QuickAddSheet: View {
         VStack(alignment: .leading, spacing: LifeSpacing.sm) {
             HStack(spacing: LifeSpacing.xs) {
                 LifeCategoryDot(color: LifeColors.accent)
-                Text("LifeOSの理解")
+                Text("くらしOSの理解")
                     .font(LifeTypography.label)
                     .tracking(LifeTypography.labelTracking)
                     .foregroundStyle(LifeColors.secondaryText)

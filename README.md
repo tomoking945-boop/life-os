@@ -1,5 +1,7 @@
 # life-os
-生活OSアプリ開発プロジェクト
+くらしOS（旧称：生活OS）アプリ開発プロジェクト
+
+アプリの表示名は「くらしOS」。Swift の型名・プロジェクト名・内部のファイル名は `LifeOS` のまま。
 
 ## ドキュメント
 
@@ -19,6 +21,7 @@
 - [保証書管理 MVP 仕様（正本）](docs/WARRANTY_MANAGEMENT_MVP_SPEC.md)
 - [保証書管理 実装の報告](docs/WARRANTY_MANAGEMENT_REPORT.md)
 - [保証書管理 確認の手順](docs/WARRANTY_MANUAL_CHECK.md)
+- [確定済みの変更の統合（2026-10-17）](docs/INTEGRATION_2026-10-17.md)
 
 ## UIプロトタイプの動かし方
 

@@ -89,7 +89,7 @@ beforeEach(async () => {
     await clearCollection(`users/${user.uid}/devices`);
   }
   const now = Timestamp.now();
-  await db.doc(`groups/${GROUP}`).set({ name: '池上家', createdBy: alice.uid, createdAt: now, updatedAt: now });
+  await db.doc(`groups/${GROUP}`).set({ name: 'わが家', createdBy: alice.uid, createdAt: now, updatedAt: now });
   await db.doc(`groups/${GROUP}/members/${alice.uid}`).set({ role: 'owner', joinedAt: now, displayName: 'alice' });
 });
 

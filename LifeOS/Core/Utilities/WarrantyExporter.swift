@@ -81,7 +81,7 @@ enum WarrantyExporter {
         add("メモ", document.note)
         lines.append("写真：\(attachmentCount)枚")
         lines.append("")
-        lines.append("生活OS から \(WarrantyExpiration.dateText(now)) に書き出し。保証の内容は保証書の原本で確認してください。")
+        lines.append("くらしOS から \(WarrantyExpiration.dateText(now)) に書き出し。保証の内容は保証書の原本で確認してください。")
         return lines.joined(separator: "\n")
     }
 

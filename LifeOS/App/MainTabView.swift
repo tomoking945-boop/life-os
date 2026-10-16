@@ -6,18 +6,20 @@ struct MainTabView: View {
     @Environment(LifeStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
 
-    /// 通知を予約し直すきっかけ（保証書・プラン・通知設定が変わったとき）
+    /// 通知を予約し直すきっかけ（予定・タスク・保証書・プラン・通知設定が変わったとき）
     private struct NotificationSyncKey: Equatable {
+        let items: [LifeItem]
         let warranties: [WarrantyDocument]
         let isPremium: Bool
-        let warrantyRemindersEnabled: Bool
+        let settings: NotificationSettings
     }
 
     private var notificationSyncKey: NotificationSyncKey {
         NotificationSyncKey(
+            items: store.items,
             warranties: store.warranties,
             isPremium: appState.isPremium,
-            warrantyRemindersEnabled: appState.notificationSettings.warrantyRemindersEnabled
+            settings: appState.notificationSettings
         )
     }
 
@@ -61,7 +63,7 @@ struct MainTabView: View {
         .onChange(of: appState.notificationSettings) { appState.save() }
         .onChange(of: appState.usageStyle) { appState.save() }
         .onChange(of: appState.partnerJoined) { appState.save() }
-        // 保証書管理（2026-10-13）：起動時・保証書の追加・編集・削除・プランや通知設定の変更時に、通知を予約し直す
+        // 起動時・予定やタスクや保証書の変更時・プランや通知設定の変更時に、通知を予約し直す（2026-10-13・10-17）
         .task(id: notificationSyncKey) {
             await LifeNotificationService.shared.resync(store: store, appState: appState)
         }

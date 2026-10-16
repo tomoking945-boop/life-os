@@ -2,9 +2,9 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["TEAMID.com.example.LifeOS"],
+        "appIDs": ["TEAMID.com.tomoking945boop.lifeos"],
         "components": [
-          { "/": "/invite", "?": { "token": "?*" }, "comment": "生活OS の招待リンク" }
+          { "/": "/invite", "?": { "token": "?*" }, "comment": "くらしOS の招待リンク" }
         ]
       }
     ]

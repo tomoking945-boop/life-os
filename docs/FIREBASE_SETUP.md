@@ -77,19 +77,16 @@ npm test
 - Google アカウント（Firebase 用）
 - iPhone 2台と、テスト用の別の Apple Account
 
-### B-1. アプリの ID（Bundle Identifier）を決める
+### B-1. アプリの ID（Bundle Identifier）
 
-いまのアプリの ID は見本の `com.example.LifeOS` です。本物の通知には、自分だけの ID が必要です。
-
-1. 例：`com.ikegami.LifeOS` のように、自分の名前などを入れた ID を決めます（あとで変えにくいので、慎重に）。
-2. **決めた ID を教えてください。** プロジェクトの設定とリンク用ファイルは、こちらで書き換えます（TODO：ID が決まったら変更）。
+決定済み（2026-10-17）：アプリは `com.tomoking945boop.lifeos`、テストは `com.tomoking945boop.lifeos.tests`。プロジェクトの設定に反映済みです。B-2 以降では、この ID を使います。
 
 ### B-2. Apple Developer で App ID を作る
 
 1. https://developer.apple.com/account を開き、サインインします。
 2. 「Certificates, Identifiers & Profiles」→「Identifiers」→「＋」。
 3. 「App IDs」→「App」を選んで Continue。
-4. Description に `LifeOS`、Bundle ID に B-1 で決めた ID を入れます（Explicit）。
+4. Description に `くらしOS`、Bundle ID に `com.tomoking945boop.lifeos` を入れます（Explicit）。
 5. 下の Capabilities で、次の3つにチェックを入れます。
    - **Sign in with Apple**
    - **Push Notifications**
@@ -118,7 +115,7 @@ npm test
 ### B-6. iPhone アプリを登録して、設定ファイルを受け取る
 
 1. プロジェクトのトップで「アプリを追加」→ **iOS** のマーク。
-2. Apple バンドル ID に B-1 の ID を入れて「アプリを登録」。
+2. Apple バンドル ID に `com.tomoking945boop.lifeos` を入れて「アプリを登録」。
 3. `GoogleService-Info.plist` をダウンロードします。
 4. **この段階では、Xcode にはまだ入れなくて大丈夫です**（第2段階で、入れる場所と手順をお伝えします）。GitHub に入らないよう、life-os フォルダの外（例：書類フォルダ）に置いておいてください。
 5. 「Firebase SDK の追加」などの次の画面は「次へ」で飛ばしてかまいません（第2段階でこちらが行います）。
@@ -146,7 +143,7 @@ npm test
 招待リンク `https://<プロジェクト ID>.web.app/invite?token=…` を iPhone アプリで開けるようにします。
 
 1. 「構築」→「Hosting」→「始める」（画面の手順は途中まででかまいません）。
-2. TODO（こちらで行います）：`firebase/hosting/.well-known/apple-app-site-association` の `TEAMID.com.example.LifeOS` を、B-2 の Team ID と B-1 の ID に書き換えます。**Team ID を教えてください。**
+2. TODO（こちらで行います）：`firebase/hosting/.well-known/apple-app-site-association` の `TEAMID` を、B-2 の Team ID に書き換えます（ID の部分は `com.tomoking945boop.lifeos` に反映済み）。**Team ID を教えてください。**
 
 ### B-11. サーバー側を送る（デプロイ）
 
@@ -180,9 +177,8 @@ firebase/functions/node_modules/.bin/firebase deploy --only firestore,functions,
 
 ## 第2段階に進むときに教えてほしいこと
 
-1. 決めた Bundle Identifier（B-1）
-2. Team ID（B-2。秘密の情報ではありません）
-3. Firebase のプロジェクト ID（B-4）
-4. A-4 のテスト結果（`# fail 0` かどうか）
+1. Team ID（B-2。秘密の情報ではありません）
+2. Firebase のプロジェクト ID（B-4）
+3. A-4 のテスト結果（`# fail 0` かどうか）
 
 鍵ファイル（.p8）・`GoogleService-Info.plist` の中身は送らないでください。

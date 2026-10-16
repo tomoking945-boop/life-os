@@ -82,7 +82,7 @@ struct LifeSuggestionCard: View {
     private let onSecondary: (() -> Void)?
 
     init(
-        eyebrow: String = "LifeOSからの提案",
+        eyebrow: String = "くらしOSからの提案",
         message: String,
         reason: String? = nil,
         primaryTitle: String,

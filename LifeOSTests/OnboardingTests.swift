@@ -102,7 +102,7 @@ final class OnboardingTests: XCTestCase {
         advanceToName(viewModel, usage: .shared)
         XCTAssertTrue(viewModel.asksGroupName)
         viewModel.name = "池上"
-        viewModel.groupName = "池上家"
+        viewModel.groupName = "さくら家"
         XCTAssertTrue(viewModel.complete())
         XCTAssertEqual(state.usageStyle, .shared)
         XCTAssertTrue(state.usageStyle.showsScopeFilter)
@@ -140,10 +140,10 @@ final class OnboardingTests: XCTestCase {
         let viewModel = OnboardingViewModel(appState: state, store: store, now: TestDates.friday)
         advanceToName(viewModel, usage: .shared)
         viewModel.name = "池上"
-        viewModel.groupName = " 池上家 "
+        viewModel.groupName = " さくら家 "
         XCTAssertTrue(viewModel.complete())
-        XCTAssertEqual(state.profile.groupName, "池上家")
-        XCTAssertEqual(AppState.persistent().profile.groupName, "池上家")
+        XCTAssertEqual(state.profile.groupName, "さくら家")
+        XCTAssertEqual(AppState.persistent().profile.groupName, "さくら家")
 
         // 一人モードでは生活グループ名を聞かず、変えない
         let solo = AppState()
@@ -173,7 +173,7 @@ final class OnboardingTests: XCTestCase {
         viewModel.toggle(try XCTUnwrap(starters["水を飲む"]))
         viewModel.toggle(try XCTUnwrap(starters["薬を飲む"]))
         viewModel.toggle(try XCTUnwrap(starters["薬を飲む"]))   // 選び直し
-        XCTAssertEqual(viewModel.primaryTitle, "生活OSをはじめる")
+        XCTAssertEqual(viewModel.primaryTitle, "くらしOSをはじめる")
         viewModel.primaryAction()
 
         XCTAssertTrue(state.hasCompletedOnboarding)
@@ -255,7 +255,7 @@ final class OnboardingTests: XCTestCase {
         let viewModel = OnboardingViewModel(appState: state, store: store, now: TestDates.friday)
         advanceToName(viewModel, usage: .shared)
         viewModel.name = "池上"
-        viewModel.groupName = "池上家"
+        viewModel.groupName = "さくら家"
 
         // アプリを終了して再起動した想定
         let reloaded = AppState.persistent()
@@ -264,7 +264,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(resumed.step, .name)
         XCTAssertEqual(resumed.usageStyle, .shared)
         XCTAssertEqual(resumed.name, "池上")
-        XCTAssertEqual(resumed.groupName, "池上家")
+        XCTAssertEqual(resumed.groupName, "さくら家")
 
         resumed.back()
         XCTAssertEqual(resumed.step, .usage, "前のステップに戻れる")

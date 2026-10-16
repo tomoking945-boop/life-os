@@ -23,7 +23,7 @@ struct SharedStarterView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.xl) {
                 VStack(alignment: .leading, spacing: LifeSpacing.xs) {
-                    Text("二人の生活OSを\n30秒で作りましょう。")
+                    Text("二人のくらしOSを\n30秒で作りましょう。")
                         .font(LifeTypography.editorialTitle)
                         .foregroundStyle(LifeColors.text)
                         .fixedSize(horizontal: false, vertical: true)

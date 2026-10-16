@@ -35,7 +35,7 @@ beforeEach(async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     const now = Timestamp.now();
-    await setDoc(doc(db, `groups/${GROUP}`), { name: '池上家', createdBy: 'alice', createdAt: now, updatedAt: now });
+    await setDoc(doc(db, `groups/${GROUP}`), { name: 'わが家', createdBy: 'alice', createdAt: now, updatedAt: now });
     await setDoc(doc(db, `groups/${GROUP}/members/alice`), { role: 'owner', joinedAt: now, displayName: 'alice' });
     await setDoc(doc(db, `groups/${GROUP}/members/bob`), { role: 'member', joinedAt: now, displayName: 'bob' });
     await setDoc(doc(db, `groups/${GROUP}/items/item-1`), sharedItem('alice', now));
@@ -157,7 +157,7 @@ describe('メンバー', () => {
   });
 
   it('グループの名前だけ変えられる（作成者は変えられない）', async () => {
-    await assertSucceeds(updateDoc(doc(as('bob'), `groups/${GROUP}`), { name: '池上家（新）', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(as('bob'), `groups/${GROUP}`), { name: 'わが家（新）', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}`), { createdBy: 'bob', updatedAt: serverTimestamp() }));
   });
 });

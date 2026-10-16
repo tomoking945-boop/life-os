@@ -35,7 +35,7 @@ struct WarrantyCameraView: View {
             case .denied:
                 message(
                     "カメラの使用が許可されていません",
-                    detail: "設定アプリの「生活OS」でカメラを許可すると撮影できます。写真から選ぶこともできます。",
+                    detail: "設定アプリの「くらしOS」でカメラを許可すると撮影できます。写真から選ぶこともできます。",
                     showsSettings: true
                 )
             case .unavailable:

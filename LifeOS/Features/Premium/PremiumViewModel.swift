@@ -13,7 +13,7 @@ final class PremiumViewModel {
         self.previewTheme = appState.selectedTheme
     }
 
-    let title = "生活OS Premium"
+    let title = "くらしOS Premium"
     let catchCopy = "暮らしを、\nもう少し自動に。"
     let trialText = "2週間無料"
 
@@ -33,7 +33,7 @@ final class PremiumViewModel {
 
     // MARK: - LifeOS Themes（テーマとダークモード 2026-10-08：Premium で選んだテーマをアプリ全体に反映）
 
-    let themeSectionTitle = "自分らしい生活OSに"
+    let themeSectionTitle = "自分らしいくらしOSに"
     let themes = LifeTheme.allCases
     /// プレビューで選んでいるテーマ（最初は今のテーマ）
     var previewTheme: LifeTheme

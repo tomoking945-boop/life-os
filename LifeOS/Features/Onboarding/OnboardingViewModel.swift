@@ -55,7 +55,7 @@ final class OnboardingViewModel {
         switch step {
         case .welcome: return "はじめる"
         case .usage, .name: return "次へ"
-        case .habits: return "生活OSをはじめる"
+        case .habits: return "くらしOSをはじめる"
         }
     }
 

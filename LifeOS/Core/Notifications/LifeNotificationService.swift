@@ -8,9 +8,7 @@ import UserNotifications
 // - 時刻つき予定：直近40件
 // - 未完了タスク：最大1件
 //
-// 決定（2026-10-13 池上さん）：今回作るのは保証書の通知だけ。
-// 予定10分前・当日20時の未完了タスクの通知は、GitHub の main にまだ無いため作らない。
-// TODO: 予定・タスクの通知を作るときは、`events`・`tasks` に予約したい通知を渡す（枠はすでに用意してある）。
+// 2026-10-17：予定（時刻つきの予定の10分前・直近40件）と、未完了タスク（20時に1件）を追加。
 //
 // アプリが管理する通知の識別子は「lifeos.」で始まる。それ以外の通知（ほかの仕組みが予約したもの）は消さない。
 
@@ -107,6 +105,71 @@ enum LifeNotificationPlanner {
         return requests
     }
 
+    // MARK: - 予定・タスク（2026-10-17）
+
+    /// 予定の何分前に知らせるか
+    static let eventLeadMinutes = 10
+    /// 未完了タスクを知らせる時刻（20:00）
+    static let taskReminderHour = 20
+    /// 未完了タスクの通知の識別子（1件だけ）
+    static let taskReminderIdentifier = "\(identifierPrefix)task.evening"
+
+    /// 時刻つき予定の10分前（直近40件は plan で絞る）。
+    /// 時刻なし・完了済み・もうやらない予定、通知時刻が過ぎた予定は予約しない
+    static func eventRequests(
+        items: [LifeItem],
+        now: Date,
+        calendar: Calendar = LifeCalendar.calendar
+    ) -> [LifeNotificationRequest] {
+        items
+            .filter { $0.kind == .event && $0.hasTime && !$0.isCompleted && !$0.isDropped }
+            .compactMap { item -> LifeNotificationRequest? in
+                let start = item.displayDate
+                guard let fireDate = calendar.date(byAdding: .minute, value: -eventLeadMinutes, to: start),
+                      fireDate > now else { return nil }
+                return LifeNotificationRequest(
+                    identifier: "\(identifierPrefix)event.\(item.id.uuidString)",
+                    category: .event,
+                    title: "まもなく予定",
+                    body: "\(LifeFormatters.time(start)) \(item.title)（\(eventLeadMinutes)分後）",
+                    fireDate: fireDate
+                )
+            }
+            .sorted { $0.fireDate < $1.fireDate }
+    }
+
+    /// 未完了タスクの通知の対象：習慣・予定・完了済み・もうやらない項目は除く。パートナー担当も除く（新しい解釈）
+    static func isTaskReminderTarget(_ item: LifeItem) -> Bool {
+        item.kind != .event && item.kind != .habit && !item.isCompleted && !item.isDropped && item.assignee != .partner
+    }
+
+    /// その日の未完了タスクを 20:00 に1件だけ知らせる。
+    /// 今日の 20:00 が過ぎていれば、明日の分（明日のやることがあれば）を予約する（新しい解釈）
+    static func taskRequests(
+        items: [LifeItem],
+        now: Date,
+        calendar: Calendar = LifeCalendar.calendar
+    ) -> [LifeNotificationRequest] {
+        let today = calendar.startOfDay(for: now)
+        for dayOffset in 0...1 {
+            guard let day = calendar.date(byAdding: .day, value: dayOffset, to: today),
+                  let fireDate = calendar.date(bySettingHour: taskReminderHour, minute: 0, second: 0, of: day),
+                  fireDate > now else { continue }
+            let remaining = items.filter { isTaskReminderTarget($0) && calendar.isDate($0.displayDate, inSameDayAs: day) }
+            guard !remaining.isEmpty else { return [] }
+            return [
+                LifeNotificationRequest(
+                    identifier: taskReminderIdentifier,
+                    category: .task,
+                    title: "今日のやること",
+                    body: "まだ終わっていないやることが\(remaining.count)件あります",
+                    fireDate: fireDate
+                )
+            ]
+        }
+        return []
+    }
+
     /// 「冷蔵庫の保証終了まであと30日です」「冷蔵庫の保証は今日までです」
     static func warrantyBody(title: String, daysBefore: Int) -> String {
         daysBefore == 0 ? "\(title)の保証は今日までです" : "\(title)の保証終了まであと\(daysBefore)日です"
@@ -181,23 +244,38 @@ final class LifeNotificationService {
         warranties: [WarrantyDocument],
         isPremium: Bool,
         warrantyRemindersEnabled: Bool,
+        items: [LifeItem] = [],
+        eventRemindersEnabled: Bool = false,
+        taskRemindersEnabled: Bool = false,
         now: Date
     ) -> [LifeNotificationRequest] {
         let access = WarrantyAccess.resolve(isPremium: isPremium, hasSavedDocuments: !warranties.isEmpty)
         let warrantyRequests = access.canScheduleReminders && warrantyRemindersEnabled
             ? LifeNotificationPlanner.warrantyRequests(documents: warranties, now: now)
             : []
-        // TODO: 予定・タスクの通知を作るときは events・tasks に渡す（いまは無し）
-        return LifeNotificationPlanner.plan(warranty: warrantyRequests, events: [], tasks: [])
+        let eventRequests = eventRemindersEnabled ? LifeNotificationPlanner.eventRequests(items: items, now: now) : []
+        let taskRequests = taskRemindersEnabled ? LifeNotificationPlanner.taskRequests(items: items, now: now) : []
+        return LifeNotificationPlanner.plan(warranty: warrantyRequests, events: eventRequests, tasks: taskRequests)
     }
 
     /// 全体を予約し直す（起動時・保証書の追加・編集・削除・通知設定やプランの変更時）。
     /// 「lifeos.」で始まる予約だけを入れ替える。許可されていなければ何も予約しない
-    func resync(warranties: [WarrantyDocument], isPremium: Bool, warrantyRemindersEnabled: Bool, now: Date = Date()) async {
+    func resync(
+        warranties: [WarrantyDocument],
+        isPremium: Bool,
+        warrantyRemindersEnabled: Bool,
+        items: [LifeItem] = [],
+        eventRemindersEnabled: Bool = false,
+        taskRemindersEnabled: Bool = false,
+        now: Date = Date()
+    ) async {
         let planned = Self.plannedRequests(
             warranties: warranties,
             isPremium: isPremium,
             warrantyRemindersEnabled: warrantyRemindersEnabled,
+            items: items,
+            eventRemindersEnabled: eventRemindersEnabled,
+            taskRemindersEnabled: taskRemindersEnabled,
             now: now
         )
         let managed = await center.pendingRequestIdentifiers().filter { $0.hasPrefix(LifeNotificationPlanner.identifierPrefix) }
@@ -222,17 +300,26 @@ final class LifeNotificationService {
 
     /// アプリの状態から予約し直す
     func resync(store: LifeStore, appState: AppState) async {
+        let settings = appState.notificationSettings
         await resync(
             warranties: store.warranties,
             isPremium: appState.isPremium,
-            warrantyRemindersEnabled: appState.notificationSettings.warrantyRemindersEnabled
+            warrantyRemindersEnabled: settings.warrantyRemindersEnabled,
+            items: store.items,
+            eventRemindersEnabled: settings.todaySchedule,
+            taskRemindersEnabled: settings.taskReminder
         )
     }
 
-    /// 保証書の通知を使うとき（保存時）に一度だけ許可をお願いする
+    /// 通知を使うとき（保証書の保存時・通知設定の画面）に、未確認なら一度だけ許可をお願いする
     func requestAuthorizationIfNeeded() async {
         if await center.isAuthorized() == nil {
             _ = await center.requestAuthorization()
         }
+    }
+
+    /// 通知が許可されているか（未確認なら nil）。通知設定の画面で案内を出すために使う
+    func authorizationState() async -> Bool? {
+        await center.isAuthorized()
     }
 }

@@ -3,7 +3,9 @@
 正本の仕様：[WARRANTY_MANAGEMENT_MVP_SPEC.md](WARRANTY_MANAGEMENT_MVP_SPEC.md)
 確認の手順：[WARRANTY_MANUAL_CHECK.md](WARRANTY_MANUAL_CHECK.md)
 
-実装日：2026-10-13。この環境には Xcode が無いため、**ビルドとテストはまだ実行していない**（コードの読み合わせのみ）。
+実装日：2026-10-13。2026-10-17、池上さんの Mac の Xcode でビルド成功・テスト207件を実行（成功206件・失敗0件・実機専用のファイル保護テスト1件は想定どおりスキップ）。
+
+2026-10-17 追記：予定10分前・未完了タスク20時の通知を統合スケジューラーに追加（[INTEGRATION_2026-10-17.md](INTEGRATION_2026-10-17.md)）。
 
 ## 決定（2026-10-13 池上さん）
 
@@ -144,8 +146,8 @@
 
 | テスト | 件数 | 結果 |
 | --- | --- | --- |
-| 新規 XCTest（WarrantyTests.swift） | 38件 | **未実行**（この環境に Xcode が無いため） |
-| 既存 XCTest | 169件 | **未実行**（同上） |
+| 新規 XCTest（WarrantyTests.swift） | 38件 | 2026-10-17 池上さんの Mac で実行：37件成功・1件スキップ（ファイル保護は実機で確認） |
+| 既存 XCTest | 169件 | 2026-10-17 池上さんの Mac で実行：すべて成功 |
 | 実機の確認（カメラ・実際の通知・ロック中の保護・VoiceOver・文字サイズ・ダークモード） | — | 手順書 [WARRANTY_MANUAL_CHECK.md](WARRANTY_MANUAL_CHECK.md) |
 
 新規テストの内容：

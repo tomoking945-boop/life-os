@@ -60,7 +60,7 @@ test('共有できない種類（支払予定・習慣など）や、操作し�
 });
 
 test('内容の表示を許可していなければ、項目名も種類も出さない', () => {
-  assert.deepEqual(buildMessage('eventAdded', '歯医者', false), { title: '生活OS', body: GENERIC_BODY });
+  assert.deepEqual(buildMessage('eventAdded', '歯医者', false), { title: 'くらしOS', body: GENERIC_BODY });
   assert.equal(GENERIC_BODY, '共有情報が更新されました');
   assert.equal(buildMessage('eventAdded', '歯医者', true).body, '共有予定が追加されました：歯医者');
   assert.equal(buildMessage('taskAdded', '  ', true).body, '共有のやることが追加されました');

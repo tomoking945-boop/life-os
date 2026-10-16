@@ -94,7 +94,7 @@ struct OnboardingView: View {
     private var welcomeStep: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.lg) {
             LifeLeafMark()
-            Text("生活OSへようこそ")
+            Text("くらしOSへようこそ")
                 .font(LifeTypography.heroTitle)
                 .foregroundStyle(LifeColors.text)
                 .fixedSize(horizontal: false, vertical: true)
@@ -162,7 +162,7 @@ struct OnboardingView: View {
             question("あなたの名前を教えてください")
             textField("あなたの名前", text: $viewModel.name, field: .name, prompt: "名前")
             if viewModel.asksGroupName {
-                textField("生活グループ名", text: $viewModel.groupName, field: .groupName, prompt: "例：池上家")
+                textField("生活グループ名", text: $viewModel.groupName, field: .groupName, prompt: "例：わが家")
                 Text("家族やパートナーとの共有の情報を、この名前でまとめます。")
                     .font(LifeTypography.footnote)
                     .foregroundStyle(LifeColors.secondaryText)

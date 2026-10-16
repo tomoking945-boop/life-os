@@ -101,7 +101,7 @@ struct InboxView: View {
 
     private var addField: some View {
         HStack(spacing: LifeSpacing.sm) {
-            TextField("LifeOSに預ける", text: $newText)
+            TextField("くらしOSに預ける", text: $newText)
                 .font(LifeTypography.body)
                 .foregroundStyle(LifeColors.text)
                 .focused($isFieldFocused)
@@ -180,7 +180,7 @@ struct InboxView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
-                Text(viewModel.isEdited(item) ? "LifeOSの理解（修正済み）" : "LifeOSの理解")
+                Text(viewModel.isEdited(item) ? "くらしOSの理解（修正済み）" : "くらしOSの理解")
                     .font(LifeTypography.label)
                     .tracking(LifeTypography.labelTracking)
                     .foregroundStyle(LifeColors.secondaryText)

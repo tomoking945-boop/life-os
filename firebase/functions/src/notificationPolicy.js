@@ -84,11 +84,11 @@ function decide(before, after, options = {}) {
  */
 function buildMessage(type, itemTitle, showsPreview) {
   if (!showsPreview) {
-    return { title: '生活OS', body: GENERIC_BODY };
+    return { title: 'くらしOS', body: GENERIC_BODY };
   }
   const base = BODY_BY_TYPE[type] || GENERIC_BODY;
   const title = typeof itemTitle === 'string' ? itemTitle.trim() : '';
-  return { title: '生活OS', body: title ? `${base}：${title}` : base };
+  return { title: 'くらしOS', body: title ? `${base}：${title}` : base };
 }
 
 module.exports = { SHARED_KINDS, NotificationType, GENERIC_BODY, BODY_BY_TYPE, decide, buildMessage };

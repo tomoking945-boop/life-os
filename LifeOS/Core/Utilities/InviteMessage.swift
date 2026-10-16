@@ -8,7 +8,7 @@ enum InviteMessage {
     static let mockLink = "https://example.com/lifeos/invite/mock"
 
     static func text(inviterName: String, groupName: String, item: LifeItem?) -> String {
-        var lines = ["\(inviterName)さんから、生活OSの「\(groupName)」に招待されています。"]
+        var lines = ["\(inviterName)さんから、くらしOSの「\(groupName)」に招待されています。"]
         if let item {
             let time = item.showsTime ? " \(LifeFormatters.time(item.displayDate))" : ""
             lines.append("\(LifeFormatters.shortDate(item.displayDate))\(time) \(item.title) を一緒に管理しませんか？")

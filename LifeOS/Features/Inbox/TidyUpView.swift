@@ -80,7 +80,7 @@ struct TidyUpView: View {
         VStack(alignment: .leading, spacing: LifeSpacing.md) {
             HStack(spacing: LifeSpacing.xs) {
                 LifeCategoryDot(color: LifeColors.accent)
-                Text("LifeOSの整理")
+                Text("くらしOSの整理")
                     .font(LifeTypography.label)
                     .tracking(LifeTypography.labelTracking)
                     .foregroundStyle(LifeColors.secondaryText)
