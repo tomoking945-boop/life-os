@@ -193,4 +193,4 @@ Calm Future（[CALM_FUTURE_SPEC.md](CALM_FUTURE_SPEC.md)）の4段階は 2026-10
 
 ## 7. 確定済みの変更の統合（2026-10-17・作業用ブランチ `integrate-confirmed-changes`）
 
-内容と結果は [INTEGRATION_2026-10-17.md](INTEGRATION_2026-10-17.md)。Mac でのテスト成功を確認してから main に入れる。
+内容と結果は [INTEGRATION_2026-10-17.md](INTEGRATION_2026-10-17.md)。2026-10-17、池上さんの Mac でビルド成功・テスト221件で失敗0件（実機専用1件スキップ）・アイコン表示を確認し、main に取り込み済み（`a673373`）。
