@@ -12,7 +12,7 @@
 | 1 | 表示名を「くらしOS」（Debug／Release） | `INFOPLIST_KEY_CFBundleDisplayName = "くらしOS"`（2か所） |
 | 2 | 画面の「生活OS」「LifeOS」を「くらしOS」に | オンボーディング、Premium、なんでも追加、Inbox、整理、提案カード、共有の始め方、招待文、カメラの案内、保証書の書き出し文、サーバーの通知タイトル、招待ページ。Swift の型名・プロジェクト名・内部ファイル名（保存先の `LifeOS` フォルダなど）は変えていない |
 | 3 | Bundle Identifier | アプリ `com.tomoking945boop.lifeos`、テスト `com.tomoking945boop.lifeos.tests`（Debug／Release）。招待リンク用ファイル（AASA）の ID も変更（Team ID は TODO のまま） |
-| 4 | アプリアイコン | **GitHub に確定アイコンの画像がありません**（`Assets.xcassets/AppIcon.appiconset` は空）。新しい画像は作っていません。確定アイコン（1024×1024 の PNG）が必要です |
+| 4 | アプリアイコン | 池上さんの確定アイコン `kurashi-os-app-icon-1024.png`（1024×1024・PNG・透過なし）を `AppIcon.appiconset` に追加し、`Contents.json` の universal・iOS・1024×1024 に設定（2026-10-17 追記）。画像は作り直していない |
 | 5 | なんでも追加のキーボード | スクロールで閉じる（`.scrollDismissesKeyboard(.immediately)`）、入力欄・ボタン以外の余白を触ると閉じる（背景にだけ置くのでボタン操作を妨げない）、キーボードの上の「完了」 |
 | 6 | 統合通知スケジューラー | 時刻つき予定の10分前（直近40件）、当日の未完了タスク20時に1件、保証書18件と合わせて最大59件。起動時・予定やタスクや保証書の変更時・プランや通知設定の変更時に予約し直す。通知設定の画面を開いたとき、許可が未確認ならお願いする |
 | 7 | 通知設定の説明 | 「時刻のある予定の10分前」「その日のやることが残っていたら20時に1回」「この iPhone の中で予約」。許可されていないときは「設定を開く」 |
