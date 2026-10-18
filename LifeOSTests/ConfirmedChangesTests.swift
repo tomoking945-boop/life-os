@@ -196,3 +196,32 @@ final class AppIdentityTests: XCTestCase {
         XCTAssertFalse(state.canUseSharedUpdates)
     }
 }
+
+// MARK: - 実際の現在時刻
+
+final class CurrentTimeTests: XCTestCase {
+    /// 製品版の共通時刻は、見本用の9:10固定ではなく端末の現在時刻を返す。
+    func testLifeCalendarNowUsesDeviceClock() {
+        let before = Date()
+        let actual = LifeCalendar.now
+        let after = Date()
+
+        XCTAssertGreaterThanOrEqual(actual, before)
+        XCTAssertLessThanOrEqual(actual, after)
+    }
+
+    /// 今日画面は時刻を更新でき、残り時間も新しい基準時刻から計算する。
+    func testTodayRefreshesRemainingTime() {
+        let start = TestDates.make(2026, 10, 2, 20, 10)
+        let eventTime = TestDates.make(2026, 10, 2, 20, 30)
+        let event = LifeItem(title: "通知テスト", kind: .event, ownership: .personal,
+                             date: eventTime, hasTime: true)
+        let store = LifeStore(items: [event], warranties: [])
+        let viewModel = TodayViewModel(store: store, appState: AppState(), now: TestDates.friday)
+
+        viewModel.refreshNow(start)
+
+        XCTAssertEqual(viewModel.nextEvent?.id, event.id)
+        XCTAssertEqual(viewModel.remainingText(for: event), "あと20分")
+    }
+}

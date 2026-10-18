@@ -12,11 +12,10 @@ enum LifeCalendar {
         return calendar
     }()
 
-    /// Mock の現在時刻。
-    /// 仕様のレイアウト例（NEXT 10:30 / あと1時間20分）を再現するため、「今日の 9:10」を現在時刻として扱う。
-    /// TODO: 本実装では `Date()` に置き換える（時間帯による挨拶の切り替えも合わせて検討）。
+    /// 端末の現在時刻。
+    /// テストやプレビューで時刻を固定したい場合は、各 ViewModel の `now` 引数へ明示的に渡す。
     static var now: Date {
-        calendar.date(bySettingHour: 9, minute: 10, second: 0, of: Date()) ?? Date()
+        Date()
     }
 
     /// 指定日の指定時刻

@@ -15,6 +15,7 @@ enum TodayRoute: Hashable {
 struct TodayView: View {
     @State private var viewModel: TodayViewModel
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -119,6 +120,25 @@ struct TodayView: View {
         }
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             animate { viewModel.postpone(item, to: option) }
+        }
+        .onAppear {
+            viewModel.refreshNow()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                viewModel.refreshNow()
+            }
+        }
+        .task {
+            // 開いたままでも NEXT と残り時間が古くならないよう、1分ごとに現在時刻を更新する。
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    break
+                }
+                viewModel.refreshNow()
+            }
         }
     }
 

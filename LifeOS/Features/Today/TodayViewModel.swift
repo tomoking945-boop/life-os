@@ -5,7 +5,7 @@ import Observation
 final class TodayViewModel {
     private let store: LifeStore
     private let appState: AppState
-    let now: Date
+    private(set) var now: Date
 
     /// 「あとで」シートの対象
     var postponingItem: LifeItem?
@@ -21,6 +21,11 @@ final class TodayViewModel {
     init(store: LifeStore, appState: AppState, now: Date = LifeCalendar.now) {
         self.store = store
         self.appState = appState
+        self.now = now
+    }
+
+    /// 今日画面の基準時刻を更新する。テストでは固定時刻を渡せる。
+    func refreshNow(_ now: Date = LifeCalendar.now) {
         self.now = now
     }
 
