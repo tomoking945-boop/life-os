@@ -22,6 +22,8 @@
 - [保証書管理 実装の報告](docs/WARRANTY_MANAGEMENT_REPORT.md)
 - [保証書管理 確認の手順](docs/WARRANTY_MANUAL_CHECK.md)
 - [確定済みの変更の統合（2026-10-17）](docs/INTEGRATION_2026-10-17.md)
+- [TestFlight ビルド1](docs/TESTFLIGHT_BUILD_1.md)
+- [TestFlight ビルド2（実際の現在時刻）](docs/TESTFLIGHT_BUILD_2.md)
 
 ## UIプロトタイプの動かし方
 
