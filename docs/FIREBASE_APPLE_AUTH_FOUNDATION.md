@@ -116,3 +116,11 @@
 ### 結果
 
 この環境には Xcode が無いため、ビルドとテストはまだ実行していない（Mac で確認が必要。245件の予定）。
+
+## アプリアイコンの更新（2026-10-19・実機確認の前）
+
+- 承認済みの新しいアイコン `kurashi-os-app-icon-v2.png` を `LifeOS/Assets.xcassets/AppIcon.appiconset/` に追加し、`Contents.json` の universal・iOS・1024×1024 に設定した
+- 画像の確認：PNG、1024×1024、アルファチャンネルなし（RGB）、角は塗りつぶし（角丸は iOS が付ける）。元の画像と同じ内容であることを確認
+- 以前のアイコン `kurashi-os-app-icon-1024.png` は、割り当てのない画像の警告が出ないよう AppIcon から削除した。Git の履歴（commit `a673373`）から `git checkout a673373 -- LifeOS/Assets.xcassets/AppIcon.appiconset/kurashi-os-app-icon-1024.png` で戻せる
+- 表示名・Bundle Identifier・Firebase の設定・通知・保証書・既存のデータは変えていない
+- アカウント削除の修正と同じく、実機での確認はこのあと行う。この環境には Xcode が無いため、アセットカタログの警告・ビルド・テストは未確認（Mac で確認が必要）
