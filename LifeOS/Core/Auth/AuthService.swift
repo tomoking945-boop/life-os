@@ -5,15 +5,14 @@ import Observation
 ///
 /// - サインイン：nonce を作る → Apple に SHA-256 を渡して画面を出す → ID トークンと元の nonce で Firebase にサインイン
 /// - サインアウト：Firebase からサインアウト
-/// - アカウント削除：確認 → Apple でもう一度確かめる → Firebase で再認証 → authorization code で Apple のトークンを失効 → Firebase の利用者を削除
+/// - アカウント削除：（画面で確認したあと）Apple でもう一度確かめる → Firebase で再認証 → authorization code で Apple のトークンを失効 → Firebase の利用者を削除
+///   確認画面の表示状態はここでは持たない（画面側の @State）。2026-10-19 修正：確認画面が閉じる処理とボタンの処理の順番によって、削除が何もせず終わっていた
 /// - やめた（キャンセル）ときは、元の状態に戻す（エラーにしない）
 /// - Firebase に接続できないときは、何もしない（アプリのほかの機能はそのまま使える）
 /// - 生活データは送らない。Firestore にも書き込まない
 @Observable
 final class AuthService {
     private(set) var status: AuthStatus
-    /// アカウント削除の確認を出しているか（確認してからでないと削除しない）
-    private(set) var isConfirmingDeletion = false
 
     @ObservationIgnored private let backend: AuthBackend?
     @ObservationIgnored private let apple: AppleSignInProviding
@@ -89,23 +88,20 @@ final class AuthService {
 
     // MARK: - アカウント削除
 
-    /// 削除の確認を出す
-    func requestAccountDeletion() {
-        guard account != nil, !status.isWorking else { return }
-        isConfirmingDeletion = true
+    /// アカウントを削除できる状態か（サインイン済みで、処理中でない）。削除ボタンの表示・押せるかに使う
+    var canDeleteAccount: Bool {
+        guard backend != nil, case .signedIn = status else { return false }
+        return true
     }
 
-    /// 確認で「やめる」
-    func cancelAccountDeletion() {
-        isConfirmingDeletion = false
-    }
-
-    /// 確認で「削除する」：Apple で再認証 → トークン失効 → Firebase の利用者を削除
+    /// アカウントを削除する（画面の確認で「アカウントを削除」を選んだときだけ呼ぶ）：
+    /// Apple で再認証 → トークン失効 → Firebase の利用者を削除（それぞれ1回）
+    ///
+    /// - 実行のときに、サインイン済み・処理中でないことを改めて確かめる
+    /// - 最初の await の前に「処理中」にするので、2回押しても2回目は何もしない
     @MainActor
-    func confirmAccountDeletion() async {
-        guard isConfirmingDeletion else { return }
-        isConfirmingDeletion = false
-        guard let backend, let current = account, !status.isWorking else { return }
+    func deleteAccount() async {
+        guard let backend, case .signedIn(let current) = status else { return }
         status = .working(.deletingAccount, account: current)
         let rawNonce = makeNonce()
         do {

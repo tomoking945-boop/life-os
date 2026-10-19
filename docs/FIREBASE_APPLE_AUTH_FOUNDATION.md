@@ -53,7 +53,7 @@
 
 | テスト | 件数 | 結果 |
 | --- | --- | --- |
-| XCTest（これまでの223件＋新規17件） | 240件 | 未実行（Mac で実行が必要） |
+| XCTest（これまでの223件＋新規22件。下の修正で5件増えた） | 245件 | 未実行（Mac で実行が必要） |
 
 新規テスト（実際のネットワーク・Firebase・Apple の画面は使わない）：
 - 状態：最初の状態、Firebase 未設定で何も起きない、設定ファイルの無いバンドルでは設定しない・テスト中は接続しない
@@ -84,3 +84,35 @@
 - App Check は未設定（次の段階で設定する）
 - Apple 側でくらしOSとの連携を解除されたときの検知（credential state の確認）は、まだしていない
 - Xcode のテストのターゲットから Firebase のモジュールが見つからない、というエラーが出る場合がある（Firebase を Swift Package で入れたアプリでたまに起きる）。出たら、エラーの文を送ってください。テストのターゲットの設定で直します
+
+## 修正：アカウント削除ボタンが反応しない（2026-10-19）
+
+### 原因（池上さんの確認）
+
+- `PartnerAccountView` の確認画面（`confirmationDialog`）が閉じると、表示状態をつないでいた Binding の setter から `cancelAccountDeletion()` が先に呼ばれていた
+- そのあとで「アカウントを削除」のボタンの処理（Task）から `confirmAccountDeletion()` が呼ばれる
+- `confirmAccountDeletion()` の最初の `guard isConfirmingDeletion else { return }` で、すでに確認の状態が消えているため、削除が何もせず終わっていた
+- SwiftUI の「確認画面が閉じる処理」と「ボタンの処理」の順番に左右される不具合だった
+
+### 修正
+
+- 確認画面の表示状態は `PartnerAccountView` の `@State`（画面の中だけ）にした。`AuthService` からは確認の状態をなくした（`requestAccountDeletion`・`cancelAccountDeletion`・`confirmAccountDeletion`・`isConfirmingDeletion` を削除）
+- 削除の処理は `AuthService.deleteAccount()`。確認画面の表示状態には関係なく、確定のボタンからだけ呼ぶ
+- 実行のときに、サインイン済みで処理中でないことを改めて確かめる（`case .signedIn` のときだけ動く）
+- 最初の await の前に「削除しています…」（処理中）にするので、2回押しても2回目は何もしない。削除ボタンは `canDeleteAccount` が false のあいだ押せない
+- 「やめる」・確認画面を閉じたときは何も呼ばないので、Apple の再認証・トークンの失効・Firebase の利用者の削除は一切行わない
+- 確定したときだけ、Apple の再認証 → トークンの失効 → Firebase の利用者の削除を、それぞれ1回行う
+- キャンセル（サインイン済みのまま）、Apple の失敗・トークン不足・失効の失敗・Firebase の削除の失敗（案内を出し、閉じるとサインイン済みに戻る）
+- Firestore・既存のデータ・GoogleService-Info.plist・Apple の設定は変えていない
+
+### 追加したテスト
+
+- 確認画面が先に閉じても、確定すれば削除が1回ずつ行われる（不具合の再現）
+- 確認画面でやめた・閉じたときは、何も削除しない
+- 2回続けて押しても1回だけ
+- 削除中は処理中の表示で、削除ボタンは押せない
+- Apple の再認証の失敗、Firebase の削除の失敗、サインインしていないときに何もしない
+
+### 結果
+
+この環境には Xcode が無いため、ビルドとテストはまだ実行していない（Mac で確認が必要。245件の予定）。

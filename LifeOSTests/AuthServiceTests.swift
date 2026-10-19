@@ -15,6 +15,33 @@ final class FakeAppleSignIn: AppleSignInProviding {
     }
 }
 
+/// Apple の画面の偽物（結果を返すまで止まる。処理中の状態を確かめるため）
+final class SuspendingAppleSignIn: AppleSignInProviding {
+    private var continuation: CheckedContinuation<AppleCredential, Error>?
+    private var requestedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requested = false
+
+    @MainActor
+    func requestCredential(hashedNonce: String) async throws -> AppleCredential {
+        requested = true
+        requestedWaiters.forEach { $0.resume() }
+        requestedWaiters.removeAll()
+        return try await withCheckedThrowingContinuation { self.continuation = $0 }
+    }
+
+    @MainActor
+    func waitUntilRequested() async {
+        if requested { return }
+        await withCheckedContinuation { requestedWaiters.append($0) }
+    }
+
+    @MainActor
+    func resume(with result: Result<AppleCredential, Error>) {
+        continuation?.resume(with: result)
+        continuation = nil
+    }
+}
+
 /// Firebase Authentication の偽物（呼ばれた順番を記録する）
 final class FakeAuthBackend: AuthBackend {
     var currentAccount: AuthAccount?
@@ -89,10 +116,10 @@ final class AuthServiceTests: XCTestCase {
 
         await service.signIn()
         service.signOut()
-        service.requestAccountDeletion()
-        await service.confirmAccountDeletion()
+        await service.deleteAccount()
 
         XCTAssertEqual(service.status, .unavailable(.missingConfiguration))
+        XCTAssertFalse(service.canDeleteAccount)
         XCTAssertTrue(apple.receivedHashedNonces.isEmpty, "Apple の画面も出さない")
         XCTAssertEqual(service.status.shortLabel, "使えません")
     }
@@ -185,37 +212,68 @@ final class AuthServiceTests: XCTestCase {
 
     // MARK: - アカウント削除
 
-    /// 確認しないと削除しない
-    func testDeletionRequiresConfirmation() async {
+    /// 2026-10-19 の不具合の再現：確認画面が先に閉じても（以前は閉じたときに確認の状態が消え、削除が何もせず終わっていた）、
+    /// 「アカウントを削除」を確定すれば、再認証 → トークン失効 → Firebase 利用者の削除がそれぞれ1回だけ行われる
+    func testConfirmedDeletionRunsEvenAfterDialogClosed() async {
         let backend = FakeAuthBackend(account: signedInAccount)
-        let service = makeService(backend: backend)
+        let apple = FakeAppleSignIn()
+        let service = makeService(backend: backend, apple: apple)
+        XCTAssertTrue(service.canDeleteAccount)
 
-        await service.confirmAccountDeletion()
-        XCTAssertTrue(backend.calls.isEmpty, "確認を出していないので何もしない")
+        // 確認画面の表示状態は画面側にあり、閉じても AuthService には何も起きない。そのあと確定の処理が届く
+        await service.deleteAccount()
 
-        service.requestAccountDeletion()
-        XCTAssertTrue(service.isConfirmingDeletion)
-        service.cancelAccountDeletion()
-        XCTAssertFalse(service.isConfirmingDeletion)
-        await service.confirmAccountDeletion()
-        XCTAssertTrue(backend.calls.isEmpty, "やめたので何もしない")
-        XCTAssertEqual(service.status, .signedIn(signedInAccount))
+        XCTAssertEqual(backend.calls, ["reauthenticate", "revoke", "delete"])
+        XCTAssertEqual(backend.revokedCodes, ["auth-code"])
+        XCTAssertEqual(apple.receivedHashedNonces, [AuthNonce.sha256("fixed-raw-nonce")], "Apple での再認証は1回")
+        XCTAssertEqual(service.status, .signedOut)
+        XCTAssertFalse(service.canDeleteAccount)
     }
 
-    /// Apple で再認証 → トークン失効（authorization code）→ Firebase の利用者を削除、の順
-    func testDeletionReauthenticatesRevokesAndDeletes() async {
+    /// 確認画面で「やめる」・閉じた：削除の処理を呼ばないので、Apple にも Firebase にも何もしない
+    func testCancellingConfirmationDeletesNothing() {
         let backend = FakeAuthBackend(account: signedInAccount)
         let apple = FakeAppleSignIn()
         let service = makeService(backend: backend, apple: apple)
 
-        service.requestAccountDeletion()
-        await service.confirmAccountDeletion()
+        // 画面は確認画面を出して閉じるだけ（deleteAccount を呼ばない）
+        XCTAssertTrue(service.canDeleteAccount)
+
+        XCTAssertTrue(backend.calls.isEmpty)
+        XCTAssertTrue(apple.receivedHashedNonces.isEmpty)
+        XCTAssertEqual(service.status, .signedIn(signedInAccount))
+    }
+
+    /// 2回続けて押しても、削除の処理は1回だけ
+    func testDoubleTapDeletesOnlyOnce() async {
+        let backend = FakeAuthBackend(account: signedInAccount)
+        let apple = FakeAppleSignIn()
+        let service = makeService(backend: backend, apple: apple)
+
+        async let first: Void = service.deleteAccount()
+        async let second: Void = service.deleteAccount()
+        _ = await (first, second)
+        await service.deleteAccount()
 
         XCTAssertEqual(backend.calls, ["reauthenticate", "revoke", "delete"])
-        XCTAssertEqual(backend.revokedCodes, ["auth-code"])
-        XCTAssertEqual(apple.receivedHashedNonces, [AuthNonce.sha256("fixed-raw-nonce")])
+        XCTAssertEqual(apple.receivedHashedNonces.count, 1)
         XCTAssertEqual(service.status, .signedOut)
-        XCTAssertFalse(service.isConfirmingDeletion)
+    }
+
+    /// 削除中は「処理中」になり、そのあいだ削除ボタンは押せない
+    func testDeletionShowsWorkingState() async {
+        let backend = FakeAuthBackend(account: signedInAccount)
+        let apple = SuspendingAppleSignIn()
+        let suspending = AuthService(backend: backend, apple: apple, makeNonce: { "fixed-raw-nonce" })
+
+        let task = Task { await suspending.deleteAccount() }
+        await apple.waitUntilRequested()
+        XCTAssertEqual(suspending.status, .working(.deletingAccount, account: signedInAccount))
+        XCTAssertFalse(suspending.canDeleteAccount)
+
+        apple.resume(with: .success(AppleCredential(identityToken: "id-token", authorizationCode: "auth-code")))
+        await task.value
+        XCTAssertEqual(suspending.status, .signedOut)
     }
 
     /// 削除中に Apple の画面でやめたら、何も消さずサインイン済みのまま
@@ -225,10 +283,24 @@ final class AuthServiceTests: XCTestCase {
         apple.result = .failure(AuthFailure.canceled)
         let service = makeService(backend: backend, apple: apple)
 
-        service.requestAccountDeletion()
-        await service.confirmAccountDeletion()
+        await service.deleteAccount()
 
         XCTAssertTrue(backend.calls.isEmpty)
+        XCTAssertEqual(service.status, .signedIn(signedInAccount))
+    }
+
+    /// Apple での再認証に失敗：何も消さず、案内を出す
+    func testAppleFailureDuringDeletionDeletesNothing() async {
+        let backend = FakeAuthBackend(account: signedInAccount)
+        let apple = FakeAppleSignIn()
+        apple.result = .failure(AuthFailure.appleFailed)
+        let service = makeService(backend: backend, apple: apple)
+
+        await service.deleteAccount()
+
+        XCTAssertTrue(backend.calls.isEmpty)
+        XCTAssertEqual(service.status, .failed(.appleFailed, account: signedInAccount))
+        service.dismissFailure()
         XCTAssertEqual(service.status, .signedIn(signedInAccount))
     }
 
@@ -239,8 +311,7 @@ final class AuthServiceTests: XCTestCase {
         apple.result = .success(AppleCredential(identityToken: "id-token", authorizationCode: nil))
         let service = makeService(backend: backend, apple: apple)
 
-        service.requestAccountDeletion()
-        await service.confirmAccountDeletion()
+        await service.deleteAccount()
 
         XCTAssertTrue(backend.calls.isEmpty)
         XCTAssertEqual(service.status, .failed(.missingToken, account: signedInAccount))
@@ -252,11 +323,35 @@ final class AuthServiceTests: XCTestCase {
         backend.revokeError = AuthFailure.network
         let service = makeService(backend: backend)
 
-        service.requestAccountDeletion()
-        await service.confirmAccountDeletion()
+        await service.deleteAccount()
 
         XCTAssertEqual(backend.calls, ["reauthenticate", "revoke"])
         XCTAssertEqual(service.status, .failed(.network, account: signedInAccount))
+    }
+
+    /// Firebase の利用者の削除に失敗：サインイン済みのまま案内を出す
+    func testFirebaseDeleteFailureKeepsAccount() async {
+        let backend = FakeAuthBackend(account: signedInAccount)
+        backend.deleteError = AuthFailure.requiresRecentLogin
+        let service = makeService(backend: backend)
+
+        await service.deleteAccount()
+
+        XCTAssertEqual(backend.calls, ["reauthenticate", "revoke", "delete"])
+        XCTAssertEqual(service.status, .failed(.requiresRecentLogin, account: signedInAccount))
+    }
+
+    /// サインインしていないときは、削除の処理を呼んでも何もしない
+    func testDeletionWhenSignedOutDoesNothing() async {
+        let backend = FakeAuthBackend()
+        let apple = FakeAppleSignIn()
+        let service = makeService(backend: backend, apple: apple)
+
+        await service.deleteAccount()
+
+        XCTAssertTrue(backend.calls.isEmpty)
+        XCTAssertTrue(apple.receivedHashedNonces.isEmpty)
+        XCTAssertEqual(service.status, .signedOut)
     }
 
     // MARK: - nonce

@@ -5,6 +5,8 @@ import SwiftUI
 /// 今回はサインインして「誰か」を確かめるだけ。生活データは送らず、Firestore にも書き込まない。
 struct PartnerAccountView: View {
     @Bindable var auth: AuthService
+    /// 削除の確認画面を出しているか（画面の中だけの状態。削除の処理はこの値に関係なく動く）
+    @State private var isConfirmingDeletion = false
 
     var body: some View {
         SettingsScreen(title: "共有用アカウント") {
@@ -29,18 +31,15 @@ struct PartnerAccountView: View {
         .onAppear { auth.refresh() }
         .confirmationDialog(
             "共有用アカウントを削除しますか？",
-            isPresented: Binding(
-                get: { auth.isConfirmingDeletion },
-                set: { if !$0 { auth.cancelAccountDeletion() } }
-            ),
+            isPresented: $isConfirmingDeletion,
             titleVisibility: .visible
         ) {
+            // 確定したときだけ削除する。確認画面が閉じる処理の順番には関係しない
             Button("アカウントを削除", role: .destructive) {
-                Task { await auth.confirmAccountDeletion() }
+                Task { await auth.deleteAccount() }
             }
-            Button("やめる", role: .cancel) {
-                auth.cancelAccountDeletion()
-            }
+            // やめる・確認画面を閉じたときは、何もしない
+            Button("やめる", role: .cancel) {}
         } message: {
             Text("もう一度Appleで確かめたあと、共有用アカウントを削除し、Appleでのサインインの連携も解除します。この iPhone の中の予定やタスクなどのデータは消えません。")
         }
@@ -95,8 +94,9 @@ struct PartnerAccountView: View {
                 auth.signOut()
             }
             LifeButton("アカウントを削除", systemImage: "trash", kind: .destructive) {
-                auth.requestAccountDeletion()
+                isConfirmingDeletion = true
             }
+            .disabled(!auth.canDeleteAccount)
         }
     }
 
