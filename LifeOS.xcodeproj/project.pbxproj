@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F6000000000034 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000031 /* FirebaseCore */; };
+		A1B2C3D4E5F6000000000035 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000032 /* FirebaseAuth */; };
+		A1B2C3D4E5F6000000000036 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000033 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A1B2C3D4E5F6000000000001 /* LifeOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000010 /* LifeOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -39,6 +45,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F6000000000034 /* FirebaseCore in Frameworks */,
+				A1B2C3D4E5F6000000000035 /* FirebaseAuth in Frameworks */,
+				A1B2C3D4E5F6000000000036 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +99,9 @@
 			);
 			name = LifeOS;
 			packageProductDependencies = (
+				A1B2C3D4E5F6000000000031 /* FirebaseCore */,
+				A1B2C3D4E5F6000000000032 /* FirebaseAuth */,
+				A1B2C3D4E5F6000000000033 /* FirebaseFirestore */,
 			);
 			productName = LifeOS;
 			productReference = A1B2C3D4E5F6000000000001 /* LifeOS.app */;
@@ -147,6 +159,9 @@
 			);
 			mainGroup = A1B2C3D4E5F6000000000004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A1B2C3D4E5F6000000000005 /* Products */;
 			projectDirPath = "";
@@ -327,6 +342,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = "くらしOS";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "保証書やレシートを撮影して、この iPhone の中に保存するために使います。写真は外部へ送りません。";
@@ -358,6 +374,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = "くらしOS";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "保証書やレシートを撮影して、この iPhone の中に保存するために使います。写真は外部へ送りません。";
@@ -449,6 +466,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1B2C3D4E5F6000000000031 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		A1B2C3D4E5F6000000000032 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		A1B2C3D4E5F6000000000033 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A1B2C3D4E5F6000000000009 /* Project object */;
 }

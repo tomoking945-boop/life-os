@@ -24,6 +24,7 @@
 - [確定済みの変更の統合（2026-10-17）](docs/INTEGRATION_2026-10-17.md)
 - [TestFlight ビルド1](docs/TESTFLIGHT_BUILD_1.md)
 - [TestFlight ビルド2（実際の現在時刻）](docs/TESTFLIGHT_BUILD_2.md)
+- [パートナー共有の土台：Firebase 接続と Appleでサインイン](docs/FIREBASE_APPLE_AUTH_FOUNDATION.md)
 
 ## UIプロトタイプの動かし方
 

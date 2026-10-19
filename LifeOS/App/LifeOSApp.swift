@@ -9,6 +9,11 @@ struct LifeOSApp: App {
     @State private var store: LifeStore
 
     init() {
+        // パートナー共有の土台（2026-10-19）：Firebase を安全に設定する。
+        // 設定ファイルが無い・使えないときは設定しない（アプリはこれまでどおり起動し、共有用のサインインだけ「使えません」と表示）
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth)
+        FirebaseBootstrap.configureIfPossible()
+        #endif
         let state = AppState.persistent()
         _appState = State(initialValue: state)
         _store = State(initialValue: LifeStore.persistent(startEmptyIfNoSavedData: !state.hasCompletedOnboarding))

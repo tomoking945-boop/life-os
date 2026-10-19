@@ -9,8 +9,7 @@
 - **B. 本物の共有・通知のための設定**：第2段階（iPhone アプリを Firebase につなぐ作業）の前に必要です。
 
 > 大切：次のファイルは **絶対に GitHub に入れない** でください（`.gitignore` で除外済みですが、念のため）。
-> - `GoogleService-Info.plist`（Firebase の設定ファイル）
-> - `AuthKey_XXXXXXXXXX.p8`（APNs の秘密鍵）
+> - `AuthKey_XXXXXXXXXX.p8`（Apple の秘密鍵：Sign in with Apple・APNs）
 > - サービスアカウントの鍵（`〜firebase-adminsdk〜.json`）
 >
 > 画面の名前やボタンの位置は、Apple・Google の変更で少し違うことがあります。見つからないときは、近い名前を探してください。
@@ -117,7 +116,7 @@ npm test
 1. プロジェクトのトップで「アプリを追加」→ **iOS** のマーク。
 2. Apple バンドル ID に `com.tomoking945boop.lifeos` を入れて「アプリを登録」。
 3. `GoogleService-Info.plist` をダウンロードします。
-4. **この段階では、Xcode にはまだ入れなくて大丈夫です**（第2段階で、入れる場所と手順をお伝えします）。GitHub に入らないよう、life-os フォルダの外（例：書類フォルダ）に置いておいてください。
+4. 2026-10-19 決定：`GoogleService-Info.plist` は秘密ではない設定の識別子のため、`LifeOS/GoogleService-Info.plist` としてリポジトリに入れました（[FIREBASE_APPLE_AUTH_FOUNDATION.md](FIREBASE_APPLE_AUTH_FOUNDATION.md)）。
 5. 「Firebase SDK の追加」などの次の画面は「次へ」で飛ばしてかまいません（第2段階でこちらが行います）。
 
 ### B-7. APNs の鍵を Firebase に登録する
@@ -171,7 +170,7 @@ firebase/functions/node_modules/.bin/firebase deploy --only firestore,functions,
 
 - Firebase のライブラリを追加（File → Add Package Dependencies…）
 - Signing & Capabilities に Sign in with Apple・Push Notifications・Background Modes（Remote notifications）・Associated Domains（`applinks:<プロジェクト ID>.web.app`）を追加
-- `GoogleService-Info.plist` を自分の Mac のプロジェクトにだけ追加
+- `GoogleService-Info.plist`：2026-10-19 にリポジトリへ追加済み
 
 ---
 
@@ -181,4 +180,4 @@ firebase/functions/node_modules/.bin/firebase deploy --only firestore,functions,
 2. Firebase のプロジェクト ID（B-4）
 3. A-4 のテスト結果（`# fail 0` かどうか）
 
-鍵ファイル（.p8）・`GoogleService-Info.plist` の中身は送らないでください。
+鍵ファイル（.p8）の中身は送らないでください。

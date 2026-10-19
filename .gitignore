@@ -1,8 +1,13 @@
 # パートナー共有・通知（2026-10-11）：秘密の設定・鍵はコミットしない（仕様「変更禁止」）
-# Firebase の設定ファイル（Xcode のプロジェクトには、各自の Mac で追加する。docs/FIREBASE_SETUP.md）
-GoogleService-Info.plist
-# APNs の秘密鍵
+# GoogleService-Info.plist は Firebase 公式上「秘密ではない設定の識別子」のため、2026-10-19 からリポジトリに含める
+# （データの保護は Authentication・Firestore Security Rules・今後の App Check で行う。docs/FIREBASE_APPLE_AUTH_FOUNDATION.md）
+# Apple の秘密鍵（Sign in with Apple・APNs の AuthKey_XXXX.p8 など）は絶対にコミットしない
 *.p8
+AuthKey_*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
 # サービスアカウントの鍵
 service-account*.json
 *serviceAccount*.json

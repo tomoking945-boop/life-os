@@ -5,6 +5,8 @@ import SwiftUI
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
     @Environment(AppState.self) private var appState
+    /// パートナー共有用のサインイン（Firebase SDK は直接使わない）
+    private let auth = AuthService.live
 
     init(appState: AppState) {
         _viewModel = State(initialValue: ProfileViewModel(appState: appState))
@@ -27,6 +29,11 @@ struct ProfileView: View {
                         LifeDivider()
                         ProfileLinkRow(title: "共有メンバー", value: viewModel.memberCountText) {
                             MembersView(appState: appState)
+                        }
+                        LifeDivider()
+                        // パートナー共有の土台（2026-10-19）：Appleでサインイン
+                        ProfileLinkRow(title: "共有用アカウント", value: auth.status.shortLabel) {
+                            PartnerAccountView(auth: auth)
                         }
                     }
                 }
