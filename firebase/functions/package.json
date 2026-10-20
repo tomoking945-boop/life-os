@@ -4,7 +4,7 @@
   "description": "生活OS：パートナー共有・通知の Cloud Functions",
   "main": "index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "test:unit": "node --test test/unit/*.test.js",

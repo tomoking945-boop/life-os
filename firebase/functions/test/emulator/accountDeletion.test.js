@@ -320,6 +320,95 @@ describe('複数の生活グループ・やり直し・ほかの人のデータ'
   });
 });
 
+describe('グループの文書がもう無い（途中まで削除された）生活グループ', () => {
+  /** 正常なグループ（比べるため）。中身をすべて取っておき、あとで変わっていないことを確かめる */
+  async function seedHealthyGroup() {
+    const g = newID('healthy');
+    const [o, p] = [newID('o'), newID('p')];
+    await seedGroup(g, o, [[o, 'owner', 0], [p, 'member', 10]]);
+    await seedItem(g, 'h1', { assigneeUID: p });
+    await db.doc(`groups/${g}/notificationLog/h1`).set({ lastSentAt: T(0) });
+    return g;
+  }
+
+  async function snapshotTree(groupID) {
+    const out = {};
+    const group = await db.doc(`groups/${groupID}`).get();
+    out[group.ref.path] = group.exists ? group.data() : null;
+    for (const name of await subcollections(`groups/${groupID}`)) {
+      for (const doc of (await db.collection(`groups/${groupID}/${name}`).get()).docs) out[doc.ref.path] = doc.data();
+    }
+    return JSON.stringify(out);
+  }
+
+  it('グループの文書は無いが、本人とパートナーのメンバー・items・notificationLog が残っている：すべて消える', async () => {
+    const uid = newID('u');
+    const partner = newID('p');
+    const g = newID('g');
+    // グループの文書は作らない（前回の丸ごと削除が、グループの文書を消したところで止まった状態）
+    await db.doc(`groups/${g}/members/${uid}`).set({ uid, role: 'owner', joinedAt: T(0), displayName: 'u' });
+    await db.doc(`groups/${g}/members/${partner}`).set({ uid: partner, role: 'member', joinedAt: T(10), displayName: 'p' });
+    await seedItem(g, 'i1', { assigneeUID: partner });
+    await seedItem(g, 'i2', { assigneeUID: uid });
+    await db.doc(`groups/${g}/notificationLog/i1`).set({ lastSentAt: T(0) });
+    const healthy = await seedHealthyGroup();
+    const before = await snapshotTree(healthy);
+
+    const summary = await cleanup(uid);
+
+    assert.equal(await exists(`groups/${g}`), false);
+    assert.deepEqual(await subcollections(`groups/${g}`), [], 'パートナーのメンバー文書・items・notificationLog も残らない');
+    assert.equal(summary.deletedGroups, 1);
+    assert.equal(summary.transferredOwnerships, 0, 'グループの文書が無いときは引き継がない');
+    assert.equal(await snapshotTree(healthy), before, '正常なグループは変わらない');
+
+    // もう一度実行しても成功し、何も変わらない
+    await cleanup(uid);
+    assert.deepEqual(await subcollections(`groups/${g}`), []);
+    assert.equal(await snapshotTree(healthy), before);
+  });
+
+  it('グループの文書と本人のメンバー文書は無いが、パートナーのメンバー・items が残り、作業の記録にある：やり直しで消える', async () => {
+    const uid = newID('u');
+    const partner = newID('p');
+    const g = newID('g');
+    await db.doc(`groups/${g}/members/${partner}`).set({ uid: partner, role: 'member', joinedAt: T(10), displayName: 'p' });
+    await seedItem(g, 'i1', { assigneeUID: partner });
+    await seedItem(g, 'i2');
+    // 前回の作業の記録（このグループは、本人のメンバー文書がもう無いので、検索では見つからない）
+    await db.doc(`accountDeletions/${uid}`).set({ groupIDs: [g], startedAt: T(0) });
+    const healthy = await seedHealthyGroup();
+    const before = await snapshotTree(healthy);
+
+    await cleanup(uid);
+
+    assert.equal(await exists(`groups/${g}`), false);
+    assert.deepEqual(await subcollections(`groups/${g}`), [], 'パートナーのメンバー文書・items も残らない');
+    assert.equal(await exists(`accountDeletions/${uid}`), false);
+    assert.equal(await snapshotTree(healthy), before, '正常なグループは変わらない');
+  });
+
+  it('途中まで削除されたグループと同時に在る、正常なグループ（本人も所属）は、ふつうどおり整理される', async () => {
+    const uid = newID('u');
+    const [broken, ok] = [newID('g'), newID('g')];
+    const [p1, p2] = [newID('p'), newID('p')];
+    await db.doc(`groups/${broken}/members/${uid}`).set({ uid, role: 'owner', joinedAt: T(0), displayName: 'u' });
+    await db.doc(`groups/${broken}/members/${p1}`).set({ uid: p1, role: 'member', joinedAt: T(10), displayName: 'p1' });
+    await seedGroup(ok, uid, [[uid, 'owner', 0], [p2, 'member', 10]]);
+    await seedItem(ok, 'keep', { assigneeUID: p2 });
+    const healthy = await seedHealthyGroup();
+    const before = await snapshotTree(healthy);
+
+    await cleanup(uid);
+
+    assert.deepEqual(await subcollections(`groups/${broken}`), []);
+    assert.deepEqual(await memberIDs(ok), [p2]);
+    assert.equal((await data(`groups/${ok}/members/${p2}`)).role, 'owner', '正常なグループでは引き継ぐ');
+    assert.equal((await data(`groups/${ok}/items/keep`)).assigneeUID, p2);
+    assert.equal(await snapshotTree(healthy), before, '関係ない正常なグループは一切変わらない');
+  });
+});
+
 /** Auth Emulator で利用者を作る */
 async function signUp(name) {
   const response = await fetch(`http://${AUTH_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo`, {

@@ -20,15 +20,17 @@
 
 Firebase Emulator（Mac の中だけで動く、Firebase のまね）を使います。本物の Firebase にはつながりません。
 
-### A-1. Node.js 20 を入れる
+### A-1. Node.js 22 を入れる
 
-1. ブラウザで https://nodejs.org/ を開きます。
-2. 「LTS」の **20** 系（または 22 系）のインストーラー（macOS 用 .pkg）をダウンロードして、ダブルクリックで入れます。
+本番の Cloud Functions と同じ **Node 22** を使います（`firebase/functions/package.json` の `engines`。2026-10-20 に 20 から変更。Google Cloud の Node 20 は 2026-10-30 に提供終了）。
+
+1. ブラウザで https://nodejs.org/dist/latest-v22.x/ を開きます。
+2. `node-v22.…​.pkg`（macOS 用）をダウンロードして、ダブルクリックで入れます（Homebrew を使っている場合は `brew install node@22` でも構いません。手順は [FIREBASE_ACCOUNT_DELETION_CLEANUP.md](FIREBASE_ACCOUNT_DELETION_CLEANUP.md) の「Mac での実行手順」）。
 3. 「ターミナル」アプリ（アプリケーション → ユーティリティ）を開き、次を入力して Enter：
    ```
    node -v
    ```
-   `v20.…` や `v22.…` と出れば OK です。
+   `v22.…` と出れば OK です。
 
 ### A-2. Java を入れる（Firestore Emulator に必要）
 

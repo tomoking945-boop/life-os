@@ -106,6 +106,6 @@
 Node.js v24.21.0、Java（Temurin）25.0.4.1。`npm test` の途中に出る赤い `PERMISSION_DENIED` は、テストがわざと禁止された書き込みを試して、ルールが拒否したことの記録（想定どおり）。
 
 出た警告と扱い：
-- `package.json` の Node 指定（20）と Mac の Node（24）が違う → テストは Node 24 で成功。TODO（第2段階）：本番で使う Node のバージョン（22 など）を決めて合わせる
+- `package.json` の Node 指定（20）と Mac の Node（24）が違う → テストは Node 24 で成功。TODO（第2段階）：本番で使う Node のバージョン（22 など）を決めて合わせる（→ 2026-10-20 に Node 22 に決定・変更。[FIREBASE_ACCOUNT_DELETION_CLEANUP.md](FIREBASE_ACCOUNT_DELETION_CLEANUP.md)）
 - `firebase-functions` が古い → TODO（第2段階）：更新を検討（大きな変更があるため、テストし直してから）
 - `npm audit` の脆弱性の表示 → テスト用の道具（firebase-tools など）の中の部品。アプリには入らない。第2段階で依存を更新するときに見直す

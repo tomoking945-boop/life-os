@@ -9,7 +9,8 @@ const { GroupAction, planGroupCleanup, mergeGroupIDs, isValidUID, emptySummary }
  * 順番：
  *   1. 所属している生活グループを探す（メンバー文書の uid で collection group 検索。全グループの総当たりはしない）
  *   2. 作業の記録 accountDeletions/{uid} に、整理するグループの ID を残す（途中で止まっても、次の実行で続きができる）
- *   3. グループごとに、トランザクションで「本人を外す」「owner を引き継ぐ」を行う。誰も残らないグループは丸ごと消す
+ *   3. グループごとに、トランザクションで「本人を外す」「owner を引き継ぐ」を行う。誰も残らないグループは丸ごと消す。
+ *      グループの文書がもう無いグループ（前回の丸ごと削除が途中で止まった）は、残っているメンバーがいても丸ごと消す
  *   4. 削除された人が担当の共有項目は、担当を null にする（項目は消さない。作成者・更新者の記録は残す）
  *   5. 削除された人が作った・使った招待と、消したグループの招待を消す
  *   6. users/{uid} を、下の devices なども含めて丸ごと消す
@@ -47,7 +48,7 @@ async function cleanupGroup(db, FieldValue, groupID, uid) {
     const groupSnap = await transaction.get(groupRef);
     const membersSnap = await transaction.get(membersRef);
     const members = membersSnap.docs.map((doc) => ({ uid: doc.id, role: doc.get('role'), joinedAt: doc.get('joinedAt') }));
-    const decided = planGroupCleanup(uid, members);
+    const decided = planGroupCleanup(uid, members, { groupExists: groupSnap.exists });
 
     if (decided.action === GroupAction.removeMember) {
       transaction.delete(membersRef.doc(uid));
@@ -56,7 +57,8 @@ async function cleanupGroup(db, FieldValue, groupID, uid) {
       transaction.update(membersRef.doc(decided.newOwnerUID), { role: 'owner' });
       transaction.delete(membersRef.doc(uid));
       // createdBy は作成の記録なので変えない。updatedAt だけサーバーの時刻にする
-      if (groupSnap.exists) transaction.update(groupRef, { updatedAt: FieldValue.serverTimestamp() });
+      // （引き継ぎはグループの文書が在るときだけ決まるので、ここでは必ず在る）
+      transaction.update(groupRef, { updatedAt: FieldValue.serverTimestamp() });
     }
     return decided;
   });

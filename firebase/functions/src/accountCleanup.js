@@ -6,6 +6,11 @@ const { toMillis } = require('./timestamps');
  * アカウント削除のあとの整理（docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）：生活グループごとに何をするかを決める。
  * firebase-admin に依存しない（単体テストでそのまま確かめる）。
  *
+ * まず、生活グループの文書（groups/{groupID}）が無いときは、メンバーの人数や役割にかかわらず
+ * 「途中まで削除されたグループ」として丸ごと消す（deleteGroup）。owner の引き継ぎは、グループの文書が在るときだけ。
+ *
+ * グループの文書が在るとき：
+ *
  * | 削除された人 | ほかのメンバー | すること |
  * | --- | --- | --- |
  * | member | いる | 本人のメンバー情報だけ消す（removeMember） |
@@ -57,9 +62,13 @@ function chooseSuccessor(candidates) {
  * 1つの生活グループで何をするかを決める（入力は変えない）
  * @param {string} deletedUID 削除された利用者
  * @param {{uid: string, role?: string, joinedAt?: unknown}[]} members いまのメンバー（uid はメンバー文書の ID）
+ * @param {{groupExists: boolean}} state グループの文書（groups/{groupID}）が在るか。必ず指定する
  * @returns {{action: string, newOwnerUID?: string}}
  */
-function planGroupCleanup(deletedUID, members) {
+function planGroupCleanup(deletedUID, members, state) {
+  if (!state || typeof state.groupExists !== 'boolean') throw new Error('groupExists が必要です');
+  // グループの文書が無い：前回の丸ごと削除が途中で止まった（または壊れている）グループ。残りを最後まで消す
+  if (!state.groupExists) return { action: GroupAction.deleteGroup };
   const list = Array.isArray(members) ? members.filter((member) => member && typeof member.uid === 'string') : [];
   const self = list.find((member) => member.uid === deletedUID);
   const others = list.filter((member) => member.uid !== deletedUID);
