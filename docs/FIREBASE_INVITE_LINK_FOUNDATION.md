@@ -167,3 +167,20 @@ Firestore のルール、Functions（招待・通知・アカウント削除の�
 - 修正：時間の判定をやめ、アプリの起動中に受け取った招待の印（起動ごとの鍵で計算した HMAC-SHA256。元のトークンには戻せない）をメモリに覚え、同じ印のリンクは出さないようにした。不正なリンクは覚えない。アプリを起動し直すと空になる
 - テスト：失敗したテストを、表示中・「あとで」と閉じる・「招待を確認」のあと・別のリンク・起動し直し・不正なリンク・覚えている中身の7件に分けて書き直した（20件 → 26件）
 - 変えていないもの：招待リンクの判定、Associated Domains、App Attest、Sign in with Apple、トークンを捨てるタイミング（「あとで」・閉じる・「招待を確認」）
+
+## 確認結果（2026-10-21 池上さん・commit `db5b2e5`）
+
+アプリのコード・テスト・entitlements・プロジェクトの設定は、確認した `db5b2e5` から変えていない（このあとの変更は本書だけ）。
+
+| 項目 | 結果 |
+| --- | --- |
+| Xcode のテスト | Test Succeeded・失敗0件 |
+| テストの件数 | 想定は281件。正確な実行件数とスキップ数は未報告 |
+| Release ビルド | 成功 |
+| Signing & Capabilities | Associated Domains・Sign in with Apple・App Attest の3つを確認 |
+| Associated Domains の中身 | `applinks:kurashi-os-production.web.app` を確認 |
+| Universal Links の実機での確認 | まだしていない（Hosting を deploy していないため） |
+| Firebase・Functions・Firestore・Hosting への deploy | していない |
+| Firebase Console・Apple Developer の変更 | していない |
+
+Universal Links の実機での確認は、Hosting を deploy したあとに「実機での確認方法」の手順で行う。
