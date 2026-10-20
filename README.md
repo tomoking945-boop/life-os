@@ -26,6 +26,7 @@
 - [TestFlight ビルド2（実際の現在時刻）](docs/TESTFLIGHT_BUILD_2.md)
 - [TestFlight ビルド3](docs/TESTFLIGHT_BUILD_3.md)
 - [Firebase App Check の基礎](docs/FIREBASE_APP_CHECK_FOUNDATION.md)
+- [TestFlight ビルド4（App Check）](docs/TESTFLIGHT_BUILD_4.md)
 - [パートナー共有の土台：Firebase 接続と Appleでサインイン](docs/FIREBASE_APPLE_AUTH_FOUNDATION.md)
 
 ## UIプロトタイプの動かし方

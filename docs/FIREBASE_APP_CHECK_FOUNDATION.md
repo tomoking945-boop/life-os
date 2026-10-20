@@ -100,7 +100,7 @@ Firebase Console → プロジェクト `kurashi-os-production` → 左のメニ
 
 ## テストの結果
 
-この環境には Xcode が無いため、**ビルドとテストはまだ実行していない**（コードの読み合わせのみ）。Mac で確認する（256件の予定）。
+2026-10-20 池上さんの Mac で確認済み（下の「確認結果」）。テストの件数・スキップ数は未報告（256件の想定）。
 
 新規テスト（11件・ネットワークなし）：
 - App Check の Provider Factory が Firebase の設定より前に設定される
@@ -111,3 +111,17 @@ Firebase Console → プロジェクト `kurashi-os-production` → 左のメニ
 - Firebase に接続していなくても、今までの機能が使える
 - アプリのソースに Firestore を使う処理（`import FirebaseFirestore`・書き込み）が無い
 - ソースと Scheme に Debug Token が無い
+
+## 確認結果（2026-10-20 池上さん・commit `6a9d422`）
+
+| 項目 | 結果 |
+| --- | --- |
+| Xcode のテスト | 完了（件数・スキップ数は未報告） |
+| Release ビルド | 成功 |
+| 実機の Debug 版 | 起動成功 |
+| Debug Token | 池上さんが Firebase Console に登録済み（値はどこにも記録しない） |
+| Firebase App Check → Authentication | 「確認済みのリクエスト」2件を確認 |
+| App Check の強制適用 | 適用していない（オフのまま） |
+| Firestore への書き込み | 追加していない |
+
+次は TestFlight ビルド4（Release・App Attest）で、TestFlight 版からも「確認済み」のリクエストが届くかを確かめる（[TESTFLIGHT_BUILD_4.md](TESTFLIGHT_BUILD_4.md)）。
