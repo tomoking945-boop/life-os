@@ -1,9 +1,11 @@
+import CryptoKit
 import Foundation
 import Observation
 
 /// 招待リンクを受け取ったあとの流れ（2026-10-21 招待リンクの土台。docs/FIREBASE_INVITE_LINK_FOUNDATION.md）
 ///
-/// - 有効な招待リンク：確認画面を出す（同じリンクが続けて届いても、確認画面は1つだけ）
+/// - 有効な招待リンク：確認画面を出す。同じリンクは、アプリを開いているあいだ1回だけ
+///   （表示中・「あとで」のあと・「招待を確認」のあとに同じリンクが届いても出さない。アプリを起動し直すと、また受け取れる）
 /// - 「あとで」・画面を閉じる：何も変えず、持っていた招待を捨てる
 /// - 「招待を確認」：共有用アカウントの画面へ進み、次の段階で参加できるようになることを案内する。
 ///   参加の処理はまだ無いので、持っていた招待はここで捨てる
@@ -25,16 +27,13 @@ final class InviteLinkCoordinator {
     enum Outcome: Equatable {
         /// 確認画面を出した
         case presented
-        /// 同じリンクがもう表示中・直前に受け取ったので、何もしなかった
+        /// 同じリンクを、このアプリの起動中にもう受け取っているので、何もしなかった
         case duplicate
         /// 招待のリンクとして使えない
         case invalid
         /// https・http 以外（招待とは関係ない）なので何もしなかった
         case ignored
     }
-
-    /// 同じリンクが続けて届いたとき（起動の仕方によって、同じリンクが2回届くことがある）に、2回目を無視する時間
-    static let duplicateWindow: TimeInterval = 3
 
     /// いま確認している招待（メモリの中だけ）
     private(set) var pendingInvite: InviteLink?
@@ -44,13 +43,17 @@ final class InviteLinkCoordinator {
     /// 「この招待リンクは使用できません」を出しているか
     private(set) var isShowingInvalidNotice = false
 
-    @ObservationIgnored private let now: () -> Date
-    /// 直前に受け取った招待の印（トークンそのものではなく SHA-256。メモリの中だけ）
-    @ObservationIgnored private var lastReceived: (fingerprint: String, at: Date)?
+    /// このアプリの起動中に受け取った招待の印（重複を見分けるためだけ）。
+    /// トークンそのものではなく、起動ごとに作る秘密の鍵で計算した HMAC-SHA256（元のトークンには戻せない）。
+    /// メモリの中だけで持ち、保存しない。アプリを起動し直す（新しく作る）と空になる
+    @ObservationIgnored private var receivedFingerprints: Set<Data> = []
+    /// 印を計算する鍵（起動ごとに作る乱数。保存しない）
+    @ObservationIgnored private let fingerprintKey = SymmetricKey(size: .bits256)
 
-    init(now: @escaping () -> Date = Date.init) {
-        self.now = now
-    }
+    /// 覚えている招待の数（テスト用。中身は出さない）
+    var rememberedInviteCount: Int { receivedFingerprints.count }
+
+    init() {}
 
     /// リンクを受け取る（アプリが終了・バックグラウンド・起動中のどの状態から開かれても、ここに届く）
     /// - Parameter allowsNotice: 不正なリンクのときに案内を出してよいか（はじめての設定の途中などは出さない）
@@ -67,15 +70,12 @@ final class InviteLinkCoordinator {
             return .invalid
         }
 
-        let time = now()
-        if isPresented, pendingInvite == invite {
-            return .duplicate
-        }
-        if let last = lastReceived, last.fingerprint == invite.fingerprint, time.timeIntervalSince(last.at) < Self.duplicateWindow {
+        // 同じリンクは、起動中に1回だけ（表示中・「あとで」・「招待を確認」のあとも出さない）
+        let fingerprint = Data(HMAC<SHA256>.authenticationCode(for: Data(invite.token.utf8), using: fingerprintKey))
+        guard receivedFingerprints.insert(fingerprint).inserted else {
             return .duplicate
         }
 
-        lastReceived = (invite.fingerprint, time)
         pendingInvite = invite
         step = .prompt
         isPresented = true

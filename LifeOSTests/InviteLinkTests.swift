@@ -130,18 +130,13 @@ final class InviteLinkParsingTests: XCTestCase {
 }
 
 final class InviteLinkCoordinatorTests: XCTestCase {
-    private final class Clock {
-        var now = Date(timeIntervalSince1970: 1_800_000_000)
-    }
-
-    private func makeCoordinator() -> (InviteLinkCoordinator, Clock) {
-        let clock = Clock()
-        return (InviteLinkCoordinator(now: { clock.now }), clock)
+    private func makeCoordinator() -> InviteLinkCoordinator {
+        InviteLinkCoordinator()
     }
 
     /// 有効なリンクで確認画面を出す（参加の処理は無い）
     func testValidLinkPresentsPrompt() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         let token = makeToken()
         XCTAssertEqual(coordinator.receive(inviteURL(token)), .presented)
         XCTAssertTrue(coordinator.isPresented)
@@ -150,31 +145,110 @@ final class InviteLinkCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isShowingInvalidNotice)
     }
 
-    /// 7：同じリンクが続けて届いても、確認画面は1つだけ
-    func testSameLinkIsNotPresentedTwice() {
-        let (coordinator, clock) = makeCoordinator()
+    /// 7：表示中に同じリンクが届いても、2枚目を出さない（onOpenURL と onContinueUserActivity の両方から届いたときなど）
+    func testSameLinkWhilePresentedIsNotShownTwice() {
+        let coordinator = makeCoordinator()
+        let token = makeToken()
+        let url = inviteURL(token)
+        XCTAssertEqual(coordinator.receive(url), .presented)
+        XCTAssertEqual(coordinator.receive(url), .duplicate)
+        XCTAssertEqual(coordinator.receive(url), .duplicate)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.step, .prompt)
+        XCTAssertEqual(coordinator.pendingInvite?.token, token)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 1)
+    }
+
+    /// 「あとで」・閉じるのあと、同じ起動中に同じリンクが届いても出さない
+    func testSameLinkAfterLaterOrCloseIsNotShownAgain() {
+        let coordinator = makeCoordinator()
         let url = inviteURL(makeToken())
         XCTAssertEqual(coordinator.receive(url), .presented)
-        XCTAssertEqual(coordinator.receive(url), .duplicate, "onOpenURL と onContinueUserActivity の両方から届いたとき")
-        clock.now += 60
-        XCTAssertEqual(coordinator.receive(url), .duplicate, "表示中の同じリンク")
-        XCTAssertTrue(coordinator.isPresented)
-
-        // 閉じた直後に同じリンクがもう一度届いても出さない。時間がたって開き直したときは出す
         coordinator.later()
         XCTAssertEqual(coordinator.receive(url), .duplicate)
         XCTAssertFalse(coordinator.isPresented)
-        clock.now += InviteLinkCoordinator.duplicateWindow + 1
-        XCTAssertEqual(coordinator.receive(url), .presented)
+        XCTAssertNil(coordinator.pendingInvite)
+
+        let other = inviteURL(makeToken())
+        XCTAssertEqual(coordinator.receive(other), .presented)
+        coordinator.close()
+        XCTAssertEqual(coordinator.receive(other), .duplicate)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertNil(coordinator.pendingInvite)
+    }
+
+    /// 「招待を確認」で共有用アカウントへ進んだあとも、同じリンクは出さない（画面もそのまま）
+    func testSameLinkAfterConfirmIsNotShownAgain() {
+        let coordinator = makeCoordinator()
+        let url = inviteURL(makeToken())
+        coordinator.receive(url)
+        coordinator.confirm()
+        XCTAssertEqual(coordinator.receive(url), .duplicate)
+        XCTAssertEqual(coordinator.step, .account)
+        XCTAssertNil(coordinator.pendingInvite)
+        coordinator.close()
+        XCTAssertEqual(coordinator.receive(url), .duplicate)
+        XCTAssertFalse(coordinator.isPresented)
+    }
+
+    /// 別の正しい招待リンクは出せる
+    func testDifferentValidLinkIsShown() {
+        let coordinator = makeCoordinator()
+        coordinator.receive(inviteURL(makeToken()))
+        coordinator.later()
+        let second = makeToken()
+        XCTAssertEqual(coordinator.receive(inviteURL(second)), .presented)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.pendingInvite?.token, second)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 2)
+    }
+
+    /// アプリを起動し直す（新しく作る）と、覚えている招待は空。同じリンクをまた受け取れる
+    func testNewCoordinatorStartsWithEmptyHistory() {
+        let url = inviteURL(makeToken())
+        let first = InviteLinkCoordinator()
+        first.receive(url)
+        first.later()
+        XCTAssertEqual(first.receive(url), .duplicate)
+
+        let relaunched = InviteLinkCoordinator()
+        XCTAssertEqual(relaunched.rememberedInviteCount, 0)
+        XCTAssertEqual(relaunched.receive(url), .presented)
+    }
+
+    /// 不正なリンクは覚えない（そのあと正しいリンクは出せる）
+    func testInvalidLinkIsNotRemembered() {
+        let coordinator = makeCoordinator()
+        let token = makeToken()
+        XCTAssertEqual(coordinator.receive(URL(string: "https://kurashi-os-production.web.app/invite?token=\(token)&x=1")!), .invalid)
+        XCTAssertEqual(coordinator.receive(URL(string: "http://kurashi-os-production.web.app/invite?token=\(token)")!), .invalid)
+        XCTAssertEqual(coordinator.receive(URL(fileURLWithPath: "/tmp/a.pdf")), .ignored)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 0)
+        coordinator.dismissInvalidNotice()
+        XCTAssertEqual(coordinator.receive(inviteURL(token)), .presented)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 1)
+    }
+
+    /// 覚えているのは元に戻せない印だけ（「あとで」のあと、トークンはどこにも残らない）
+    func testRememberedHistoryDoesNotContainToken() {
+        let coordinator = makeCoordinator()
+        let token = makeToken()
+        coordinator.receive(inviteURL(token))
+        coordinator.later()
+        var dumped = ""
+        dump(coordinator, to: &dumped)
+        XCTAssertFalse(dumped.contains(token))
+        XCTAssertNil(coordinator.pendingInvite)
     }
 
     /// 別の招待リンクが届いたら、新しいほうに置き換える（確認画面は1つ）
     func testDifferentLinkReplacesPending() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         let first = makeToken()
         let second = makeToken()
         coordinator.receive(inviteURL(first))
         coordinator.confirm()
+        // 「招待を確認」で進んだ画面の上に、別の招待が届いたら、新しいほうの確認画面にする
         XCTAssertEqual(coordinator.receive(inviteURL(second)), .presented)
         XCTAssertEqual(coordinator.pendingInvite?.token, second)
         XCTAssertEqual(coordinator.step, .prompt)
@@ -182,7 +256,7 @@ final class InviteLinkCoordinatorTests: XCTestCase {
 
     /// 8：「あとで」・閉じるでトークンを捨てる
     func testLaterAndCloseDiscardToken() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         coordinator.receive(inviteURL(makeToken()))
         coordinator.later()
         XCTAssertNil(coordinator.pendingInvite)
@@ -201,7 +275,7 @@ final class InviteLinkCoordinatorTests: XCTestCase {
 
     /// 「招待を確認」：共有用アカウントの画面へ進む。参加の処理は無いので、トークンは捨てる
     func testConfirmMovesToAccountWithoutKeepingToken() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         coordinator.receive(inviteURL(makeToken()))
         coordinator.confirm()
         XCTAssertTrue(coordinator.isPresented)
@@ -216,7 +290,7 @@ final class InviteLinkCoordinatorTests: XCTestCase {
 
     /// 「招待を確認」でもサインインを始めない（AuthService の状態は変わらない）
     func testConfirmDoesNotStartSignIn() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         let auth = AuthService(backend: nil, unavailableReason: .missingConfiguration, apple: FakeAppleSignIn())
         let before = auth.status
         coordinator.receive(inviteURL(makeToken()))
@@ -226,7 +300,7 @@ final class InviteLinkCoordinatorTests: XCTestCase {
 
     /// 9：不正なリンクでも、アプリのほかの機能はそのまま使える
     func testInvalidLinkShowsGenericNoticeOnly() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         let store = makeStore()
         let appState = AppState()
         let itemsBefore = store.items.count
@@ -254,7 +328,7 @@ final class InviteLinkCoordinatorTests: XCTestCase {
 
     /// 確認画面を出しているときに不正なリンクが届いても、確認画面はそのまま（案内を重ねない）
     func testInvalidLinkWhilePresentingKeepsPrompt() {
-        let (coordinator, _) = makeCoordinator()
+        let coordinator = makeCoordinator()
         let token = makeToken()
         coordinator.receive(inviteURL(token))
         XCTAssertEqual(coordinator.receive(URL(string: "https://kurashi-os-production.web.app/other")!), .invalid)
