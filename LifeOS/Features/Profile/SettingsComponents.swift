@@ -3,10 +3,13 @@ import SwiftUI
 /// 設定画面の共通レイアウト（背景・余白・タイトル・なんでも追加）
 struct SettingsScreen<Content: View>: View {
     let title: String
+    /// 「なんでも追加」を出すか（招待の確認画面の中など、別の画面の上に出すときは出さない。2026-10-21）
+    var showsQuickAdd: Bool
     private let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, showsQuickAdd: Bool = true, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.showsQuickAdd = showsQuickAdd
         self.content = content()
     }
 
@@ -21,7 +24,19 @@ struct SettingsScreen<Content: View>: View {
         .lifeScreenBackground()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .quickAddAccessory()
+        .modifier(SettingsQuickAddModifier(isEnabled: showsQuickAdd))
+    }
+}
+
+private struct SettingsQuickAddModifier: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.quickAddAccessory()
+        } else {
+            content
+        }
     }
 }
 

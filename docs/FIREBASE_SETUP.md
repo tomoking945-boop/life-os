@@ -171,7 +171,7 @@ firebase/functions/node_modules/.bin/firebase deploy --only firestore,functions,
 次の作業は、iPhone アプリ側のコードと同時に行うので、第2段階でお知らせします（いまは不要です）。
 
 - Firebase のライブラリを追加（File → Add Package Dependencies…）
-- Signing & Capabilities に Sign in with Apple・Push Notifications・Background Modes（Remote notifications）・Associated Domains（`applinks:<プロジェクト ID>.web.app`）を追加
+- Signing & Capabilities に Sign in with Apple・Push Notifications・Background Modes（Remote notifications）・Associated Domains（`applinks:<プロジェクト ID>.web.app`）を追加（Sign in with Apple・App Attest・Associated Domains `applinks:kurashi-os-production.web.app` は追加済み。[招待リンクの土台](FIREBASE_INVITE_LINK_FOUNDATION.md)）
 - `GoogleService-Info.plist`：2026-10-19 にリポジトリへ追加済み
 
 ---

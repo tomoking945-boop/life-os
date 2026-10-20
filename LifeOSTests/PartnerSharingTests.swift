@@ -118,18 +118,7 @@ final class SharedMigrationPlanTests: XCTestCase {
 }
 
 final class SharedLinkTests: XCTestCase {
-    private let token = String(repeating: "A", count: 21) + "b-_" + String(repeating: "9", count: 19)
-
-    func testInviteLink() throws {
-        XCTAssertEqual(token.count, 43)
-        let url = try XCTUnwrap(URL(string: "https://lifeos-example.web.app/invite?token=\(token)"))
-        XCTAssertEqual(InviteLink.token(from: url), token)
-
-        XCTAssertNil(InviteLink.token(from: try XCTUnwrap(URL(string: "http://lifeos-example.web.app/invite?token=\(token)"))), "https だけ")
-        XCTAssertNil(InviteLink.token(from: try XCTUnwrap(URL(string: "https://lifeos-example.web.app/other?token=\(token)"))))
-        XCTAssertNil(InviteLink.token(from: try XCTUnwrap(URL(string: "https://lifeos-example.web.app/invite?token=short"))))
-        XCTAssertNil(InviteLink.token(from: try XCTUnwrap(URL(string: "https://lifeos-example.web.app/invite"))))
-    }
+    // 招待リンクのテストは InviteLinkTests.swift（2026-10-21 招待リンクの土台で、ドメインまで確かめるように変更）
 
     func testNotificationRoute() throws {
         let itemID = UUID()

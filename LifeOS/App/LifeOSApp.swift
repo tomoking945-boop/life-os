@@ -7,6 +7,8 @@ struct LifeOSApp: App {
     // 保存データが無ければ空のデータから始める（見本の Mock データは入れない）。以前から使っている人は保存データをそのまま読む。
     @State private var appState: AppState
     @State private var store: LifeStore
+    /// 招待リンクの受け取り（2026-10-21）。招待はメモリの中だけで持ち、保存しない
+    @State private var inviteLinks = InviteLinkCoordinator()
 
     init() {
         // パートナー共有の土台（2026-10-19）：Firebase を安全に設定する。
@@ -28,6 +30,7 @@ struct LifeOSApp: App {
             LifeThemedRoot()
                 .environment(appState)
                 .environment(store)
+                .environment(inviteLinks)
         }
     }
 }
@@ -39,6 +42,7 @@ struct LifeOSApp: App {
 struct LifeThemedRoot: View {
     @Environment(AppState.self) private var appState
     @Environment(LifeStore.self) private var store
+    @Environment(InviteLinkCoordinator.self) private var inviteLinks
 
     var body: some View {
         let theme = apply(appState.effectiveTheme)
@@ -52,6 +56,30 @@ struct LifeThemedRoot: View {
         }
         .id(theme)
         .preferredColorScheme(appState.appearanceMode.colorScheme)
+        // 招待リンク（Universal Links。2026-10-21）：アプリが終了・バックグラウンド・起動中のどれでも、ここに届く。
+        // 同じリンクが両方から届いても、確認画面は1つだけ（InviteLinkCoordinator が重複を見分ける）
+        .onOpenURL { url in
+            _ = inviteLinks.receive(url, allowsNotice: appState.hasCompletedOnboarding)
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL else { return }
+            _ = inviteLinks.receive(url, allowsNotice: appState.hasCompletedOnboarding)
+        }
+        // はじめての設定が終わってから出す。「なんでも追加」を開いているときは、閉じてから出す
+        .sheet(isPresented: Binding(
+            get: { inviteLinks.isPresented && appState.hasCompletedOnboarding && !appState.isQuickAddPresented },
+            set: { isPresented in if !isPresented { inviteLinks.close() } }
+        )) {
+            InviteLinkSheet(coordinator: inviteLinks, auth: AuthService.live)
+        }
+        .alert("この招待リンクは使用できません", isPresented: Binding(
+            get: { inviteLinks.isShowingInvalidNotice },
+            set: { isPresented in if !isPresented { inviteLinks.dismissInvalidNotice() } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("リンクが正しくありません。招待した人に、もう一度送ってもらってください。")
+        }
     }
 
     /// 色が参照するテーマを切り替える（描き直す前に反映する）
