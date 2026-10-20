@@ -49,3 +49,24 @@ Build 4 の設定そのもののビルド・テストは、この環境に Xcode
 5. 強制適用はまだオンにしない（[FIREBASE_APP_CHECK_FOUNDATION.md](FIREBASE_APP_CHECK_FOUNDATION.md) の「強制適用をオンにするための成功条件」を満たしてから判断する）
 
 App Store への審査提出・公開はしない。問題がなければ、このブランチを main に入れる。
+
+## TestFlight での確認結果（2026-10-20 池上さん・commit `62d6b36`）
+
+アプリのコードと設定は、確認した `62d6b36` から変えていない（このあとの変更は説明の文書だけ）。
+
+| 項目 | 結果 |
+| --- | --- |
+| Build 4 の Xcode テスト | 完了 |
+| Release ビルド | 成功 |
+| Version 1.0／Build 4 の Archive | 成功 |
+| App Store Connect へのアップロード | 成功 |
+| TestFlight への追加・iPhone への導入 | 完了 |
+| TestFlight 版の起動 | 成功 |
+| Appleでサインイン | 成功 |
+| Firebase App Check → Authentication | TestFlight 版を操作したあと「確認済みのリクエスト」が増えた |
+| Release 版の App Attest | 正常に動作 |
+| App Check の強制適用 | 適用していない（オフのまま） |
+| Firestore への生活データの送信 | 追加なし |
+| App Store への審査提出・公開 | していない |
+
+同日 main に取り込み。

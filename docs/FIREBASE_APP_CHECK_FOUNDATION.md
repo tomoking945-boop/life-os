@@ -125,3 +125,24 @@ Firebase Console → プロジェクト `kurashi-os-production` → 左のメニ
 | Firestore への書き込み | 追加していない |
 
 次は TestFlight ビルド4（Release・App Attest）で、TestFlight 版からも「確認済み」のリクエストが届くかを確かめる（[TESTFLIGHT_BUILD_4.md](TESTFLIGHT_BUILD_4.md)）。
+
+## TestFlight ビルド4での確認結果（2026-10-20 池上さん・commit `62d6b36`）
+
+Release（App Attest）でも、本物のアプリからトークンが届いていることを確認した。アプリのコードと設定は `62d6b36` から変えていない。
+
+| 項目 | 結果 |
+| --- | --- |
+| Build 4 の Xcode テスト | 完了 |
+| Release ビルド | 成功 |
+| Version 1.0／Build 4 の Archive | 成功 |
+| App Store Connect へのアップロード | 成功 |
+| TestFlight への追加・iPhone への導入 | 完了 |
+| TestFlight 版の起動 | 成功 |
+| Appleでサインイン | 成功 |
+| Firebase App Check → Authentication | TestFlight 版を操作したあと「確認済みのリクエスト」が増えた |
+| Release 版の App Attest | 正常に動作 |
+| App Check の強制適用 | 適用していない（オフのまま） |
+| Firestore への生活データの送信 | 追加なし |
+| App Store への審査提出・公開 | していない |
+
+強制適用をオンにするかは、[強制適用をオンにするための成功条件](#強制適用をオンにするための成功条件) を満たしてから別に判断する。同日 main に取り込み。
