@@ -7,6 +7,8 @@
  * - acceptInvite：トークンをトランザクションで一度だけ消費し、メンバーを追加する
  * - onSharedItemWritten：共有項目の追加・重要な変更を見つけ、操作した本人を除くメンバーへ通知する
  *   使えなくなった FCM トークンは送信結果から削除する
+ * - onAuthUserDeleted：Firebase Authentication の利用者が削除されたあと、その人の Firestore の情報を整理する
+ *   （第1世代の安定版の削除トリガー。第2世代には利用者の削除イベントが無いため。docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）
  *
  * 招待の2つ（Callable）は App Check を必須にする（enforceAppCheck: true。2026-10-20 監査）。
  * 正規のくらしOSアプリが付ける App Check の情報が無い・正しくない呼び出しは、関数の中に入る前に
@@ -21,6 +23,8 @@
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
+const functionsV1 = require('firebase-functions/v1');
+const logger = require('firebase-functions/logger');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
@@ -38,10 +42,12 @@ const {
   sanitizeDisplayName,
 } = require('./src/invites');
 const { selectRecipients, devicesToRemove } = require('./src/recipients');
+const { cleanupDeletedUser } = require('./src/accountCleanupRunner');
 
 initializeApp();
-// 日本の利用者向けに東京リージョン
-setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
+// 日本の利用者向けに東京リージョン（第2世代。第1世代の削除トリガーは下で個別に指定）
+const REGION = 'asia-northeast1';
+setGlobalOptions({ region: REGION, maxInstances: 10 });
 
 const db = getFirestore();
 
@@ -125,7 +131,8 @@ exports.acceptInvite = onCall({ enforceAppCheck: true }, async (request) => {
 
     // 一度だけ：使用済みにしてからメンバーを追加する（同じトランザクションの中）
     transaction.update(inviteRef, { usedAt: FieldValue.serverTimestamp(), usedBy: uid });
-    transaction.set(memberRef, { role: 'member', joinedAt: FieldValue.serverTimestamp(), displayName });
+    // uid は文書 ID と同じ（アカウント削除のあとの整理で、所属を探すのに使う）
+    transaction.set(memberRef, { uid, role: 'member', joinedAt: FieldValue.serverTimestamp(), displayName });
     transaction.update(db.doc(`groups/${invite.groupID}`), { updatedAt: FieldValue.serverTimestamp() });
     return { ok: true, groupID: invite.groupID };
   });
@@ -176,6 +183,9 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
   const logRef = db.doc(`groups/${groupID}/notificationLog/${itemID}`);
   const now = Date.now();
   const allowed = await db.runTransaction(async (transaction) => {
+    // 生活グループがもう無い（アカウント削除の整理などで消えた）ときは、通知の記録を作らない（孤立した記録を残さない）
+    const groupSnap = await transaction.get(db.doc(`groups/${groupID}`));
+    if (!groupSnap.exists) return false;
     const snap = await transaction.get(logRef);
     const last = snap.exists ? toMillis(snap.data().lastSentAt) : null;
     if (!shouldSend(last, now)) return false;
@@ -217,3 +227,27 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
   const removals = devicesToRemove(recipients, result.responses);
   await Promise.all(removals.map((removal) => db.doc(`users/${removal.uid}/devices/${removal.deviceID}`).delete()));
 });
+
+// MARK: - アカウント削除のあとの整理
+
+/**
+ * Firebase Authentication の利用者が削除されたら、その人の Firestore の情報をサーバーで整理する（非同期）。
+ * - 失敗したら自動でやり直す（failurePolicy）。整理は何度実行しても同じ結果になる
+ * - ログに出すのは UID と件数だけ。メールアドレス・Apple の情報・端末トークン・生活の内容は出さない
+ */
+exports.onAuthUserDeleted = functionsV1
+  .region(REGION)
+  .runWith({ failurePolicy: true, maxInstances: 10 })
+  .auth.user()
+  .onDelete(async (user) => {
+    const uid = user && user.uid;
+    try {
+      const summary = await cleanupDeletedUser({ db, FieldValue, uid });
+      logger.info('account cleanup finished', { uid, ...summary });
+    } catch (error) {
+      const code = error && error.code !== undefined ? String(error.code) : 'unknown';
+      logger.error('account cleanup failed', { uid, code });
+      // 失敗を握りつぶさず、やり直してもらう。元のエラーの文面（パスなど）はログに出さない
+      throw new Error(`account cleanup failed (${code})`);
+    }
+  });

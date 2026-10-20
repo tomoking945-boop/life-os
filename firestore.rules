@@ -89,17 +89,20 @@ service cloud.firestore {
         allow read: if isMember(groupID);
 
         // 自分で作る生活グループの owner になるときだけ（既にあるグループには入れない）。
-        // それ以外のメンバーの追加は acceptInvite（サーバー）だけが行う
+        // それ以外のメンバーの追加は acceptInvite（サーバー）だけが行う。
+        // uid は文書 ID と同じ本人の UID だけ（別人の UID は書けない。更新できないので、あとから変えることもできない）。
+        // アカウント削除のあとの整理で、所属を探すのに使う（docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）
         allow create: if signedIn()
           && memberUID == request.auth.uid
-          && request.resource.data.keys().hasOnly(['role', 'joinedAt', 'displayName'])
+          && request.resource.data.keys().hasOnly(['uid', 'role', 'joinedAt', 'displayName'])
+          && request.resource.data.uid == request.auth.uid
           && request.resource.data.role == 'owner'
           && request.resource.data.joinedAt == request.time
           && isShortText(request.resource.data.displayName, 40)
           && !exists(/databases/$(database)/documents/groups/$(groupID))
           && getAfter(/databases/$(database)/documents/groups/$(groupID)).data.createdBy == request.auth.uid;
 
-        // 役割の変更（権限の昇格）は誰にもできない
+        // 役割の変更（権限の昇格）・uid の変更は誰にもできない
         allow update: if false;
 
         // 退出：自分のメンバー情報だけ消せる
@@ -146,6 +149,8 @@ service cloud.firestore {
 
       // notificationLog など、ここに書かれていない場所はすべて拒否（Functions は管理者として書く）
     }
+
+    // accountDeletions（アカウント削除の整理の作業記録）など、ここに書かれていない場所はすべて拒否
 
     // 招待：アプリからは読み書きできない（createInvite / acceptInvite だけが扱う）
     match /invites/{tokenHash} {

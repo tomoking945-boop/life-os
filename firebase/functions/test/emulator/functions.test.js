@@ -113,7 +113,7 @@ beforeEach(async () => {
   }
   const now = Timestamp.now();
   await db.doc(`groups/${GROUP}`).set({ name: 'わが家', createdBy: alice.uid, createdAt: now, updatedAt: now });
-  await db.doc(`groups/${GROUP}/members/${alice.uid}`).set({ role: 'owner', joinedAt: now, displayName: 'alice' });
+  await db.doc(`groups/${GROUP}/members/${alice.uid}`).set({ uid: alice.uid, role: 'owner', joinedAt: now, displayName: 'alice' });
 });
 
 describe('招待', () => {
@@ -142,6 +142,9 @@ describe('招待', () => {
     assert.deepEqual(accepted.result, { groupID: GROUP });
     const member = await db.doc(`groups/${GROUP}/members/${bob.uid}`).get();
     assert.equal(member.data().role, 'member');
+    // uid は参加した本人の UID（文書 ID と同じ。アカウント削除の整理で使う）
+    assert.equal(member.data().uid, bob.uid);
+    assert.equal(member.data().uid, member.id);
 
     const reused = await call('acceptInvite', { token, displayName: 'carol' }, carol.idToken);
     assert.equal(reused.error.details.reason, 'already-used');
@@ -205,7 +208,7 @@ describe('招待の App Check（2026-10-20 監査）', () => {
 describe('共有更新の通知', () => {
   async function addMembersAndDevices() {
     const now = Timestamp.now();
-    await db.doc(`groups/${GROUP}/members/${bob.uid}`).set({ role: 'member', joinedAt: now, displayName: 'bob' });
+    await db.doc(`groups/${GROUP}/members/${bob.uid}`).set({ uid: bob.uid, role: 'member', joinedAt: now, displayName: 'bob' });
     const device = (token, overrides = {}) => ({
       fcmToken: token, platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true,
       showsPreview: false, updatedAt: now, ...overrides,
@@ -274,6 +277,19 @@ describe('共有更新の通知', () => {
     await ref.update({ date: Timestamp.fromDate(new Date('2026-10-12T11:30:00+09:00')), updatedBy: alice.uid });
     await sleep(3000);
     assert.equal((await sentMessages()).length, 1);
+  });
+
+  it('生活グループがもう無いときは、通知の記録も通知も作らない（孤立した記録を残さない）', async () => {
+    const ghost = `ghost-${crypto.randomUUID()}`;
+    const now = Timestamp.now();
+    await db.doc(`groups/${ghost}/members/${alice.uid}`).set({ uid: alice.uid, role: 'owner', joinedAt: now, displayName: 'alice' });
+    await db.doc(`groups/${ghost}/members/${bob.uid}`).set({ uid: bob.uid, role: 'member', joinedAt: now, displayName: 'bob' });
+    await addMembersAndDevices();
+    await db.doc(`groups/${ghost}/items/item-g`).set(item(alice.uid));
+    await sleep(3000);
+    assert.equal((await db.doc(`groups/${ghost}/notificationLog/item-g`).get()).exists, false);
+    assert.equal((await sentMessages()).length, 0);
+    await db.recursiveDelete(db.doc(`groups/${ghost}`));
   });
 
   it('bob が変更すると alice に届く（双方向）', async () => {

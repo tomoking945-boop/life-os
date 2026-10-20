@@ -9,7 +9,7 @@
   "scripts": {
     "test:unit": "node --test test/unit/*.test.js",
     "test:rules": "firebase emulators:exec --config ../../firebase.json --project demo-lifeos --only firestore \"node --test $PWD/test/emulator/rules.test.js\"",
-    "test:functions": "firebase emulators:exec --config ../../firebase.json --project demo-lifeos --only auth,firestore,functions \"node --test $PWD/test/emulator/functions.test.js\"",
+    "test:functions": "firebase emulators:exec --config ../../firebase.json --project demo-lifeos --only auth,firestore,functions \"node --test $PWD/test/emulator/functions.test.js && node --test $PWD/test/emulator/accountDeletion.test.js\"",
     "test": "npm run test:unit && npm run test:rules && npm run test:functions"
   },
   "dependencies": {

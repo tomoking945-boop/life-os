@@ -37,11 +37,11 @@ beforeEach(async () => {
     const db = context.firestore();
     const now = Timestamp.now();
     await setDoc(doc(db, `groups/${GROUP}`), { name: 'わが家', createdBy: 'alice', createdAt: now, updatedAt: now });
-    await setDoc(doc(db, `groups/${GROUP}/members/alice`), { role: 'owner', joinedAt: now, displayName: 'alice' });
-    await setDoc(doc(db, `groups/${GROUP}/members/bob`), { role: 'member', joinedAt: now, displayName: 'bob' });
+    await setDoc(doc(db, `groups/${GROUP}/members/alice`), { uid: 'alice', role: 'owner', joinedAt: now, displayName: 'alice' });
+    await setDoc(doc(db, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'member', joinedAt: now, displayName: 'bob' });
     await setDoc(doc(db, `groups/${GROUP}/items/item-1`), sharedItem('alice', now));
     await setDoc(doc(db, `groups/${OTHER_GROUP}`), { name: '別の家', createdBy: 'mallory', createdAt: now, updatedAt: now });
-    await setDoc(doc(db, `groups/${OTHER_GROUP}/members/mallory`), { role: 'owner', joinedAt: now, displayName: 'mallory' });
+    await setDoc(doc(db, `groups/${OTHER_GROUP}/members/mallory`), { uid: 'mallory', role: 'owner', joinedAt: now, displayName: 'mallory' });
     await setDoc(doc(db, `invites/hash-1`), { groupID: GROUP, createdBy: 'alice', expiresAt: now, usedAt: null, usedBy: null });
     await setDoc(doc(db, `users/bob/devices/device-1`), {
       fcmToken: 'token-bob', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true, updatedAt: now,
@@ -93,8 +93,8 @@ describe('メンバーでない人', () => {
   it('自分をメンバーに追加できない（既にあるグループの owner にもなれない）', async () => {
     const db = as('mallory');
     const now = serverTimestamp();
-    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/mallory`), { role: 'member', joinedAt: now, displayName: 'mallory' }));
-    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/mallory`), { role: 'owner', joinedAt: now, displayName: 'mallory' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/mallory`), { uid: 'mallory', role: 'member', joinedAt: now, displayName: 'mallory' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/mallory`), { uid: 'mallory', role: 'owner', joinedAt: now, displayName: 'mallory' }));
   });
 });
 
@@ -140,13 +140,13 @@ describe('メンバー', () => {
   });
 
   it('役割を変えられない（member から owner への昇格を拒否）', async () => {
-    await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}/members/bob`), { role: 'owner' }));
-    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/members/bob`), { role: 'owner' }));
+    await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner' }));
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner' }));
   });
 
   it('ほかの人をメンバーに追加できない（招待の Function だけが追加する）', async () => {
     await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/members/carol`), {
-      role: 'member', joinedAt: serverTimestamp(), displayName: 'carol',
+      uid: 'carol', role: 'member', joinedAt: serverTimestamp(), displayName: 'carol',
     }));
   });
 
@@ -168,7 +168,7 @@ describe('生活グループを作る', () => {
     const db = as('carol');
     const batch = writeBatch(db);
     batch.set(doc(db, 'groups/group-c'), { name: 'carol の家', createdBy: 'carol', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    batch.set(doc(db, 'groups/group-c/members/carol'), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol' });
+    batch.set(doc(db, 'groups/group-c/members/carol'), { uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol' });
     await assertSucceeds(batch.commit());
   });
 
@@ -177,7 +177,7 @@ describe('生活グループを作る', () => {
     await assertFails(setDoc(doc(db, 'groups/group-d'), { name: 'x', createdBy: 'carol', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
     const batch = writeBatch(db);
     batch.set(doc(db, 'groups/group-e'), { name: 'x', createdBy: 'alice', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    batch.set(doc(db, 'groups/group-e/members/carol'), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol' });
+    batch.set(doc(db, 'groups/group-e/members/carol'), { uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol' });
     await assertFails(batch.commit());
   });
 });
@@ -233,7 +233,7 @@ describe('監査（2026-10-20）：サインインしていない利用者', () 
     await assertFails(setDoc(doc(db, `groups/${GROUP}/items/anon-1`), sharedItem('anon')));
     await assertFails(updateDoc(doc(db, `groups/${GROUP}/items/item-1`), { title: '変更', updatedAt: serverTimestamp() }));
     await assertFails(deleteDoc(doc(db, `groups/${GROUP}/items/item-1`)));
-    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/anon`), { role: 'member', joinedAt: serverTimestamp(), displayName: 'anon' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/members/anon`), { uid: 'anon', role: 'member', joinedAt: serverTimestamp(), displayName: 'anon' }));
     await assertFails(updateDoc(doc(db, `groups/${GROUP}`), { name: '変更', updatedAt: serverTimestamp() }));
     await assertFails(setDoc(doc(db, 'users/anon'), { displayName: 'anon' }));
     await assertFails(setDoc(doc(db, 'users/anon/devices/d1'), {
@@ -247,7 +247,7 @@ describe('監査（2026-10-20）：サインインしていない利用者', () 
     const db = unauthenticated();
     const batch = writeBatch(db);
     batch.set(doc(db, 'groups/group-anon'), { name: '匿名の家', createdBy: 'anon', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    batch.set(doc(db, 'groups/group-anon/members/anon'), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'anon' });
+    batch.set(doc(db, 'groups/group-anon/members/anon'), { uid: 'anon', role: 'owner', joinedAt: serverTimestamp(), displayName: 'anon' });
     await assertFails(batch.commit());
     await assertFails(setDoc(doc(db, 'groups/group-anon2'), { name: 'x', createdBy: 'anon', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
   });
@@ -310,7 +310,7 @@ describe('監査（2026-10-20）：個人データらしい項目・場所', () 
     const carol = as('carol');
     const batch = writeBatch(carol);
     batch.set(doc(carol, 'groups/group-f'), { name: 'x', createdBy: 'carol', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    batch.set(doc(carol, 'groups/group-f/members/carol'), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol', phone: '090' });
+    batch.set(doc(carol, 'groups/group-f/members/carol'), { uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol', phone: '090' });
     await assertFails(batch.commit());
     await assertFails(setDoc(doc(as('bob'), 'users/bob/devices/device-2'), {
       fcmToken: 'token-bob-2', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true,
@@ -323,12 +323,12 @@ describe('監査（2026-10-20）：権限・作成の情報', () => {
   it('退出した人は、同じ生活グループに owner としても member としても戻れない', async () => {
     const bob = as('bob');
     await assertSucceeds(deleteDoc(doc(bob, `groups/${GROUP}/members/bob`)));
-    await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' }));
-    await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { role: 'member', joinedAt: serverTimestamp(), displayName: 'bob' }));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' }));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'member', joinedAt: serverTimestamp(), displayName: 'bob' }));
     // グループを作り直して owner になることもできない（既にあるグループは「作成」ではない）
     const batch = writeBatch(bob);
     batch.set(doc(bob, `groups/${GROUP}`), { name: 'わが家', createdBy: 'bob', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    batch.set(doc(bob, `groups/${GROUP}/members/bob`), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' });
+    batch.set(doc(bob, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' });
     await assertFails(batch.commit());
     await assertFails(getDoc(doc(bob, `groups/${GROUP}/items/item-1`)));
   });
@@ -336,7 +336,7 @@ describe('監査（2026-10-20）：権限・作成の情報', () => {
   it('owner も一度退出すると戻れない（owner の役割を取り直せない）', async () => {
     const alice = as('alice');
     await assertSucceeds(deleteDoc(doc(alice, `groups/${GROUP}/members/alice`)));
-    await assertFails(setDoc(doc(alice, `groups/${GROUP}/members/alice`), { role: 'owner', joinedAt: serverTimestamp(), displayName: 'alice' }));
+    await assertFails(setDoc(doc(alice, `groups/${GROUP}/members/alice`), { uid: 'alice', role: 'owner', joinedAt: serverTimestamp(), displayName: 'alice' }));
   });
 
   it('更新で createdAt を変えられない（サーバーの時刻でも、端末の時刻でも）', async () => {
@@ -372,5 +372,56 @@ describe('監査（2026-10-20）：権限・作成の情報', () => {
     await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/items/item-1`), {
       assigneeUID: 'bob', updatedBy: 'alice', updatedAt: serverTimestamp(),
     }));
+  });
+});
+
+// MARK: - アカウント削除のあとの整理（2026-10-20）で追加したテスト（docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）
+
+describe('メンバー文書の uid（アカウント削除の整理で使う）', () => {
+  function createGroupBatch(db, uid, memberData) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, `groups/group-${uid}`), { name: 'x', createdBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    batch.set(doc(db, `groups/group-${uid}/members/${uid}`), memberData);
+    return batch;
+  }
+
+  it('グループを作るとき、自分の UID を uid に入れれば作れる', async () => {
+    const db = as('carol');
+    await assertSucceeds(createGroupBatch(db, 'carol', {
+      uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol',
+    }).commit());
+  });
+
+  it('uid を別人の UID にできない（偽装できない）', async () => {
+    const db = as('carol');
+    await assertFails(createGroupBatch(db, 'carol', {
+      uid: 'alice', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol',
+    }).commit());
+    await assertFails(createGroupBatch(db, 'carol', {
+      uid: '', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol',
+    }).commit());
+  });
+
+  it('uid が無いメンバー文書は作れない', async () => {
+    const db = as('carol');
+    await assertFails(createGroupBatch(db, 'carol', {
+      role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol',
+    }).commit());
+  });
+
+  it('uid をあとから変えられない（本人も owner も）', async () => {
+    await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}/members/bob`), { uid: 'mallory' }));
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/members/bob`), { uid: 'alice' }));
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/members/alice`), { uid: 'bob' }));
+  });
+
+  it('アカウント削除の作業記録（accountDeletions）は、アプリから読み書きできない', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'accountDeletions/bob'), { groupIDs: [GROUP] });
+    });
+    await assertFails(getDoc(doc(as('bob'), 'accountDeletions/bob')));
+    await assertFails(setDoc(doc(as('bob'), 'accountDeletions/bob'), { groupIDs: [] }));
+    await assertFails(deleteDoc(doc(as('bob'), 'accountDeletions/bob')));
+    await assertFails(getDocs(collection(as('alice'), 'accountDeletions')));
   });
 });
