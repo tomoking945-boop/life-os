@@ -8,6 +8,12 @@
  * - onSharedItemWritten：共有項目の追加・重要な変更を見つけ、操作した本人を除くメンバーへ通知する
  *   使えなくなった FCM トークンは送信結果から削除する
  *
+ * 招待の2つ（Callable）は App Check を必須にする（enforceAppCheck: true。2026-10-20 監査）。
+ * 正規のくらしOSアプリが付ける App Check の情報が無い・正しくない呼び出しは、関数の中に入る前に
+ * unauthenticated で断られる。App Check は「本物のアプリか」の確認で「誰か」の確認ではないため、
+ * サインインの確認（requireUID）もこれまでどおり行う。onSharedItemWritten は Firestore の
+ * トリガーでアプリから直接呼ばれないため、この設定の対象ではない（docs/FIRESTORE_SHARING_RULES_AUDIT.md）。
+ *
  * 判定のロジックは src/ の小さな関数に分け、firebase なしで単体テストしている（test/unit）。
  * 個人項目はアプリが送らないため、ここには届かない（Security Rules も共有の種類だけを受け付ける）。
  */
@@ -58,7 +64,8 @@ function inviteBaseURL() {
 
 // MARK: - 招待
 
-exports.createInvite = onCall(async (request) => {
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.createInvite = onCall({ enforceAppCheck: true }, async (request) => {
   const uid = requireUID(request);
   const groupID = request.data && request.data.groupID;
   if (typeof groupID !== 'string' || !ID_PATTERN.test(groupID)) {
@@ -93,7 +100,8 @@ const ACCEPT_ERRORS = {
   'already-member': ['already-exists', 'すでにこの生活グループのメンバーです。'],
 };
 
-exports.acceptInvite = onCall(async (request) => {
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.acceptInvite = onCall({ enforceAppCheck: true }, async (request) => {
   const uid = requireUID(request);
   const token = request.data && request.data.token;
   if (!isValidTokenFormat(token)) {

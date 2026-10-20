@@ -7,6 +7,12 @@
  * - 招待：期限・一度きりの利用・メンバーでない人は発行できない・生のトークンを保存しない
  * - 通知：操作した本人を除く・通知 OFF の端末を除く・完了だけの変更は送らない・30秒以内はまとめる
  * - 無効なトークン：送信結果を受けて端末を削除する
+ * - App Check（2026-10-20 監査）：App Check の情報が無い招待の呼び出しは、サインインしていても断られる。
+ *   App Check だけではサインイン済みにならない
+ *
+ * App Check について：Functions Emulator は App Check の署名を確かめない（本番では Firebase が確かめる）。
+ * そのため、ここでは「App Check の情報が付いているか」だけを試す。テスト用の偽の値は、本物のアプリの ID や
+ * Debug Token とは関係ない、ここで作った値（本番では使えない）。
  *
  * 本物の FCM へは送らない（.env.demo-lifeos の LIFEOS_FAKE_MESSAGING=1 で、Firestore に記録する）。
  */
@@ -37,11 +43,28 @@ async function signUp(name) {
   return { uid: body.localId, idToken: body.idToken };
 }
 
-/** Callable Function を呼ぶ */
-async function call(name, data, idToken) {
+/**
+ * テスト用の偽の App Check の値（JWT の形だけ。署名なし）。
+ * Emulator は署名を確かめないので通るが、本番の Firebase では必ず断られる
+ */
+const base64url = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+const FAKE_APP_CHECK_TOKEN = [
+  base64url({ alg: 'none', typ: 'JWT' }),
+  base64url({ sub: '1:000000000000:ios:emulatoronly', aud: [`projects/${PROJECT}`], iss: 'emulator-test' }),
+  'emulator-test',
+].join('.');
+
+/**
+ * Callable Function を呼ぶ。正規のアプリと同じく、ふだんは App Check の情報を付ける
+ * （`{ appCheck: false }` で付けない呼び出しを試す）
+ */
+async function call(name, data, idToken, { appCheck = true } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (idToken) headers.Authorization = `Bearer ${idToken}`;
+  if (appCheck) headers['X-Firebase-AppCheck'] = FAKE_APP_CHECK_TOKEN;
   const response = await fetch(`http://${FUNCTIONS_HOST}/${PROJECT}/${REGION}/${name}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+    headers,
     body: JSON.stringify({ data }),
   });
   return response.json();
@@ -140,6 +163,42 @@ describe('招待', () => {
     assert.equal((await call('acceptInvite', { token: 'short' }, bob.idToken)).error.status, 'INVALID_ARGUMENT');
     const unknown = crypto.randomBytes(32).toString('base64url');
     assert.equal((await call('acceptInvite', { token: unknown }, bob.idToken)).error.status, 'NOT_FOUND');
+  });
+});
+
+describe('招待の App Check（2026-10-20 監査）', () => {
+  async function inviteCount() {
+    return (await db.collection('invites').get()).size;
+  }
+
+  it('App Check の情報が無いと、サインインしていても招待を発行できない', async () => {
+    const response = await call('createInvite', { groupID: GROUP }, alice.idToken, { appCheck: false });
+    assert.equal(response.error && response.error.status, 'UNAUTHENTICATED', JSON.stringify(response));
+    assert.equal(await inviteCount(), 0, '招待が作られていない');
+  });
+
+  it('App Check の情報が無いと、サインインしていても招待を使えない（招待は未使用のまま）', async () => {
+    const { token } = (await call('createInvite', { groupID: GROUP }, alice.idToken)).result;
+    const response = await call('acceptInvite', { token, displayName: 'bob' }, bob.idToken, { appCheck: false });
+    assert.equal(response.error && response.error.status, 'UNAUTHENTICATED', JSON.stringify(response));
+    assert.equal((await db.doc(`groups/${GROUP}/members/${bob.uid}`).get()).exists, false, 'メンバーに追加されていない');
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    assert.equal((await db.doc(`invites/${hash}`).get()).data().usedAt, null, '招待は使われていない');
+
+    // 同じ招待も、App Check の情報を付ければ使える（断られたのは App Check が無かったため）
+    assert.deepEqual((await call('acceptInvite', { token, displayName: 'bob' }, bob.idToken)).result, { groupID: GROUP });
+  });
+
+  it('App Check の情報だけでは、サインインしたことにならない', async () => {
+    assert.equal((await call('createInvite', { groupID: GROUP })).error.status, 'UNAUTHENTICATED');
+    assert.equal(await inviteCount(), 0);
+    const { token } = (await call('createInvite', { groupID: GROUP }, alice.idToken)).result;
+    assert.equal((await call('acceptInvite', { token, displayName: 'x' })).error.status, 'UNAUTHENTICATED');
+  });
+
+  it('App Check もサインインも無い呼び出しは断られる', async () => {
+    assert.equal((await call('createInvite', { groupID: GROUP }, null, { appCheck: false })).error.status, 'UNAUTHENTICATED');
+    assert.equal(await inviteCount(), 0);
   });
 });
 

@@ -61,8 +61,8 @@ npm test
 | 名前 | 確かめること |
 | --- | --- |
 | `test:unit` | 通知を送るかの判定・本人を除く・通知 OFF を除く・30秒以内はまとめる・招待トークン |
-| `test:rules` | メンバーでない人は読み書きできない・共有項目だけ書ける・役割を上げられない |
-| `test:functions` | 招待の期限と一度きり・通知が届く端末の選び方・使えないトークンの削除 |
+| `test:rules` | メンバーでない人は読み書きできない・共有項目だけ書ける・役割を上げられない・サインインしていない人は書けない・ルールに無い場所や項目は拒否（[監査](FIRESTORE_SHARING_RULES_AUDIT.md)） |
+| `test:functions` | 招待の期限と一度きり・App Check の情報が無い招待の呼び出しを断る・通知が届く端末の選び方・使えないトークンの削除 |
 
 最後に `# fail 0` と出れば、すべて成功です。失敗したときは、出てきた文をそのまま送ってください。
 
@@ -142,7 +142,7 @@ npm test
 招待リンク `https://<プロジェクト ID>.web.app/invite?token=…` を iPhone アプリで開けるようにします。
 
 1. 「構築」→「Hosting」→「始める」（画面の手順は途中まででかまいません）。
-2. TODO（こちらで行います）：`firebase/hosting/.well-known/apple-app-site-association` の `TEAMID` を、B-2 の Team ID に書き換えます（ID の部分は `com.tomoking945boop.lifeos` に反映済み）。**Team ID を教えてください。**
+2. `firebase/hosting/.well-known/apple-app-site-association` は `A8D9YY866R.com.tomoking945boop.lifeos`（Team ID と Bundle ID。どちらも公開してよい識別情報）に書き換え済みです（2026-10-20）。Hosting へはまだ送っていません。
 
 ### B-11. サーバー側を送る（デプロイ）
 
