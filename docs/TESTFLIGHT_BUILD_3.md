@@ -44,3 +44,24 @@
 9. 問題がなければ、このブランチを main に入れる
 
 App Store への審査提出・公開はしない。
+
+## TestFlight での確認結果（2026-10-20 池上さん・commit `69cd8e6`）
+
+アプリのコード・Firebase の設定・アイコンは、確認した `69cd8e6` から変えていない（このあとの変更は説明の文書だけ）。
+
+| 項目 | 結果 |
+| --- | --- |
+| Version 1.0／Build 3 の Archive | 成功 |
+| App Store Connect へのアップロード | 成功 |
+| dSYM の警告 | FirebaseFirestoreInternal・absl・grpc・grpcpp・openssl_grpc の dSYM（クラッシュの記録を読みやすくするための情報）が足りないという警告が出たが、アップロードは完了した |
+| TestFlight の処理 | 完了 |
+| 内部テストのグループへの追加 | 完了 |
+| iPhone へのインストール | 完了 |
+| TestFlight の表示 | Version 1.0 (3) と新しいアイコンを確認 |
+| TestFlight 版の起動 | 成功 |
+| Appleでサインイン | 成功 |
+| 既存の機能 | 問題なし |
+
+dSYM の警告は、Firebase が事前に組み立てて配っている部品に dSYM が付いていないために出るもので、アプリの動きには関係しない。クラッシュの記録を詳しく読む必要が出たら、そのとき対応を考える。
+
+同日 main に取り込み。App Store への審査提出・公開はしていない。
