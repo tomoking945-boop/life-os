@@ -2,49 +2,8 @@ import Foundation
 
 #if canImport(FirebaseCore) && canImport(FirebaseAuth)
 import FirebaseAuth
-import FirebaseCore
 
-/// 起動時に Firebase を安全に設定する（2026-10-19）
-///
-/// - 設定ファイル（GoogleService-Info.plist）が無い・壊れている・このアプリ用でないときは設定しない（アプリは普通に起動する）
-/// - テスト中は設定しない（テストでネットワークを使わないため）
-/// - Firestore はここでは使わない（生活データは送らない）
-enum FirebaseBootstrap {
-    enum Result: Equatable {
-        case notStarted
-        case configured
-        case missingConfiguration
-        case invalidConfiguration
-        case skippedForTests
-    }
-
-    /// 起動時の結果（AuthService.live が使う）
-    private(set) static var result: Result = .notStarted
-
-    @discardableResult
-    static func configureIfPossible(
-        bundle: Bundle = .main,
-        isRunningTests: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    ) -> Result {
-        let outcome = evaluate(bundle: bundle, isRunningTests: isRunningTests)
-        result = outcome
-        return outcome
-    }
-
-    private static func evaluate(bundle: Bundle, isRunningTests: Bool) -> Result {
-        if FirebaseApp.app() != nil { return .configured }
-        if isRunningTests { return .skippedForTests }
-        guard let path = bundle.path(forResource: "GoogleService-Info", ofType: "plist") else {
-            return .missingConfiguration
-        }
-        guard let options = FirebaseOptions(contentsOfFile: path),
-              options.bundleID == bundle.bundleIdentifier else {
-            return .invalidConfiguration
-        }
-        FirebaseApp.configure(options: options)
-        return FirebaseApp.app() != nil ? .configured : .invalidConfiguration
-    }
-}
+// 起動時の Firebase の設定は FirebaseBootstrap.swift（2026-10-20 に App Check とあわせて移動）
 
 /// Firebase Authentication を使う実装（Apple の ID トークンでサインイン）
 final class FirebaseAuthBackend: AuthBackend {

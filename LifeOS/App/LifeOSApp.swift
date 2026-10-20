@@ -11,7 +11,8 @@ struct LifeOSApp: App {
     init() {
         // パートナー共有の土台（2026-10-19）：Firebase を安全に設定する。
         // 設定ファイルが無い・使えないときは設定しない（アプリはこれまでどおり起動し、共有用のサインインだけ「使えません」と表示）
-        #if canImport(FirebaseCore) && canImport(FirebaseAuth)
+        // 2026-10-20：App Check の仕組みは、この中で Firebase の設定より前に設定する（FirebaseBootstrap.swift）
+        #if canImport(FirebaseCore) && canImport(FirebaseAppCheck)
         FirebaseBootstrap.configureIfPossible()
         #endif
         let state = AppState.persistent()

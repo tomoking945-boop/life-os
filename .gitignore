@@ -8,6 +8,9 @@ AuthKey_*.p8
 *.pem
 *.key
 *.mobileprovision
+# App Check の Debug Token はファイルに保存しない（Xcode のログから、利用者が Firebase Console に登録する）
+AppCheckDebugToken*
+*.appcheck-debug-token
 # サービスアカウントの鍵
 service-account*.json
 *serviceAccount*.json
