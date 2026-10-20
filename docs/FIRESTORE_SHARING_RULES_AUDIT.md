@@ -181,15 +181,31 @@ Team ID と Bundle ID は公開してよい識別情報。Hosting へはまだ�
 
 ## テストの結果
 
+### Mac での確認結果（2026-10-20 池上さん・commit `be42adf`・`npm test`）
+
+| テスト | 件数 | 失敗 | スキップ | 結果 |
+| --- | --- | --- | --- | --- |
+| サーバー単体テスト（`test:unit`） | 23 | 0 | 0 | 成功 |
+| Rules Emulator（`test:rules`） | 33 | 0 | 0 | 成功 |
+| Functions Emulator（`test:functions`） | 13 | 0 | 0 | 成功 |
+| **合計** | **69** | **0** | **0** | **すべて成功** |
+
+テストの途中に出る `PERMISSION_DENIED` の表示は、「拒否されること」を確かめるテストで出る想定どおりの出力（失敗ではない）。
+
+この結果を記録したあとの変更は本書だけで、アプリ・`firestore.rules`・Functions・テストの中身は `be42adf` から変えていない。Firebase（Firestore のルール・Functions・Hosting）へはまだ deploy していない。
+
+### 作業環境での実行（参考）
+
 | テスト | この環境で | 結果 |
 | --- | --- | --- |
-| サーバー単体テスト（`npm run test:unit`） | 実行した | **23件すべて成功**（`# pass 23`・`# fail 0`） |
-| Rules Emulator（`npm run test:rules`、33件） | **実行できなかった** | 未確認 |
-| Functions Emulator（`npm run test:functions`、13件） | **実行できなかった** | 未確認 |
+| サーバー単体テスト（`npm run test:unit`） | 実行した | 23件すべて成功（`# pass 23`・`# fail 0`） |
+| Rules Emulator・Functions Emulator | 実行できなかった | 上の Mac の結果で確認 |
 
-実行できなかった理由：この作業環境からは、Firebase のテストの道具（`firebase-tools`・`@firebase/rules-unit-testing`）を取りに行く npm の配布元につながらない（通信が許可されていない）ため、Emulator を動かせない。**Mac で実行して `# fail 0` を確かめるまで、この2つは「成功」ではない。**
+この作業環境では、Firebase のテストの道具（`firebase-tools`・`@firebase/rules-unit-testing`）を取りに行く npm の配布元につながらない（通信が許可されていない）ため、Emulator を動かせなかった。そのため Emulator のテストは Mac で実行した。
 
 ### Mac で実行する手順
+
+（もう一度確かめるときの手順）
 
 1. GitHub でブランチ `audit-firestore-sharing-rules` を選び、ZIP でダウンロードして展開する（または、いつもの life-os のフォルダをこのブランチの中身にする）
 2. ターミナルで、展開したフォルダの `firebase/functions` に移動する（例：`cd ~/Downloads/life-os-audit-firestore-sharing-rules/firebase/functions`）
