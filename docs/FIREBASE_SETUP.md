@@ -144,7 +144,7 @@ npm test
 招待リンク `https://<プロジェクト ID>.web.app/invite?token=…` を iPhone アプリで開けるようにします。
 
 1. 「構築」→「Hosting」→「始める」（画面の手順は途中まででかまいません）。
-2. `firebase/hosting/.well-known/apple-app-site-association` は `A8D9YY866R.com.tomoking945boop.lifeos`（Team ID と Bundle ID。どちらも公開してよい識別情報）に書き換え済みです（2026-10-20）。Hosting へはまだ送っていません。
+2. `firebase/hosting/.well-known/apple-app-site-association` は `A8D9YY866R.com.tomoking945boop.lifeos`（Team ID と Bundle ID。どちらも公開してよい識別情報）に書き換え済みです（2026-10-20）。2026-10-21 に Hosting だけを公開済みです（`--only hosting`。Functions・Firestore はまだ送っていません。[招待リンクの土台](FIREBASE_INVITE_LINK_FOUNDATION.md) の「Hosting 公開結果」）。
 
 ### B-11. サーバー側を送る（デプロイ）
 

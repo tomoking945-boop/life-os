@@ -2,7 +2,7 @@
 
 作業用ブランチ：`firebase-invite-link-foundation`（main `12a0fa4` から作成。**main にはまだ入れていない**）
 
-**Firebase（Firestore・Functions・Hosting）へは何も送っていない。Firebase Console・Apple Developer の画面も変えていない。**
+**Firebase（Firestore・Functions・Hosting）へは何も送っていない。Firebase Console・Apple Developer の画面も変えていない。**（このブランチを作った時点。その後、2026-10-21 に **Hosting だけ** を公開した → [Hosting 公開結果](#hosting-公開結果2026-10-21)）
 
 ## 何を実装したか
 
@@ -79,12 +79,13 @@
 - **グループの同期**（Firestore の読み書き）
 - 招待の画面で「共有される内容」（共有される種類・共有されない個人の項目）を詳しく見せる説明
 - App Check の使い捨てトークン（`consumeAppCheckToken`）
-- Firestore・Functions・Hosting の deploy
+- Firestore・Functions の deploy（Hosting は 2026-10-21 に公開済み）
 
 ## Hosting を deploy するまで、実機では動かない
 
 Universal Links は、iPhone が **本番の Hosting から AASA ファイルを取得できたとき** だけ動きます。
 Hosting はまだ deploy していないので、**今は実機で招待リンクをタップしても、アプリではなく Safari が開きます**（ページはまだ無い）。
+→ 2026-10-21 に Hosting を公開し、2026-10-22 に実機でアプリが開くことを確認した（下の「実機確認結果」）。
 シミュレーター・テストでは、リンクの判定と画面の流れだけを確かめられます。
 
 ## Xcode で Associated Domains を確かめる場所
@@ -118,12 +119,12 @@ Debug と Release は同じ `LifeOS.entitlements` を使う（テストで確認
 
 ## 実機での確認方法
 
-**Hosting を deploy する前（いま）**：
+**Hosting を deploy する前（2026-10-21 より前）**：
 
 1. Xcode の ▶ で実機に入れて起動し、今日・カレンダー・やること・リスト・お金・なんでも追加・保証書・通知・共有用アカウントがこれまでどおり使えることを確かめる
 2. （任意）メモアプリに `https://kurashi-os-production.web.app/invite?token=` で始まる偽のリンクを書いてタップしても、Safari が開くだけでアプリには影響しない
 
-**Hosting を deploy したあと（次の段階）**：
+**Hosting を deploy したあと**（2026-10-22 に実施。下の「実機確認結果」）：
 
 1. メモアプリなどに、Functions が作った本物の招待リンクを貼ってタップする（Safari のアドレス欄に直接入力すると Universal Links は動かない）
 2. アプリが終了している・バックグラウンド・起動中のそれぞれで、「わが家への招待を受け取りました」が1回だけ出ること
@@ -152,7 +153,7 @@ Firestore のルール、Functions（招待・通知・アカウント削除の�
 
 ## 次の段階で必要なこと（招待への参加・グループの同期）
 
-1. Hosting の deploy（AASA と案内ページ）と、実機での Universal Links の確認
+1. ~~Hosting の deploy（AASA と案内ページ）と、実機での Universal Links の確認~~ → 2026-10-21・22 に完了（下の「Hosting 公開結果」「実機確認結果」）
 2. 招待を作る画面（`createInvite` を呼び、リンクを共有シートで送る）
 3. 「招待を確認」から、サインイン → 共有される内容の説明 → 参加（`acceptInvite`）。そのときはトークンを捨てずに、参加の処理に渡す
 4. 参加のあとのグループの同期（Firestore の読み書き）と、Firestore の App Check 強制適用の判断
@@ -183,4 +184,37 @@ Firestore のルール、Functions（招待・通知・アカウント削除の�
 | Firebase・Functions・Firestore・Hosting への deploy | していない |
 | Firebase Console・Apple Developer の変更 | していない |
 
-Universal Links の実機での確認は、Hosting を deploy したあとに「実機での確認方法」の手順で行う。
+Universal Links の実機での確認は、Hosting を deploy したあとに「実機での確認方法」の手順で行う。（→ 2026-10-22 に確認済み。下の「実機確認結果」）
+
+## Hosting 公開結果（2026-10-21）
+
+| 項目 | 結果 |
+| --- | --- |
+| 公開した日 | 2026-10-21（池上さんの Mac から） |
+| Project ID／Site ID | `kurashi-os-production` |
+| 公開したもの | **Firebase Hosting だけ**（`--only hosting`） |
+| 公開したファイル | `/.well-known/apple-app-site-association`、`/invite/index.html` |
+| AASA の本番 URL（`https://kurashi-os-production.web.app/.well-known/apple-app-site-association`） | HTTP 200、Content-Type `application/json` |
+| AASA の App ID | `A8D9YY866R.com.tomoking945boop.lifeos` |
+| AASA の招待パス | `/invite`（`token` 付き） |
+| Apple の CDN（`https://app-site-association.cdn-apple.com/a/v1/kurashi-os-production.web.app`） | HTTP 200 で反映を確認 |
+| 案内ページ `/invite/` | HTTP 200 で表示を確認 |
+| Functions・Firestore のルール・indexes・Storage | **deploy していない** |
+| 本番の Firestore | **アクセス拒否のまま** |
+
+## 実機確認結果（2026-10-22）
+
+| 項目 | 結果 |
+| --- | --- |
+| 確認した日 | 2026-10-22（池上さん） |
+| 確認したアプリ | **Xcode から iPhone へ上書きインストールした最新 main 版**（`ed6f279`）。TestFlight Build 4 には Associated Domains が入っていないため、TestFlight 版では確認していない |
+| 操作 | メモアプリに書いた、正しい形のテスト用の招待リンクをタップ |
+| 開いたもの | Safari ではなく **「くらしOS」が起動** |
+| 表示 | 「わが家への招待を受け取りました」 |
+| ボタン | 「あとで」と「招待を確認」 |
+| サインイン・招待への参加 | 自動では始まらない |
+| 結果 | **実機確認成功** |
+
+確認に使ったテスト用のトークンは、本書を含め、どこにも書いていない。
+
+Hosting の公開と招待リンクの土台は、これで完成。次は「招待への参加・グループの同期」（上の「次の段階で必要なこと」の 2 以降）。
