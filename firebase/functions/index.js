@@ -3,14 +3,14 @@
 /**
  * 生活OS：パートナー共有・通知の Cloud Functions（docs/PARTNER_NOTIFICATIONS_IMPLEMENTATION.md 8）
  *
- * - createInvite：所属を確認したうえで、期限つき（24時間）・一度だけ使える招待トークンを発行する
- * - acceptInvite：トークンをトランザクションで一度だけ消費し、メンバーを追加する
+ * - createHousehold・getMyHousehold・createInvite・revokeInvite・getInvitePreview・acceptInvite：
+ *   わが家の作成・招待・参加（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）。1人1つ・最大2人・招待はオーナーだけ・24時間・1回だけ
  * - onSharedItemWritten：共有項目の追加・重要な変更を見つけ、操作した本人を除くメンバーへ通知する
  *   使えなくなった FCM トークンは送信結果から削除する
  * - onAuthUserDeleted：Firebase Authentication の利用者が削除されたあと、その人の Firestore の情報を整理する
  *   （第1世代の安定版の削除トリガー。第2世代には利用者の削除イベントが無いため。docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）
  *
- * 招待の2つ（Callable）は App Check を必須にする（enforceAppCheck: true。2026-10-20 監査）。
+ * Callable はすべて App Check を必須にする（enforceAppCheck: true。2026-10-20 監査、2026-10-22 わが家の Function を追加）。
  * 正規のくらしOSアプリが付ける App Check の情報が無い・正しくない呼び出しは、関数の中に入る前に
  * unauthenticated で断られる。App Check は「本物のアプリか」の確認で「誰か」の確認ではないため、
  * サインインの確認（requireUID）もこれまでどおり行う。onSharedItemWritten は Firestore の
@@ -32,15 +32,8 @@ const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { toMillis } = require('./src/timestamps');
 const { decide, buildMessage } = require('./src/notificationPolicy');
 const { shouldSend, collapseID } = require('./src/throttle');
-const {
-  INVITE_TTL_MS,
-  generateToken,
-  isValidTokenFormat,
-  hashToken,
-  buildInviteURL,
-  validateInviteForAccept,
-  sanitizeDisplayName,
-} = require('./src/invites');
+const householdStore = require('./src/householdStore');
+const { HouseholdFailure } = householdStore;
 const { selectRecipients, devicesToRemove } = require('./src/recipients');
 const { cleanupDeletedUser } = require('./src/accountCleanupRunner');
 
@@ -50,8 +43,6 @@ const REGION = 'asia-northeast1';
 setGlobalOptions({ region: REGION, maxInstances: 10 });
 
 const db = getFirestore();
-
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 function requireUID(request) {
   const uid = request.auth && request.auth.uid;
@@ -68,80 +59,93 @@ function inviteBaseURL() {
   return `https://${projectID}.web.app`;
 }
 
-// MARK: - 招待
+// MARK: - わが家・招待（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
+//
+// すべて App Check 必須（enforceAppCheck: true）＋サインイン必須（requireUID）。
+// 人数・1人1つ・招待の使用済み／取り消しは src/householdStore.js のトランザクションで守る。
+// 招待トークン・UID はログに出さない。アプリへは決まった理由（details.reason）だけを返す。
+
+/** 理由 → Callable のエラーの種類 */
+const HOUSEHOLD_FAILURES = {
+  'invalid-token': 'invalid-argument',
+  'invalid-kinds': 'invalid-argument',
+  'invalid-name': 'invalid-argument',
+  'invalid-uid': 'invalid-argument',
+  'not-found': 'not-found',
+  expired: 'failed-precondition',
+  'already-used': 'failed-precondition',
+  revoked: 'failed-precondition',
+  'own-invite': 'failed-precondition',
+  'already-member': 'already-exists',
+  'already-in-household': 'already-exists',
+  'household-full': 'failed-precondition',
+  'no-household': 'failed-precondition',
+  'not-owner': 'permission-denied',
+};
+
+/** 処理を実行し、決まった理由のエラーだけをアプリへ返す（中身の情報・UID・トークンは返さない・ログに出さない） */
+async function runHousehold(name, handler) {
+  try {
+    return await handler();
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    if (error instanceof HouseholdFailure && HOUSEHOLD_FAILURES[error.reason]) {
+      throw new HttpsError(HOUSEHOLD_FAILURES[error.reason], 'わが家の操作ができませんでした。', { reason: error.reason });
+    }
+    const code = error && error.code !== undefined ? String(error.code) : 'unknown';
+    logger.error('household function failed', { function: name, code });
+    throw new HttpsError('internal', 'わが家の操作ができませんでした。', { reason: 'internal' });
+  }
+}
+
+const data = (request) => (request.data && typeof request.data === 'object' ? request.data : {});
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.createHousehold = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('createHousehold', async () => ({
+    household: await householdStore.createHousehold({
+      db, FieldValue, uid, name: data(request).name, sharedKinds: data(request).sharedKinds,
+    }),
+  }));
+});
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.getMyHousehold = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('getMyHousehold', async () => ({
+    household: await householdStore.getHouseholdSummary({ db, uid }),
+  }));
+});
 
 // App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
 exports.createInvite = onCall({ enforceAppCheck: true }, async (request) => {
   const uid = requireUID(request);
-  const groupID = request.data && request.data.groupID;
-  if (typeof groupID !== 'string' || !ID_PATTERN.test(groupID)) {
-    throw new HttpsError('invalid-argument', '生活グループの指定が正しくありません。');
-  }
-
-  const member = await db.doc(`groups/${groupID}/members/${uid}`).get();
-  if (!member.exists) {
-    throw new HttpsError('permission-denied', 'この生活グループのメンバーではありません。');
-  }
-
-  const token = generateToken();
-  const expiresAt = Timestamp.fromMillis(Date.now() + INVITE_TTL_MS);
-  // 生のトークンは保存しない（ハッシュだけ）
-  await db.doc(`invites/${hashToken(token)}`).create({
-    groupID,
-    createdBy: uid,
-    createdAt: FieldValue.serverTimestamp(),
-    expiresAt,
-    usedAt: null,
-    usedBy: null,
-  });
-
-  return { token, url: buildInviteURL(inviteBaseURL(), token), expiresAt: expiresAt.toMillis() };
+  return runHousehold('createInvite', () =>
+    householdStore.createInvite({ db, FieldValue, Timestamp, uid, baseURL: inviteBaseURL() })
+  );
 });
 
-const ACCEPT_ERRORS = {
-  'not-found': ['not-found', 'この招待は見つかりませんでした。'],
-  expired: ['failed-precondition', 'この招待の期限（24時間）が切れています。もう一度招待してもらってください。'],
-  'already-used': ['failed-precondition', 'この招待はすでに使われています。'],
-  'own-invite': ['failed-precondition', '自分で作った招待は使えません。'],
-  'already-member': ['already-exists', 'すでにこの生活グループのメンバーです。'],
-};
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.revokeInvite = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('revokeInvite', () => householdStore.revokeInvites({ db, FieldValue, uid }));
+});
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.getInvitePreview = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('getInvitePreview', async () => ({
+    preview: await householdStore.getInvitePreview({ db, uid, token: data(request).token }),
+  }));
+});
 
 // App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
 exports.acceptInvite = onCall({ enforceAppCheck: true }, async (request) => {
   const uid = requireUID(request);
-  const token = request.data && request.data.token;
-  if (!isValidTokenFormat(token)) {
-    throw new HttpsError('invalid-argument', '招待のリンクが正しくありません。');
-  }
-  const displayName = sanitizeDisplayName(request.data && request.data.displayName);
-  const inviteRef = db.doc(`invites/${hashToken(token)}`);
-
-  const result = await db.runTransaction(async (transaction) => {
-    const inviteSnap = await transaction.get(inviteRef);
-    const invite = inviteSnap.exists ? inviteSnap.data() : null;
-    let memberRef = null;
-    let isAlreadyMember = false;
-    if (invite && typeof invite.groupID === 'string') {
-      memberRef = db.doc(`groups/${invite.groupID}/members/${uid}`);
-      isAlreadyMember = (await transaction.get(memberRef)).exists;
-    }
-
-    const validation = validateInviteForAccept(invite, uid, Date.now(), { isAlreadyMember });
-    if (!validation.ok) return validation;
-
-    // 一度だけ：使用済みにしてからメンバーを追加する（同じトランザクションの中）
-    transaction.update(inviteRef, { usedAt: FieldValue.serverTimestamp(), usedBy: uid });
-    // uid は文書 ID と同じ（アカウント削除のあとの整理で、所属を探すのに使う）
-    transaction.set(memberRef, { uid, role: 'member', joinedAt: FieldValue.serverTimestamp(), displayName });
-    transaction.update(db.doc(`groups/${invite.groupID}`), { updatedAt: FieldValue.serverTimestamp() });
-    return { ok: true, groupID: invite.groupID };
-  });
-
-  if (!result.ok) {
-    const [code, message] = ACCEPT_ERRORS[result.code] || ['failed-precondition', '招待を使えませんでした。'];
-    throw new HttpsError(code, message, { reason: result.code });
-  }
-  return { groupID: result.groupID };
+  return runHousehold('acceptInvite', async () => ({
+    household: await householdStore.acceptInvite({ db, FieldValue, uid, token: data(request).token }),
+  }));
 });
 
 // MARK: - 共有更新の通知

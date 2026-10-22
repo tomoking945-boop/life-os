@@ -12,21 +12,23 @@ const assert = require('node:assert/strict');
 
 const source = fs.readFileSync(path.join(__dirname, '../../index.js'), 'utf8');
 
-describe('招待の App Check', () => {
-  it('createInvite と acceptInvite は enforceAppCheck: true で作られている', () => {
-    for (const name of ['createInvite', 'acceptInvite']) {
+const CALLABLES = ['createHousehold', 'getMyHousehold', 'createInvite', 'revokeInvite', 'getInvitePreview', 'acceptInvite'];
+
+describe('Callable Function の App Check（招待・わが家）', () => {
+  it('すべての Callable が enforceAppCheck: true で作られている', () => {
+    for (const name of CALLABLES) {
       const pattern = new RegExp(`exports\\.${name} = onCall\\(\\{ enforceAppCheck: true \\}, async \\(request\\) => \\{`);
       assert.match(source, pattern, `${name} に enforceAppCheck: true が無い`);
     }
     // App Check を必須にしない Callable を増やさない
     const callables = source.match(/onCall\(/g) || [];
     const enforced = source.match(/onCall\(\{ enforceAppCheck: true \}/g) || [];
-    assert.equal(callables.length, 2);
+    assert.equal(callables.length, CALLABLES.length);
     assert.equal(enforced.length, callables.length);
   });
 
   it('App Check があってもサインインの確認（requireUID）は省かない', () => {
-    for (const name of ['createInvite', 'acceptInvite']) {
+    for (const name of CALLABLES) {
       const start = source.indexOf(`exports.${name} =`);
       const body = source.slice(start, start + 200);
       assert.match(body, /const uid = requireUID\(request\);/, `${name} がサインインを確かめていない`);

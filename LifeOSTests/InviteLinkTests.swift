@@ -180,12 +180,14 @@ final class InviteLinkCoordinatorTests: XCTestCase {
     /// 「招待を確認」で共有用アカウントへ進んだあとも、同じリンクは出さない（画面もそのまま）
     func testSameLinkAfterConfirmIsNotShownAgain() {
         let coordinator = makeCoordinator()
-        let url = inviteURL(makeToken())
+        let token = makeToken()
+        let url = inviteURL(token)
         coordinator.receive(url)
         coordinator.confirm()
         XCTAssertEqual(coordinator.receive(url), .duplicate)
-        XCTAssertEqual(coordinator.step, .account)
-        XCTAssertNil(coordinator.pendingInvite)
+        // 2026-10-22：「招待を確認」は参加の確認へ進む（招待はメモリの中で持ったまま）
+        XCTAssertEqual(coordinator.step, .join)
+        XCTAssertEqual(coordinator.pendingInvite?.token, token)
         coordinator.close()
         XCTAssertEqual(coordinator.receive(url), .duplicate)
         XCTAssertFalse(coordinator.isPresented)
@@ -274,14 +276,27 @@ final class InviteLinkCoordinatorTests: XCTestCase {
     }
 
     /// 「招待を確認」：共有用アカウントの画面へ進む。参加の処理は無いので、トークンは捨てる
-    func testConfirmMovesToAccountWithoutKeepingToken() {
+    /// 「招待を確認」：参加の確認へ進む（招待はメモリの中で持ったまま）。参加できたら捨てる。閉じても捨てる（2026-10-22）
+    func testConfirmMovesToJoinAndCompleteJoinDiscardsToken() {
         let coordinator = makeCoordinator()
-        coordinator.receive(inviteURL(makeToken()))
+        let token = makeToken()
+        coordinator.receive(inviteURL(token))
         coordinator.confirm()
         XCTAssertTrue(coordinator.isPresented)
-        XCTAssertEqual(coordinator.step, .account)
+        XCTAssertEqual(coordinator.step, .join)
+        XCTAssertEqual(coordinator.pendingInvite?.token, token)
+        coordinator.completeJoin()
+        XCTAssertEqual(coordinator.step, .joined)
         XCTAssertNil(coordinator.pendingInvite)
         coordinator.close()
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertEqual(coordinator.step, .prompt)
+
+        // 参加の確認で「やめる」（閉じる）：招待を捨てる
+        coordinator.receive(inviteURL(makeToken()))
+        coordinator.confirm()
+        coordinator.close()
+        XCTAssertNil(coordinator.pendingInvite)
         XCTAssertFalse(coordinator.isPresented)
         // 確認画面が出ていないときは何もしない
         coordinator.confirm()

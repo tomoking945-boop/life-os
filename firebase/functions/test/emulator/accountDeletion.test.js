@@ -16,6 +16,7 @@ const assert = require('node:assert/strict');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
 const { cleanupDeletedUser } = require('../../src/accountCleanupRunner');
+const householdStore = require('../../src/householdStore');
 
 const PROJECT = 'demo-lifeos';
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
@@ -406,6 +407,65 @@ describe('グループの文書がもう無い（途中まで削除された）�
     assert.equal((await data(`groups/${ok}/members/${p2}`)).role, 'owner', '正常なグループでは引き継ぐ');
     assert.equal((await data(`groups/${ok}/items/keep`)).assigneeUID, p2);
     assert.equal(await snapshotTree(healthy), before, '関係ない正常なグループは一切変わらない');
+  });
+});
+
+describe('わが家の作成・参加（2026-10-22）で作ったメンバーでも整理できる', () => {
+  /** createHousehold・createInvite・acceptInvite と同じ処理で、オーナーとパートナーの2人のわが家を作る */
+  async function householdWithPartner() {
+    const [owner, partner] = [newID('o'), newID('p')];
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'shopping'] });
+    const { url } = await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    await householdStore.acceptInvite({ db, FieldValue, uid: partner, token: new URL(url).searchParams.get('token') });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    return { owner, partner, groupID };
+  }
+
+  it('オーナーを削除すると、パートナーが引き継ぎ、オーナーの memberships は消え、パートナーのものは残る', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await cleanup(owner);
+    assert.deepEqual(await memberIDs(groupID), [partner]);
+    assert.equal((await data(`groups/${groupID}/members/${partner}`)).role, 'owner');
+    assert.equal(await exists(`memberships/${owner}`), false);
+    assert.equal((await data(`memberships/${partner}`)).groupID, groupID);
+    // 引き継いだパートナーは、新しく招待を作れる
+    const summary = await householdStore.getHouseholdSummary({ db, uid: partner });
+    assert.equal(summary.isOwner, true);
+    assert.equal(summary.members.length, 1);
+  });
+
+  it('パートナーを削除すると、メンバーと memberships が消え、オーナーはまた招待できる', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await cleanup(partner);
+    assert.deepEqual(await memberIDs(groupID), [owner]);
+    assert.equal(await exists(`memberships/${partner}`), false);
+    const invite = await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    assert.ok(invite.url);
+    // 削除された人は、新しいわが家を作り直せる状態（記録が残っていない）
+    assert.equal(await householdStore.getHouseholdSummary({ db, uid: partner }), null);
+  });
+
+  it('1人だけのわが家のオーナーを削除すると、グループと memberships がすべて消える', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    await cleanup(owner);
+    assert.equal(await exists(`groups/${groupID}`), false);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+    assert.equal(await exists(`memberships/${owner}`), false);
+    assert.equal((await db.collection('invites').where('groupID', '==', groupID).get()).size, 0);
+  });
+
+  it('途中まで削除されたグループを指すパートナーの memberships も消す（パートナーが新しく作れなくならない）', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    // グループの文書だけ消えた途中の状態
+    await db.doc(`groups/${groupID}`).delete();
+    await cleanup(owner);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+    assert.equal(await exists(`memberships/${partner}`), false);
+    assert.equal(await householdStore.getHouseholdSummary({ db, uid: partner }), null);
+    await householdStore.createHousehold({ db, FieldValue, uid: partner, name: '新しい家', sharedKinds: ['todo'] });
   });
 });
 

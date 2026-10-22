@@ -41,7 +41,9 @@ describe('アカウント削除のトリガー', () => {
     assert.match(triggerBlock(), /throw new Error\(/);
   });
 
-  it('acceptInvite が作るメンバー文書に uid を入れる', () => {
-    assert.match(source, /transaction\.set\(memberRef, \{ uid, role: 'member'/);
+  it('acceptInvite・createHousehold が作るメンバー文書に uid を入れる（2026-10-22 から src/householdStore.js）', () => {
+    const store = fs.readFileSync(path.join(__dirname, '../../src/householdStore.js'), 'utf8');
+    assert.match(store, /members\/\$\{uid\}`\), \{\n\s+uid,\n\s+role: 'member',/);
+    assert.match(store, /collection\('members'\)\.doc\(uid\), \{\n\s+uid,\n\s+role: 'owner',/);
   });
 });

@@ -70,7 +70,7 @@ struct LifeThemedRoot: View {
             get: { inviteLinks.isPresented && appState.hasCompletedOnboarding && !appState.isQuickAddPresented },
             set: { isPresented in if !isPresented { inviteLinks.close() } }
         )) {
-            InviteLinkSheet(coordinator: inviteLinks, auth: AuthService.live)
+            InviteLinkSheet(coordinator: inviteLinks, auth: AuthService.live, household: HouseholdService.live)
         }
         .alert("この招待リンクは使用できません", isPresented: Binding(
             get: { inviteLinks.isShowingInvalidNotice },

@@ -7,13 +7,13 @@ const { GroupAction, planGroupCleanup, mergeGroupIDs, isValidUID, emptySummary }
  * index.js の削除トリガーと、Emulator のテストから呼ぶ（db は firebase-admin の Firestore）。
  *
  * 順番：
- *   1. 所属している生活グループを探す（メンバー文書の uid で collection group 検索。全グループの総当たりはしない）
+ *   1. 所属している生活グループを探す（memberships/{uid} と、メンバー文書の uid での collection group 検索。全グループの総当たりはしない）
  *   2. 作業の記録 accountDeletions/{uid} に、整理するグループの ID を残す（途中で止まっても、次の実行で続きができる）
  *   3. グループごとに、トランザクションで「本人を外す」「owner を引き継ぐ」を行う。誰も残らないグループは丸ごと消す。
  *      グループの文書がもう無いグループ（前回の丸ごと削除が途中で止まった）は、残っているメンバーがいても丸ごと消す
  *   4. 削除された人が担当の共有項目は、担当を null にする（項目は消さない。作成者・更新者の記録は残す）
  *   5. 削除された人が作った・使った招待と、消したグループの招待を消す
- *   6. users/{uid} を、下の devices なども含めて丸ごと消す
+ *   6. users/{uid} を、下の devices なども含めて丸ごと消す。memberships/{uid}（1人1つのわが家の記録）と、消したグループを指す memberships も消す
  *   7. 作業の記録を消す
  *
  * Firestore の削除は全体をまとめて一度に行えない（原子的でない）ため、どこで止まっても、
@@ -33,10 +33,31 @@ function isSharedItem(doc) {
   return Boolean(group && group.parent && group.parent.id === 'groups');
 }
 
-/** 所属している生活グループ（メンバー文書の ID と uid の両方が本人のものだけ） */
+/** 所属している生活グループ（memberships/{uid} の記録と、メンバー文書の ID と uid の両方が本人のもの） */
 async function findMemberships(db, uid) {
   const snap = await db.collectionGroup('members').where('uid', '==', uid).get();
-  return snap.docs.filter((doc) => doc.id === uid).map(groupIDOfMember).filter(Boolean);
+  const found = snap.docs.filter((doc) => doc.id === uid).map(groupIDOfMember).filter(Boolean);
+  // わが家の作成・参加（2026-10-22）で作る memberships/{uid}。メンバー文書がもう無くても、指しているグループを整理する
+  const membership = await db.doc(`memberships/${uid}`).get();
+  if (membership.exists && typeof membership.get('groupID') === 'string') found.push(membership.get('groupID'));
+  return found;
+}
+
+/** memberships の整理：本人の記録と、消したグループを指している記録（パートナーの古い記録）を消す */
+async function deleteMembershipRecords(db, uid, deletedGroupIDs) {
+  let total = 0;
+  for (const groupID of deletedGroupIDs) {
+    for (;;) {
+      const snap = await db.collection('memberships').where('groupID', '==', groupID).limit(PAGE_SIZE).get();
+      if (snap.empty) break;
+      const batch = db.batch();
+      for (const doc of snap.docs) batch.delete(doc.ref);
+      await batch.commit();
+      total += snap.size;
+    }
+  }
+  await db.doc(`memberships/${uid}`).delete();
+  return total;
 }
 
 /** 1つの生活グループを整理する */
@@ -148,12 +169,13 @@ async function cleanupDeletedUser({ db, FieldValue, uid }) {
   summary.clearedAssignees = await clearAssignee(db, FieldValue, uid);
   summary.deletedInvites = await deleteInvites(db, uid, deletedGroupIDs);
 
-  // 6：利用者の情報（devices など下のコレクションも）
+  // 6：利用者の情報（devices など下のコレクションも）と、memberships の記録
   await db.recursiveDelete(db.doc(`users/${uid}`));
+  await deleteMembershipRecords(db, uid, deletedGroupIDs);
 
   // 7：すべて終わってから作業の記録を消す
   await jobRef.delete();
   return summary;
 }
 
-module.exports = { cleanupDeletedUser, findMemberships, cleanupGroup, clearAssignee, deleteInvites };
+module.exports = { cleanupDeletedUser, findMemberships, cleanupGroup, clearAssignee, deleteInvites, deleteMembershipRecords };

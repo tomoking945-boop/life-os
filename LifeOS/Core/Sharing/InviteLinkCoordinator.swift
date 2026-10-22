@@ -7,11 +7,13 @@ import Observation
 /// - 有効な招待リンク：確認画面を出す。同じリンクは、アプリを開いているあいだ1回だけ
 ///   （表示中・「あとで」のあと・「招待を確認」のあとに同じリンクが届いても出さない。アプリを起動し直すと、また受け取れる）
 /// - 「あとで」・画面を閉じる：何も変えず、持っていた招待を捨てる
-/// - 「招待を確認」：共有用アカウントの画面へ進み、次の段階で参加できるようになることを案内する。
-///   参加の処理はまだ無いので、持っていた招待はここで捨てる
+/// - 「招待を確認」：参加の確認（招待の内容の Preview・サインインの案内）へ進む。招待はメモリの中で持ったまま
+///   （2026-10-22 わが家の参加。docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
+/// - 参加できた：招待を捨て、メンバーの画面へ進む
 /// - 不正なリンク：一般的な案内（「この招待リンクは使用できません」）だけを出す。アプリのほかの機能には触れない
 ///
 /// リンクを開いただけでは、招待への参加・Firestore への書き込み・サインイン・端末内のデータの変更をしない。
+/// 参加は、利用者が確認画面で「参加する」を押したときだけ（HouseholdService.join）。
 /// 招待トークンは、アプリを開いているあいだのメモリだけで持ち、保存・表示・ログ出力しない。
 @Observable
 final class InviteLinkCoordinator {
@@ -19,8 +21,10 @@ final class InviteLinkCoordinator {
     enum Step: Equatable {
         /// 「わが家への招待を受け取りました」
         case prompt
-        /// 共有用アカウントの画面（次の段階の案内つき）
-        case account
+        /// 参加の確認（サインインの案内・招待の内容・「参加する」「やめる」）
+        case join
+        /// 参加できた（メンバーの画面）
+        case joined
     }
 
     /// 受け取ったリンクをどう扱ったか（テスト用）
@@ -93,11 +97,24 @@ final class InviteLinkCoordinator {
         discard()
     }
 
-    /// 「招待を確認」：共有用アカウントの画面へ進む。参加の処理はまだ無いので、招待はここで捨てる（サインインも始めない）
+    /// 「招待を確認」：参加の確認へ進む（招待はメモリの中で持ったまま。サインイン・参加は自動では始めない）
     func confirm() {
+        guard isPresented, pendingInvite != nil else { return }
+        step = .join
+    }
+
+    /// 参加できた：招待を捨て、メンバーの画面へ進む
+    func completeJoin() {
         guard isPresented else { return }
         pendingInvite = nil
-        step = .account
+        step = .joined
+    }
+
+    /// 確認画面を閉じたあとに、まだ持っている招待があれば、もう一度参加の確認を出す（共有用アカウントの「招待内容を確認」）
+    func reopen() {
+        guard !isPresented, pendingInvite != nil else { return }
+        step = .join
+        isPresented = true
     }
 
     func dismissInvalidNotice() {

@@ -11,6 +11,7 @@
 		A1B2C3D4E5F6000000000035 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000032 /* FirebaseAuth */; };
 		A1B2C3D4E5F6000000000036 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000033 /* FirebaseFirestore */; };
 		A1B2C3D4E5F6000000000038 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000037 /* FirebaseAppCheck */; };
+		A1B2C3D4E5F600000000003A /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000039 /* FirebaseFunctions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +51,7 @@
 				A1B2C3D4E5F6000000000035 /* FirebaseAuth in Frameworks */,
 				A1B2C3D4E5F6000000000036 /* FirebaseFirestore in Frameworks */,
 				A1B2C3D4E5F6000000000038 /* FirebaseAppCheck in Frameworks */,
+				A1B2C3D4E5F600000000003A /* FirebaseFunctions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +107,7 @@
 				A1B2C3D4E5F6000000000032 /* FirebaseAuth */,
 				A1B2C3D4E5F6000000000033 /* FirebaseFirestore */,
 				A1B2C3D4E5F6000000000037 /* FirebaseAppCheck */,
+				A1B2C3D4E5F6000000000039 /* FirebaseFunctions */,
 			);
 			productName = LifeOS;
 			productReference = A1B2C3D4E5F6000000000001 /* LifeOS.app */;
@@ -501,6 +504,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAppCheck;
+		};
+		A1B2C3D4E5F6000000000039 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000030 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -31,7 +31,7 @@
 | メンバーでない人は、グループ・メンバー・共有項目を読めない | ✅ | `isMember(groupID)` = 自分の UID の `members` が在るときだけ | 既存 |
 | 個人項目の保存場所が無い | ✅ | 書かれている場所は `users/{uid}`・`users/{uid}/devices`・`groups/{g}`・`members`・`items`・`invites`（拒否）だけ。それ以外は自動的にすべて拒否 | 今回追加（ルールに無い場所・個人データらしい場所） |
 | 予定・ToDo・家事・買い物以外を拒否 | ✅ | `kind in ['event', 'todo', 'chore', 'shopping']` | 既存（支払予定・習慣） |
-| owner への昇格ができない | ✅ | `members` の更新は `false`。自分で owner を作れるのは「まだ無いグループを、同じ書き込みで作るとき」だけ | 既存（役割の変更）・今回追加（退出して owner で戻る） |
+| owner への昇格ができない | ✅ | `members` の更新は `false`。自分で owner を作れるのは「まだ無いグループを、同じ書き込みで作るとき」だけ（2026-10-22 から、アプリからは作れない。作成は createHousehold だけ → [わが家の作成・招待・参加](FIREBASE_INVITE_JOIN_MEMBERSHIP.md)） | 既存（役割の変更）・今回追加（退出して owner で戻る） |
 | 招待をアプリから作れない・使えない | ✅ | `invites` は読み書きとも `false`。メンバーの追加も `false`（acceptInvite だけが管理者として追加） | 既存 |
 | 他人の端末トークンを読めない・書けない | ✅ | `devices` は `isSelf(uid)` だけ | 既存 |
 | `createdBy`・`createdAt` を変えられない | ✅ | 作成時は本人の UID・サーバーの時刻。更新時は元の値と同じでなければ拒否 | `createdBy`（既存）・`createdAt`（今回追加） |
@@ -128,7 +128,7 @@ Team ID と Bundle ID は公開してよい識別情報。Hosting へはまだ�
 （`firestore.rules`・Functions を送ったあと。いまは Console のルールが全拒否なので、どれもできない）
 
 - サインインした本人：自分の `users/{uid}`（表示名など決まった4項目）と、自分の端末（`devices`）の読み書き
-- サインインした人：新しい生活グループを、自分を owner にする同じ書き込みで作る
+- サインインした人：新しい生活グループを、自分を owner にする同じ書き込みで作る（→ 2026-10-22 から、アプリからは作れない。Cloud Function の createHousehold だけが作る。[わが家の作成・招待・参加](FIREBASE_INVITE_JOIN_MEMBERSHIP.md)）
 - メンバー：自分のグループ・メンバー一覧・共有項目を読む
 - メンバー：決まった形の共有項目（予定・ToDo・家事・買い物）を作る・更新する・削除する
 - メンバー：グループの名前を変える、自分が退出する

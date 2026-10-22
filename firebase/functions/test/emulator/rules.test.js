@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { before, after, beforeEach, describe, it } = require('node:test');
+const assert = require('node:assert/strict');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, getDocs, collection, collectionGroup, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp, Timestamp,
@@ -36,7 +37,7 @@ beforeEach(async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     const now = Timestamp.now();
-    await setDoc(doc(db, `groups/${GROUP}`), { name: 'わが家', createdBy: 'alice', createdAt: now, updatedAt: now });
+    await setDoc(doc(db, `groups/${GROUP}`), { name: 'わが家', createdBy: 'alice', createdAt: now, updatedAt: now, sharedKinds: ['todo', 'shopping'] });
     await setDoc(doc(db, `groups/${GROUP}/members/alice`), { uid: 'alice', role: 'owner', joinedAt: now, displayName: 'alice' });
     await setDoc(doc(db, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'member', joinedAt: now, displayName: 'bob' });
     await setDoc(doc(db, `groups/${GROUP}/items/item-1`), sharedItem('alice', now));
@@ -164,12 +165,16 @@ describe('メンバー', () => {
 });
 
 describe('生活グループを作る', () => {
-  it('同じ書き込みで自分を owner にすれば作れる', async () => {
+  // 2026-10-22：わが家の作成は createHousehold（サーバー）だけ（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
+  it('アプリからは、自分を owner にする同じ書き込みでも作れない（createHousehold だけが作る）', async () => {
     const db = as('carol');
     const batch = writeBatch(db);
     batch.set(doc(db, 'groups/group-c'), { name: 'carol の家', createdBy: 'carol', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     batch.set(doc(db, 'groups/group-c/members/carol'), { uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol' });
-    await assertSucceeds(batch.commit());
+    await assertFails(batch.commit());
+    await assertFails(setDoc(doc(db, 'groups/group-c2'), {
+      name: 'x', createdBy: 'carol', createdAt: serverTimestamp(), updatedAt: serverTimestamp(), sharedKinds: ['todo'],
+    }));
   });
 
   it('自分を owner にしないグループや、他人を作成者にしたグループは作れない', async () => {
@@ -385,9 +390,9 @@ describe('メンバー文書の uid（アカウント削除の整理で使う）
     return batch;
   }
 
-  it('グループを作るとき、自分の UID を uid に入れれば作れる', async () => {
+  it('アプリからは、自分の UID を uid に入れても作れない（作成はサーバーだけ）', async () => {
     const db = as('carol');
-    await assertSucceeds(createGroupBatch(db, 'carol', {
+    await assertFails(createGroupBatch(db, 'carol', {
       uid: 'carol', role: 'owner', joinedAt: serverTimestamp(), displayName: 'carol',
     }).commit());
   });
@@ -423,5 +428,58 @@ describe('メンバー文書の uid（アカウント削除の整理で使う）
     await assertFails(setDoc(doc(as('bob'), 'accountDeletions/bob'), { groupIDs: [] }));
     await assertFails(deleteDoc(doc(as('bob'), 'accountDeletions/bob')));
     await assertFails(getDocs(collection(as('alice'), 'accountDeletions')));
+  });
+});
+
+// MARK: - わが家の作成・招待・参加（2026-10-22）で追加したテスト（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
+
+describe('わが家：共有する種類・メンバー・memberships', () => {
+  it('メンバーは共有する種類を読めるが、変えられない', async () => {
+    const snap = await assertSucceeds(getDoc(doc(as('bob'), `groups/${GROUP}`)));
+    assert.deepEqual(snap.data().sharedKinds, ['todo', 'shopping']);
+    for (const kinds of [['todo', 'shopping', 'money'], [], ['payment'], ['todo', 'todo']]) {
+      await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}`), { sharedKinds: kinds, updatedAt: serverTimestamp() }));
+    }
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}`), { name: 'わが家', sharedKinds: ['money'], updatedAt: serverTimestamp() }));
+  });
+
+  it('メンバーでない人は、共有する種類もメンバーも読めない', async () => {
+    await assertFails(getDoc(doc(as('mallory'), `groups/${GROUP}`)));
+    await assertFails(getDocs(collection(as('mallory'), `groups/${GROUP}/members`)));
+    await assertFails(getDoc(doc(as('carol'), `groups/${GROUP}/members/alice`)));
+  });
+
+  it('オーナーでも、アプリからメンバーを足して2人の上限を超えられない（自分も他人も）', async () => {
+    const member = (uid, role) => ({ uid, role, joinedAt: serverTimestamp(), displayName: uid });
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/members/carol`), member('carol', 'member')));
+    await assertFails(setDoc(doc(as('carol'), `groups/${GROUP}/members/carol`), member('carol', 'member')));
+    await assertFails(setDoc(doc(as('carol'), `groups/${GROUP}/members/carol`), member('carol', 'owner')));
+    await assertFails(setDoc(doc(as('mallory'), `groups/${OTHER_GROUP}/members/carol`), member('carol', 'member')));
+  });
+
+  it('アプリから owner に上がれない（自分でも、owner が相手を上げることも）', async () => {
+    await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}/members/bob`), { role: 'owner' }));
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/members/bob`), { role: 'owner' }));
+    await assertFails(setDoc(doc(as('bob'), `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' }));
+  });
+
+  it('memberships（1人1つのわが家の記録）は、本人もアプリから読み書きできない', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'memberships/bob'), { groupID: GROUP, joinedAt: Timestamp.now() });
+    });
+    await assertFails(getDoc(doc(as('bob'), 'memberships/bob')));
+    await assertFails(setDoc(doc(as('bob'), 'memberships/bob'), { groupID: OTHER_GROUP }));
+    await assertFails(deleteDoc(doc(as('bob'), 'memberships/bob')));
+    await assertFails(setDoc(doc(as('carol'), 'memberships/carol'), { groupID: GROUP }));
+    await assertFails(getDocs(collection(as('alice'), 'memberships')));
+    await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), 'memberships/bob')));
+  });
+
+  it('招待（取り消しの記録を含む）はアプリから読めず、取り消しも書けない', async () => {
+    await assertFails(getDoc(doc(as('alice'), 'invites/hash-1')));
+    await assertFails(updateDoc(doc(as('alice'), 'invites/hash-1'), { revokedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(as('alice'), 'invites/hash-new'), {
+      groupID: GROUP, createdBy: 'alice', expiresAt: Timestamp.now(), usedAt: null, usedBy: null, revokedAt: null,
+    }));
   });
 });

@@ -64,7 +64,7 @@ npm test
 | --- | --- |
 | `test:unit` | 通知を送るかの判定・本人を除く・通知 OFF を除く・30秒以内はまとめる・招待トークン |
 | `test:rules` | メンバーでない人は読み書きできない・共有項目だけ書ける・役割を上げられない・サインインしていない人は書けない・ルールに無い場所や項目は拒否（[監査](FIRESTORE_SHARING_RULES_AUDIT.md)） |
-| `test:functions` | 招待の期限と一度きり・App Check の情報が無い招待の呼び出しを断る・通知が届く端末の選び方・使えないトークンの削除・アカウント削除のあとの整理（[説明](FIREBASE_ACCOUNT_DELETION_CLEANUP.md)） |
+| `test:functions` | わが家の作成・招待・参加（1人1つ・2人まで・オーナーだけ・取り消し。[説明](FIREBASE_INVITE_JOIN_MEMBERSHIP.md)）・招待の期限と一度きり・App Check の情報が無い招待の呼び出しを断る・通知が届く端末の選び方・使えないトークンの削除・アカウント削除のあとの整理（[説明](FIREBASE_ACCOUNT_DELETION_CLEANUP.md)） |
 
 最後に `# fail 0` と出れば、すべて成功です。失敗したときは、出てきた文をそのまま送ってください。
 

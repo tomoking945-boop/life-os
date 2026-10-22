@@ -5,7 +5,9 @@ rules_version = '2';
 // - 共有するのは「生活グループ」の共有項目だけ。個人項目はアプリが送らず、ここにも置き場所が無い
 // - 読めるのは、自分が所属する生活グループだけ
 // - 共有項目の作成・更新は、そのグループのメンバーだけ。決まった項目・決まった種類だけを受け付ける
-// - メンバーの追加は、招待を確かめる Callable Function（acceptInvite）だけが行う（ここでは拒否）
+// - わが家（生活グループ）の作成・メンバーの追加は Callable Function（createHousehold・acceptInvite）だけが行う（ここでは拒否）。
+//   1人1つのわが家・最大2人・招待の使用済み／取り消しは、Functions のトランザクションで守る（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
+// - 共有する種類（groups の sharedKinds）はアプリから変えられない
 // - 役割（owner / member）の変更はできない（権限の昇格を拒否）
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
@@ -68,14 +70,8 @@ service cloud.firestore {
     match /groups/{groupID} {
       allow read: if isMember(groupID);
 
-      // 作る人が、同じ書き込み（batch）で自分を owner として登録するときだけ作れる
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name', 'createdBy', 'createdAt', 'updatedAt'])
-        && isShortText(request.resource.data.name, 50)
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && existsAfter(memberPath(groupID, request.auth.uid));
+      // 作るのは createHousehold（サーバー）だけ。アプリからは作れない（1人1つ・共有する種類の確認をサーバーで行う）
+      allow create: if false;
 
       // メンバーが変えられるのは名前と更新日時だけ
       allow update: if isMember(groupID)
@@ -88,19 +84,10 @@ service cloud.firestore {
       match /members/{memberUID} {
         allow read: if isMember(groupID);
 
-        // 自分で作る生活グループの owner になるときだけ（既にあるグループには入れない）。
-        // それ以外のメンバーの追加は acceptInvite（サーバー）だけが行う。
-        // uid は文書 ID と同じ本人の UID だけ（別人の UID は書けない。更新できないので、あとから変えることもできない）。
-        // アカウント削除のあとの整理で、所属を探すのに使う（docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md）
-        allow create: if signedIn()
-          && memberUID == request.auth.uid
-          && request.resource.data.keys().hasOnly(['uid', 'role', 'joinedAt', 'displayName'])
-          && request.resource.data.uid == request.auth.uid
-          && request.resource.data.role == 'owner'
-          && request.resource.data.joinedAt == request.time
-          && isShortText(request.resource.data.displayName, 40)
-          && !exists(/databases/$(database)/documents/groups/$(groupID))
-          && getAfter(/databases/$(database)/documents/groups/$(groupID)).data.createdBy == request.auth.uid;
+        // メンバーの追加は createHousehold・acceptInvite（サーバー）だけ。アプリからは誰も追加できない
+        // （owner を名乗る・人数の上限を超える・別人の uid を書くことはできない）。
+        // uid は文書 ID と同じ本人の UID（サーバーが書く。アカウント削除のあとの整理で所属を探すのに使う）
+        allow create: if false;
 
         // 役割の変更（権限の昇格）・uid の変更は誰にもできない
         allow update: if false;
@@ -150,7 +137,8 @@ service cloud.firestore {
       // notificationLog など、ここに書かれていない場所はすべて拒否（Functions は管理者として書く）
     }
 
-    // accountDeletions（アカウント削除の整理の作業記録）など、ここに書かれていない場所はすべて拒否
+    // accountDeletions（アカウント削除の整理の作業記録）・memberships（1人1つのわが家の記録）など、
+    // ここに書かれていない場所はすべて拒否（サーバーだけが読み書きする）
 
     // 招待：アプリからは読み書きできない（createInvite / acceptInvite だけが扱う）
     match /invites/{tokenHash} {
