@@ -2,7 +2,7 @@
 
 作業用ブランチ：`firebase-invite-join-membership`（main `90491a7` から作成。**main にはまだ入れていない**）
 
-**Firebase（Firestore・Functions・Hosting）へは何も送っていない。Firebase Console・Apple Developer の画面も変えていない。**
+**Firebase（Firestore・Functions・Hosting）へは何も送っていない。Firebase Console・Apple Developer の画面も変えていない。**（このブランチを作った時点。2026-10-25 に Firestore のルール・索引と Functions を本番に公開した → [本番公開結果](#本番公開結果2026-10-25)）
 
 ## 何を作ったか
 
@@ -166,6 +166,7 @@ invites/{tokenHash}               招待（文書 ID はトークンの SHA-256�
 **Firebase に接続できなくても、今日・カレンダー・ToDo・保証書など、ほかの機能はこれまでどおり使えます。**
 
 注意：Functions はまだ本番に deploy していないので、**いまの本番のアプリ（Xcode から入れた版）で「共有用アカウント」を開くと、わが家の欄は「いまは共有の機能に接続できません」になります**（正しい動き）。
+→ 2026-10-25 に Functions を公開したので、いまはわが家の作成・招待・参加が使える（TestFlight Build 5 で確認する。[TESTFLIGHT_BUILD_5.md](TESTFLIGHT_BUILD_5.md)）。
 
 ## テスト
 
@@ -225,9 +226,9 @@ invites/{tokenHash}               招待（文書 ID はトークンの SHA-256�
 2. Signing & Capabilities で自分の Team を選ぶ（Associated Domains・Sign in with Apple・App Attest がそのままあること）
 3. ⌘U でテスト（**301件の予定**・失敗0件）
 4. Edit Scheme で Run を Release にして ⌘B（確かめたら Debug に戻す）
-5. 実機（Xcode の ▶）：今日・カレンダー・ToDo・保証書などがこれまでどおり使えること。共有用アカウントでサインインすると、わが家の欄が「いまは共有の機能に接続できません」になること（Functions が未公開のため。正しい動き）。アカウントの番号が表示されなくなったこと
+5. 実機（Xcode の ▶）：今日・カレンダー・ToDo・保証書などがこれまでどおり使えること。共有用アカウントでサインインすると、わが家の欄が「いまは共有の機能に接続できません」になること（Functions が未公開のため。正しい動き）。アカウントの番号が表示されなくなったこと（→ 2026-10-25 の公開後は、わが家の欄が使える）
 
-## 本番へ送る順番（まだ送らない）
+## 本番へ送る順番（2026-10-25 に 2・3 を実施。下の「本番公開結果」）
 
 送るときは、池上さんの判断のあと、Mac で次の順に行う（いまは行わない）。
 
@@ -268,3 +269,27 @@ Appleでサインイン・サインアウト・アカウント削除の動き、
 - 同時に作成・参加が届いたときの「1つだけ成立」は、Firestore のトランザクション（同じ文書を読んで書く処理は、ぶつかるとやり直す）に頼っている。Emulator のテストで同時の呼び出しを確かめた（2026-10-23 成功）
 - オーナーが自分のメンバー文書を消して退出すると、オーナーのいないわが家が残る（アプリにはまだ退出の画面が無いので、いまは起きない）
 - アプリを開き直すと、作った招待のリンクは手元に残らない（保存しないため）。送り直すときは新しい招待を作る
+
+## 本番公開結果（2026-10-25）
+
+2026-10-25 に、池上さんが Mac から Firestore と Functions を本番に公開した。
+
+| 項目 | 結果 |
+| --- | --- |
+| プロジェクト | `kurashi-os-production` |
+| Firestore の索引（indexes） | 公開成功 |
+| Firestore のルール | 公開成功（全拒否から、このリポジトリの `firestore.rules` に変わった） |
+| 料金プラン | Blaze（従量制）へ変更 |
+| プロジェクトの予算 | 月500円 |
+| Cloud Run Functions の利用上限 | 月500円 |
+| Functions | **8個すべて公開済み**（`createHousehold`・`getMyHousehold`・`createInvite`・`revokeInvite`・`getInvitePreview`・`acceptInvite`・`onSharedItemWritten`・`onAuthUserDeleted`） |
+| リージョン | `asia-northeast1` |
+| Runtime | Node.js 22 |
+| `onSharedItemWritten` | 初回は Eventarc（Firestore の変更を Function に届ける仕組み）の権限の反映待ちで失敗。この Function だけを再実行して成功 |
+| Functions の一覧 | 8個すべてを確認済み |
+| Artifact Registry | 1日を過ぎたビルド画像を削除する cleanup policy（自動削除の設定）を設定済み（保存料を増やさないため） |
+| Hosting | 今回は変更していない（2026-10-21 公開のまま） |
+| Firestore の App Check 強制適用 | 変更していない（まだ適用していない） |
+| 生活データの同期 | **まだ未実装**（予定・ToDo・家計簿・保証書などは送らない） |
+
+これで、TestFlight Build 5（[TESTFLIGHT_BUILD_5.md](TESTFLIGHT_BUILD_5.md)）を使い、別の Apple ID の iPhone どうしで、わが家の作成・招待・参加・メンバー表示を確かめられる。

@@ -27,6 +27,7 @@
 - [TestFlight ビルド3](docs/TESTFLIGHT_BUILD_3.md)
 - [Firebase App Check の基礎](docs/FIREBASE_APP_CHECK_FOUNDATION.md)
 - [TestFlight ビルド4（App Check）](docs/TESTFLIGHT_BUILD_4.md)
+- [TestFlight ビルド5（わが家の作成・招待・参加）](docs/TESTFLIGHT_BUILD_5.md)
 - [パートナー共有の土台：Firebase 接続と Appleでサインイン](docs/FIREBASE_APPLE_AUTH_FOUNDATION.md)
 - [Firestore 共有ルールの監査（2026-10-20）](docs/FIRESTORE_SHARING_RULES_AUDIT.md)
 - [アカウント削除のあとの Firestore の整理](docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md)
