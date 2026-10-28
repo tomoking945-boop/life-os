@@ -219,3 +219,9 @@ Universal Links の実機での確認は、Hosting を deploy したあとに「
 確認に使ったテスト用のトークンは、本書を含め、どこにも書いていない。
 
 Hosting の公開と招待リンクの土台は、これで完成。次は「招待への参加・グループの同期」（上の「次の段階で必要なこと」の 2 以降）。
+
+## 追記（2026-10-28）：案内ページのままになる場合の対策
+
+TestFlight Build 5 で、招待リンクがブラウザの案内ページのまま、アプリへ進めないことがあった。
+案内ページの「くらしOSで開く」ボタン（くらしOS専用の URL Scheme `com.tomoking945boop.lifeos`）と、アプリの中の「招待リンクを入力」を追加した（Build 6。[INVITE_OPEN_BUTTON_FIX.md](INVITE_OPEN_BUTTON_FIX.md)）。
+本書の「独自の URL スキームは追加しない」は、この追記で変わった。Associated Domains と Universal Links はそのまま。

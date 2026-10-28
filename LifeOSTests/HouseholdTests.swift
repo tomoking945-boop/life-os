@@ -445,6 +445,7 @@ final class HouseholdSourceTests: XCTestCase {
             "LifeOS/Features/Profile/HouseholdSection.swift",
             "LifeOS/Features/Profile/PartnerAccountView.swift",
             "LifeOS/Features/Sharing/InviteLinkSheet.swift",
+            "LifeOS/Features/Sharing/InviteLinkEntryView.swift",
         ]
         for file in files {
             let text = try read(file)
@@ -459,6 +460,12 @@ final class HouseholdSourceTests: XCTestCase {
             XCTAssertFalse(text.contains("\\(account.uid"), file)
             XCTAssertFalse(text.contains(".url)"), "\(file)：招待のリンクを文字として出さない")
         }
+        // 「招待リンクを入力」はクリップボードを自動で読まない（利用者が自分で貼り付ける。2026-10-28）
+        let entry = try read("LifeOS/Features/Sharing/InviteLinkEntryView.swift")
+        for word in ["UIPasteboard", "PasteButton", "pasteboard", "onPasteCommand"] {
+            XCTAssertFalse(entry.contains(word), word)
+        }
+        XCTAssertTrue(entry.contains(".privacySensitive()"), "入力欄は、アプリの切り替え画面などで隠す")
         // アプリは Firestore を使わない（わが家の情報は Cloud Functions から受け取る）
         for file in files {
             XCTAssertFalse(try read(file).contains("import FirebaseFirestore"), file)

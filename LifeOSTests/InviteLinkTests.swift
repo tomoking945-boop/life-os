@@ -401,7 +401,24 @@ final class InviteLinkConfigurationTests: XCTestCase {
         let lines = project.components(separatedBy: .newlines).filter { $0.contains("CODE_SIGN_ENTITLEMENTS") }
         XCTAssertEqual(lines.count, 2, "アプリの Debug と Release")
         XCTAssertTrue(lines.allSatisfy { $0.trimmingCharacters(in: .whitespaces) == "CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements;" })
-        XCTAssertFalse(project.contains("CFBundleURLTypes"), "独自の URL スキームは使わない")
+        // 2026-10-28：くらしOS専用の URL Scheme は LifeOS-Info.plist に1つだけ（アプリの Debug・Release だけ。テストのターゲットには付けない）
+        let infoLines = project.components(separatedBy: .newlines).filter { $0.contains("INFOPLIST_FILE =") }
+        XCTAssertEqual(infoLines.count, 2, "アプリの Debug と Release だけ")
+        XCTAssertTrue(infoLines.allSatisfy { $0.trimmingCharacters(in: .whitespaces) == "INFOPLIST_FILE = \"LifeOS-Info.plist\";" })
+        XCTAssertFalse(project.contains("CFBundleURLTypes"), "URL Scheme はプロジェクトの設定ではなく LifeOS-Info.plist に書く")
+    }
+
+    /// くらしOS専用の URL Scheme：Bundle ID と同じ名前が1つだけ（2026-10-28）
+    func testAppURLSchemeIsRegisteredOnce() throws {
+        let info = try plist("LifeOS-Info.plist")
+        let types = try XCTUnwrap(info["CFBundleURLTypes"] as? [[String: Any]])
+        XCTAssertEqual(types.count, 1)
+        XCTAssertEqual(types[0]["CFBundleURLSchemes"] as? [String], [InviteLink.appScheme])
+        XCTAssertEqual(InviteLink.appScheme, "com.tomoking945boop.lifeos", "Bundle ID と同じ名前（ほかのアプリと重なりにくい）")
+        XCTAssertEqual(Set(info.keys), ["CFBundleURLTypes"], "ほかの設定は Xcode が作る（GENERATE_INFOPLIST_FILE）")
+        // 案内ページのボタンも同じ名前を使う
+        let page = try read("firebase/hosting/invite/invite.js")
+        XCTAssertTrue(page.contains("var APP_SCHEME = '\(InviteLink.appScheme)';"))
     }
 
     /// ドメインが、サーバーが作る招待リンク・AASA・Firebase の設定と一致する
@@ -453,5 +470,159 @@ final class InviteLinkConfigurationTests: XCTestCase {
         }
         let hosting = try read("firebase/hosting/invite/index.html")
         XCTAssertEqual(tokenInURL.numberOfMatches(in: hosting, range: NSRange(hosting.startIndex..., in: hosting)), 0)
+    }
+}
+
+/// くらしOS専用の URL Scheme と「招待リンクを入力」（2026-10-28。docs/INVITE_OPEN_BUTTON_FIX.md）
+final class InviteLinkAppSchemeTests: XCTestCase {
+    private func schemeURL(_ token: String) -> URL {
+        URL(string: "com.tomoking945boop.lifeos://invite?token=\(token)")!
+    }
+
+    /// 2：正しい URL Scheme は、Universal Link と同じように受け付ける
+    func testAcceptsAppScheme() throws {
+        let token = makeToken()
+        let link = try XCTUnwrap(InviteLink(url: schemeURL(token)))
+        XCTAssertEqual(link.token, token)
+        XCTAssertEqual(link, InviteLink(url: inviteURL(token)), "同じトークンなら同じ招待")
+        XCTAssertNotNil(parse("COM.TOMOKING945BOOP.LIFEOS://invite?token=\(token)"), "スキームの大文字・小文字は区別しない")
+    }
+
+    /// 3〜5：URL Scheme でも確かめ方は省かない（トークンなし・形・場所・別のスキーム・別ホスト）
+    func testRejectsInvalidAppSchemeURLs() {
+        let token = makeToken()
+        let other = makeToken()
+        let base = "com.tomoking945boop.lifeos://"
+        for text in [
+            base + "invite", base + "invite?", base + "invite?token=", base + "invite?token",
+            base + "invite?token=\(token.prefix(42))", base + "invite?token=\(token)A",
+            base + "invite?token=\(token.prefix(42))+", base + "invite?token=\(token.prefix(40))%41",
+            base + "invite?token=\(token)&token=\(other)", base + "invite?token=\(token)&x=1",
+            base + "invite?token=\(token)#x", base + "invite/?token=\(token)", base + "invite/x?token=\(token)",
+            base + "join?token=\(token)", base + "?token=\(token)", base + "user@invite?token=\(token)",
+            base + "invite:80?token=\(token)",
+            "kurashios://invite?token=\(token)", "com.tomoking945boop.lifeos.evil://invite?token=\(token)",
+            "lifeos://invite?token=\(token)", "https://evil.example/invite?token=\(token)",
+            "http://kurashi-os-production.web.app/invite?token=\(token)",
+        ] {
+            XCTAssertNil(parse(text), text)
+        }
+    }
+
+    /// 9：貼り付けた文字も同じ判定（前後の空白・改行は除く。途中の空白・URL でない文字は不可）
+    func testPastedTextUsesSameValidation() throws {
+        let token = makeToken()
+        XCTAssertEqual(InviteLink(text: "  https://kurashi-os-production.web.app/invite?token=\(token)\n")?.token, token)
+        XCTAssertEqual(InviteLink(text: "com.tomoking945boop.lifeos://invite?token=\(token)")?.token, token)
+        for text in ["", "   ", token, "token=\(token)", "招待 https://kurashi-os-production.web.app/invite?token=\(token)",
+                     "https://kurashi-os-production.web.app/invite?token=\(token) ありがとう",
+                     "https://kurashi-os-production.web.app/invite?token=short",
+                     "https://evil.example/invite?token=\(token)", String(repeating: "a", count: 300)] {
+            XCTAssertNil(InviteLink(text: text), text)
+        }
+    }
+}
+
+final class InviteLinkReceivingRoutesTests: XCTestCase {
+    private func schemeURL(_ token: String) -> URL {
+        URL(string: "com.tomoking945boop.lifeos://invite?token=\(token)")!
+    }
+
+    /// 1・2：Universal Link でも URL Scheme でも、同じ確認画面へ進む
+    func testBothRoutesPresentSamePrompt() {
+        let byLink = InviteLinkCoordinator()
+        let token = makeToken()
+        XCTAssertEqual(byLink.receive(inviteURL(token)), .presented)
+        XCTAssertEqual(byLink.step, .prompt)
+
+        let byScheme = InviteLinkCoordinator()
+        XCTAssertEqual(byScheme.receive(schemeURL(token)), .presented)
+        XCTAssertEqual(byScheme.step, .prompt)
+        XCTAssertEqual(byScheme.pendingInvite, byLink.pendingInvite)
+    }
+
+    /// 7：同じ招待は、Universal Link と URL Scheme の両方から届いても1回だけ
+    func testSameInviteFromBothRoutesIsNotShownTwice() {
+        let coordinator = InviteLinkCoordinator()
+        let token = makeToken()
+        XCTAssertEqual(coordinator.receive(inviteURL(token)), .presented)
+        XCTAssertEqual(coordinator.receive(schemeURL(token)), .duplicate)
+        coordinator.later()
+        XCTAssertEqual(coordinator.receive(schemeURL(token)), .duplicate)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 1)
+    }
+
+    /// 8：不正な URL Scheme は「使用できません」の案内だけ。覚えない
+    func testInvalidAppSchemeIsNotRemembered() {
+        let coordinator = InviteLinkCoordinator()
+        XCTAssertEqual(coordinator.receive(URL(string: "com.tomoking945boop.lifeos://invite?token=short")!), .invalid)
+        XCTAssertTrue(coordinator.isShowingInvalidNotice)
+        XCTAssertEqual(coordinator.rememberedInviteCount, 0)
+        XCTAssertNil(coordinator.pendingInvite)
+        // 関係のないスキームは何もしない
+        XCTAssertEqual(coordinator.receive(URL(string: "mailto:a@example.com")!), .ignored)
+    }
+
+    /// 6：リンクを受け取っただけでは、サインイン・Preview・参加のどれも呼ばない
+    @MainActor
+    func testReceivingDoesNotStartSignInOrJoin() async {
+        let backend = FakeHouseholdBackend()
+        let apple = FakeAppleSignIn()
+        let authBackend = FakeAuthBackend()
+        let auth = AuthService(backend: authBackend, apple: apple)
+        let household = HouseholdService(backend: backend, isSignedIn: { auth.account != nil })
+        let coordinator = InviteLinkCoordinator()
+        let token = makeToken()
+
+        coordinator.receive(inviteURL(token))
+        coordinator.receive(schemeURL(makeToken()))
+        _ = coordinator.submitManualEntry("https://kurashi-os-production.web.app/invite?token=\(makeToken())")
+        coordinator.confirm()
+
+        XCTAssertEqual(apple.receivedHashedNonces, [], "Apple のサインイン画面は出ない")
+        XCTAssertEqual(authBackend.calls, [], "Firebase へのサインインもしない")
+        XCTAssertEqual(auth.status, .signedOut)
+        XCTAssertEqual(backend.calls, [], "Preview・参加・Firestore への書き込みはしない")
+        XCTAssertEqual(household.preview, .idle)
+    }
+
+    /// 9：「招待リンクを入力」も同じ判定。不正なら案内の画面を出さずに入力欄で知らせる。覚えない
+    func testManualEntry() {
+        let coordinator = InviteLinkCoordinator()
+        XCTAssertEqual(coordinator.submitManualEntry("https://kurashi-os-production.web.app/invite?token=short"), .invalid)
+        XCTAssertEqual(coordinator.submitManualEntry("よろしく"), .invalid)
+        XCTAssertFalse(coordinator.isShowingInvalidNotice, "入力欄の下で知らせるので、全体の案内は出さない")
+        XCTAssertEqual(coordinator.rememberedInviteCount, 0)
+        XCTAssertFalse(coordinator.isPresented)
+
+        let token = makeToken()
+        XCTAssertEqual(coordinator.submitManualEntry("  com.tomoking945boop.lifeos://invite?token=\(token)  "), .presented)
+        XCTAssertEqual(coordinator.pendingInvite?.token, token)
+        XCTAssertEqual(coordinator.step, .prompt)
+        XCTAssertEqual(coordinator.submitManualEntry("https://kurashi-os-production.web.app/invite?token=\(token)"), .alreadyShowing, "表示中の同じ招待は重ねない")
+        XCTAssertEqual(coordinator.receive(inviteURL(token)), .duplicate)
+    }
+
+    /// 自分で入力したときは、前に「あとで」で閉じた同じ招待でも、もう一度確認画面を出す
+    func testManualEntryCanReopenDismissedInvite() {
+        let coordinator = InviteLinkCoordinator()
+        let token = makeToken()
+        coordinator.receive(inviteURL(token))
+        coordinator.later()
+        XCTAssertEqual(coordinator.receive(inviteURL(token)), .duplicate, "リンクから届いたものは重ねない")
+        XCTAssertEqual(coordinator.submitManualEntry("https://kurashi-os-production.web.app/invite?token=\(token)"), .presented)
+        XCTAssertTrue(coordinator.isPresented)
+    }
+
+    /// 10：トークンは保存しない（「あとで」のあと、メモリの中にも残らない）
+    func testTokenIsNotKeptAfterLater() {
+        let coordinator = InviteLinkCoordinator()
+        let token = makeToken()
+        _ = coordinator.submitManualEntry("com.tomoking945boop.lifeos://invite?token=\(token)")
+        coordinator.later()
+        var dumped = ""
+        dump(coordinator, to: &dumped)
+        XCTAssertFalse(dumped.contains(token))
+        XCTAssertNil(coordinator.pendingInvite)
     }
 }

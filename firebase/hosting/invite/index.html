@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
+  <!-- 招待のアドレス（トークン入り）をほかのサイトへ伝えない -->
+  <meta name="referrer" content="no-referrer">
   <title>くらしOS への招待</title>
   <style>
     body { margin: 0; padding: 48px 24px; font-family: -apple-system, "Hiragino Sans", sans-serif;
@@ -11,6 +13,13 @@
     main { max-width: 480px; margin: 0 auto; }
     h1 { font-family: "Hiragino Mincho ProN", serif; font-weight: 400; font-size: 28px; margin: 0 0 16px; }
     p { color: #4d514b; }
+    .open { display: block; width: 100%; min-height: 52px; margin: 28px 0 12px; padding: 14px 24px;
+            border: 0; border-radius: 999px; background: #34493D; color: #FFFFFF;
+            font: 600 17px -apple-system, "Hiragino Sans", sans-serif; cursor: pointer; }
+    .open:active { opacity: 0.85; }
+    .open:disabled { background: #D9D4C8; color: #7A7D76; cursor: default; }
+    .invalid { margin: 0 0 12px; padding: 12px 16px; border-radius: 14px; background: #EFE9DD; color: #6B4E3D; }
+    .note { font-size: 14px; }
   </style>
 </head>
 <body>
@@ -18,7 +27,13 @@
     <h1>くらしOS への招待</h1>
     <p>このリンクは、くらしOS のアプリで開くと参加できます。</p>
     <p>アプリが入っている iPhone で、もう一度このリンクを開いてください。招待の期限は24時間で、一度だけ使えます。</p>
+
+    <!-- 押したときだけアプリを開く（ページを開いただけでは開かない）。トークンが正しくなければ押せない -->
+    <button id="open-app" class="open" type="button" disabled aria-disabled="true">くらしOSで開く</button>
+    <p id="invalid-link" class="invalid" role="alert" hidden>招待リンクが正しくありません</p>
+    <p class="note">開かない場合は、TestFlightから最新版のくらしOSをインストールし、アプリ内の「招待リンクを入力」をお使いください。</p>
   </main>
-  <!-- 招待のトークンはこのページでは読み取らず、どこにも送らない -->
+  <!-- 招待のトークンは画面に出さず、どこにも送らない（アプリを開くときにだけ使う） -->
+  <script src="/invite/invite.js"></script>
 </body>
 </html>

@@ -87,6 +87,10 @@ struct HouseholdSection: View {
                     inviteLinks.reopen()
                 }
             }
+
+            // 招待リンクをタップしてもブラウザが開いてしまうときの代わりの入り口（参加する前だけ。2026-10-28）
+            SettingsNote(text: "招待を受け取った人は、届いたリンクをタップするか、ここに貼り付けて参加できます。")
+            InviteLinkEntryLink()
         }
     }
 }

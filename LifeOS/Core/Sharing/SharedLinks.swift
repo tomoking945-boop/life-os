@@ -12,6 +12,11 @@ import Foundation
 /// - トークンは 32 バイトの乱数を base64url にした 43 文字（英数字・`-`・`_` だけ。サーバーの invites.js と同じ）
 /// - ユーザー名・パスワード・ポート番号の付いたリンク、長すぎるリンクは不可
 ///
+/// 2026-10-28：くらしOS専用の URL Scheme `com.tomoking945boop.lifeos://invite?token=<43文字>` も受け付ける
+/// （ブラウザで案内ページが開いたとき、「くらしOSで開く」ボタンからアプリへ進むため。docs/INVITE_OPEN_BUTTON_FIX.md）。
+/// URL Scheme でも、トークン・問い合わせ・ユーザー名などの確かめ方は Universal Link と同じ（省かない）。
+/// - スキームが `com.tomoking945boop.lifeos`、ホストが `invite`、パスが空（`/` や別のパスは不可）
+///
 /// ドメインは、招待を作る Cloud Function（index.js の inviteBaseURL：`https://<プロジェクト ID>.web.app`）・
 /// GoogleService-Info.plist のプロジェクト ID・AASA（firebase/hosting/.well-known）・LifeOS.entitlements と同じ（テストで確認）。
 ///
@@ -21,6 +26,10 @@ struct InviteLink: Equatable {
     static let host = "kurashi-os-production.web.app"
     /// 招待のパス
     static let path = "/invite"
+    /// くらしOS専用の URL Scheme（Bundle ID と同じ。LifeOS-Info.plist の CFBundleURLSchemes と同じ）
+    static let appScheme = "com.tomoking945boop.lifeos"
+    /// URL Scheme の招待のホスト（`com.tomoking945boop.lifeos://invite?token=…`）
+    static let appSchemeHost = "invite"
     /// トークンの長さ（32バイトの乱数を base64url にしたもの）
     static let tokenLength = 43
     /// これより長いリンクは調べずに断る
@@ -33,17 +42,15 @@ struct InviteLink: Equatable {
     /// 同じリンクかを見分ける印（トークンの SHA-256。メモリの中だけで使う）
     let fingerprint: String
 
-    /// 招待のリンクなら作れる（それ以外は nil）
+    /// 招待のリンクなら作れる（それ以外は nil）。Universal Link と URL Scheme のどちらも、ここで同じように確かめる
     init?(url: URL) {
         guard url.absoluteString.utf8.count <= Self.maxURLLength,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "https",
               components.percentEncodedUser == nil,
               components.percentEncodedPassword == nil,
               components.port == nil,
               components.percentEncodedFragment == nil,
-              components.percentEncodedHost?.lowercased() == Self.host,
-              components.percentEncodedPath == Self.path,
+              Self.hasInviteLocation(components),
               let items = components.percentEncodedQueryItems,
               items.count == 1,
               items[0].name == "token",
@@ -53,6 +60,32 @@ struct InviteLink: Equatable {
         }
         token = value
         fingerprint = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 招待の場所か：`https://kurashi-os-production.web.app/invite` または `com.tomoking945boop.lifeos://invite`
+    private static func hasInviteLocation(_ components: URLComponents) -> Bool {
+        guard let scheme = components.scheme?.lowercased() else { return false }
+        let host = components.percentEncodedHost?.lowercased()
+        switch scheme {
+        case "https":
+            return host == Self.host && components.percentEncodedPath == Self.path
+        case Self.appScheme:
+            return host == Self.appSchemeHost && components.percentEncodedPath.isEmpty
+        default:
+            return false
+        }
+    }
+
+    /// 受け取った文字（貼り付けなど）から招待を作る。前後の空白・改行は除く。それ以外は URL と同じ確かめ方
+    init?(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= Self.maxURLLength,
+              !trimmed.contains(where: { $0.isWhitespace }),
+              let url = URL(string: trimmed) else {
+            return nil
+        }
+        self.init(url: url)
     }
 
     /// トークンの形が正しいか（43文字・英数字と `-` `_` だけ）

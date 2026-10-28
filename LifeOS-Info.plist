@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	招待リンクを開くための、くらしOS専用の URL Scheme（2026-10-28。docs/INVITE_OPEN_BUTTON_FIX.md）
+	形：com.tomoking945boop.lifeos://invite?token=<43文字>
+	ほかのアプリと重ならないよう、Bundle ID と同じ名前にしている（Apple の推奨）。
+	受け取った URL は、Universal Link と同じ InviteLink の判定を必ず通す。
+	ほかの設定は Xcode が作る（GENERATE_INFOPLIST_FILE = YES と INFOPLIST_KEY_*）。
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.tomoking945boop.lifeos.invite</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.tomoking945boop.lifeos</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

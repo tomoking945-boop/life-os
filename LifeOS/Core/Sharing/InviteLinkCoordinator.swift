@@ -11,6 +11,8 @@ import Observation
 ///   （2026-10-22 わが家の参加。docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
 /// - 参加できた：招待を捨て、メンバーの画面へ進む
 /// - 不正なリンク：一般的な案内（「この招待リンクは使用できません」）だけを出す。アプリのほかの機能には触れない
+/// - 受け取り口は3つ：Universal Link（https）・くらしOS専用の URL Scheme（案内ページの「くらしOSで開く」）・
+///   アプリ内の「招待リンクを入力」（貼り付け）。どれも同じ InviteLink の判定を通る（2026-10-28。docs/INVITE_OPEN_BUTTON_FIX.md）
 ///
 /// リンクを開いただけでは、招待への参加・Firestore への書き込み・サインイン・端末内のデータの変更をしない。
 /// 参加は、利用者が確認画面で「参加する」を押したときだけ（HouseholdService.join）。
@@ -35,8 +37,18 @@ final class InviteLinkCoordinator {
         case duplicate
         /// 招待のリンクとして使えない
         case invalid
-        /// https・http 以外（招待とは関係ない）なので何もしなかった
+        /// https・http・くらしOS専用の URL Scheme 以外（招待とは関係ない）なので何もしなかった
         case ignored
+    }
+
+    /// 「招待リンクを入力」の結果
+    enum ManualEntryResult: Equatable {
+        /// 確認画面を出した
+        case presented
+        /// 同じ招待の確認画面をもう出している
+        case alreadyShowing
+        /// 招待のリンクとして使えない（入力欄の下に案内を出す。トークンは出さない）
+        case invalid
     }
 
     /// いま確認している招待（メモリの中だけ）
@@ -63,7 +75,7 @@ final class InviteLinkCoordinator {
     /// - Parameter allowsNotice: 不正なリンクのときに案内を出してよいか（はじめての設定の途中などは出さない）
     @discardableResult
     func receive(_ url: URL, allowsNotice: Bool = true) -> Outcome {
-        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" || scheme == InviteLink.appScheme else {
             return .ignored
         }
         guard let invite = InviteLink(url: url) else {
@@ -75,16 +87,35 @@ final class InviteLinkCoordinator {
         }
 
         // 同じリンクは、起動中に1回だけ（表示中・「あとで」・「招待を確認」のあとも出さない）
-        let fingerprint = Data(HMAC<SHA256>.authenticationCode(for: Data(invite.token.utf8), using: fingerprintKey))
-        guard receivedFingerprints.insert(fingerprint).inserted else {
+        guard receivedFingerprints.insert(fingerprint(of: invite)).inserted else {
             return .duplicate
         }
 
+        present(invite)
+        return .presented
+    }
+
+    /// 「招待リンクを入力」：貼り付けた文字を、受け取ったリンクと同じ判定で確かめる（クリップボードは読まない）。
+    /// 利用者が自分で入力したので、前に「あとで」で閉じた招待でも、もう一度確認画面を出す（表示中の同じ招待は重ねない）。
+    /// 貼り付けただけでは、サインイン・参加・Firestore への書き込みはしない
+    func submitManualEntry(_ text: String) -> ManualEntryResult {
+        guard let invite = InviteLink(text: text) else { return .invalid }
+        if isPresented, pendingInvite == invite { return .alreadyShowing }
+        receivedFingerprints.insert(fingerprint(of: invite))
+        present(invite)
+        return .presented
+    }
+
+    private func present(_ invite: InviteLink) {
         pendingInvite = invite
         step = .prompt
         isPresented = true
         isShowingInvalidNotice = false
-        return .presented
+    }
+
+    /// 重複を見分ける印（起動ごとの鍵で計算した HMAC-SHA256。元のトークンには戻せない）
+    private func fingerprint(of invite: InviteLink) -> Data {
+        Data(HMAC<SHA256>.authenticationCode(for: Data(invite.token.utf8), using: fingerprintKey))
     }
 
     /// 「あとで」：何も変えず、招待を捨てる

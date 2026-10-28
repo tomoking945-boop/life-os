@@ -61,6 +61,8 @@ struct PartnerAccountView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.md) {
                 statusCard(systemImage: "person.crop.circle", title: "サインインしていません", detail: nil)
                 appleButton
+                // 招待を受け取った人の代わりの入り口（2026-10-28）。参加の前にサインインを案内する
+                InviteLinkEntryLink()
             }
 
         case .working(let operation, _):
