@@ -190,7 +190,9 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 | 16 | App Check の無い管理 Functions を拒否 | 単体 `appCheck.test.js`（9つ）、Functions「App Check が無い・サインインしていない管理の呼び出しは断られる」、Swift `testManagementFunctionsRequireAppCheck` |
 | 17 | アカウント削除のあとの整理を壊さない | アカウント削除のテスト20件（変更なし）・Functions |
 
-### 結果
+### 結果（作業環境での実行。2026-10-28 commit 時点の記録）
+
+この表は commit を作った時点の記録です。そのあとの Mac での結果は、下の「Mac での確認結果」を見てください。
 
 | テスト | 件数 | この作業環境 | 結果 |
 | --- | --- | --- | --- |
@@ -203,7 +205,21 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 
 サーバーの処理（設定・削除・退出）は、Emulator の代わりに、作業用の小さな偽物のデータベースでも動きを確かめました（記録用で、commit していません）。
 
-### Mac での確認
+### Mac での確認結果（2026-10-28、池上さんの報告）
+
+確認した commit：`37891c9`（`InviteLinkTests.swift` 749行目の閉じていない文字列の補間を直したあと）
+
+| テスト | 件数 | スキップ | 結果 |
+| --- | --- | --- | --- |
+| サーバーのテスト（`npm test`：単体・Rules・Functions・アカウント削除） | 未報告 | 未報告 | **成功・失敗0件** |
+| Swift（Xcode ⌘U） | 未報告 | 未報告 | **成功・失敗0件** |
+| Release ビルド | — | — | **成功** |
+
+- `InviteLinkTests.swift` の構文エラー（`Unterminated string literal` など3件）が出なくなったことを確認済み
+- 件数・スキップ数は報告に無いため書いていません（上の 73・55・37・20・357 は予定の件数で、Mac で数えた件数ではありません）
+- 2台での確認（下の計画）は、まだ行っていません。Firebase への公開・TestFlight へのアップロードもまだです
+
+### Mac での確認の手順
 
 1. `firebase/functions` で `npm install`、`npm test`（目安：単体 73・Rules 55・Functions 37・アカウント削除 20、すべて `# fail 0`）
 2. `LifeOS.xcodeproj` を開き、⌘U（**357件の予定**・失敗0件）
