@@ -180,7 +180,10 @@ final class SharedPushService {
     // 登録 → APNs → 登録 … が止まらず、Firestore への端末の書き込みと APNs の登録が増え続けることがあった
 
     /// 登録の処理が動いているか（同時に2つ動かさない）
-    @ObservationIgnored private var isRegistrationInFlight = false
+    /// 登録中の世代（登録中でなければ nil）。サインアウトなどで世代が進んだら、古い登録は「登録中」に数えない
+    /// （古い保存が返ってこないあいだにサインインし直しても、新しい世代の登録を頼めるように。2026-10-29）
+    @ObservationIgnored private var registrationInFlightGeneration: Int?
+    private var isRegistrationInFlight: Bool { registrationInFlightGeneration == contextGeneration }
     /// この起動で APNs への登録を頼んだか（1回の起動で1回だけ頼む）
     @ObservationIgnored private var hasRequestedAPNs = false
     /// 通知用のトークンが APNs のトークン待ちで取れなかったか（APNs のトークンが届いたときだけ、もう一度試す）
@@ -191,6 +194,26 @@ final class SharedPushService {
     @ObservationIgnored private(set) var registrationStartCount = 0
     @ObservationIgnored private(set) var apnsRequestCount = 0
     @ObservationIgnored private(set) var deviceSaveCount = 0
+
+    // MARK: 端末の文書の保存は常に最大1件（2026-10-29 Build 10 の追加の修正）
+    // c93ee9f までは、保存の返事を待っているあいだ（hasRegistration・lastSavedRecord がまだ空）に
+    // トークンの更新が届くと、同じ内容でも新しい保存を次々に始めていた（Instruments で SetMutation が約48万件残っていた）
+
+    /// いま保存している内容（保存中でなければ nil）
+    @ObservationIgnored private var inFlightRecord: PushDeviceRecord?
+    /// いま保存している内容を頼んだときの世代
+    @ObservationIgnored private var inFlightGeneration = 0
+    /// 保存中に届いた最新の内容（1件だけ。配列に積まない）
+    @ObservationIgnored private var pendingRecord: PushDeviceRecord?
+    /// 最後に保存に失敗した内容（同じ内容では自動でやり直さない）
+    @ObservationIgnored private var lastFailedRecord: PushDeviceRecord?
+    /// 世代番号：通知オフ・サインアウト・退出・わが家の削除で1つ進める。保存の開始と終わりで違えば、結果を使わない
+    @ObservationIgnored private(set) var contextGeneration = 0
+    /// 確認用：いま動いている保存の数と、その最大
+    @ObservationIgnored private(set) var concurrentSaveCount = 0
+    @ObservationIgnored private(set) var maxConcurrentSaveCount = 0
+    /// 確認用：保留している保存の数（0 か 1）
+    var pendingSaveCount: Int { pendingRecord == nil ? 0 : 1 }
 
     /// - Parameters: permission・tokens・registry が無ければ、Firebase に接続していない
     init(
@@ -279,9 +302,10 @@ final class SharedPushService {
         guard preferences.receives else { return }
         preferences.showsTitle = isOn
         preferenceStore.save(preferences)
-        // すでに保存したトークンで、項目名の表示だけを書き直す（APNs・トークンの取り直しはしない）
-        if let token = lastSavedRecord?.token {
-            await saveDevice(token: token)
+        // 保存中・保存済みのトークンで、項目名の表示だけを書き直す（APNs・トークンの取り直しはしない）。
+        // 保存中なら、終わったあとに最新の設定を1回だけ保存する
+        if let token = inFlightRecord?.token ?? lastSavedRecord?.token {
+            await saveDevice(token: token, retryingFailed: true)
         } else if hasRegistration || status == .registered {
             await register()
         }
@@ -299,8 +323,11 @@ final class SharedPushService {
             return
         }
         guard isSignedIn, isJoined else {
-            // 参加していない・サインアウトした：端末の文書を消す（設定の「受け取る」は残す。また参加したら登録し直す）
-            if hasRegistration { await unregister(deleteToken: true) }
+            // 参加していない・サインアウトした：端末の文書を消す（設定の「受け取る」は残す。また参加したら登録し直す）。
+            // 保存中のものがあれば、その結果は使わない（世代を進める）
+            if hasRegistration || inFlightRecord != nil || pendingRecord != nil {
+                await unregister(deleteToken: true)
+            }
             status = preferences.receives ? (isSignedIn ? .needsHousehold : .needsSignIn) : .off
             return
         }
@@ -323,6 +350,10 @@ final class SharedPushService {
     @MainActor
     func prepareForSignOut() async {
         guard let registry else { return }
+        // 保存中・保留中の保存は捨てる（古い保存が終わっても「登録済み」に戻さない）
+        invalidateSaves()
+        // 先にサインアウト扱いにする（削除を待つあいだにトークンの更新が来ても、新しい保存を始めない）
+        isSignedIn = false
         let deviceID = preferences.deviceID
         _ = await Self.run(timeout: signOutTimeout) {
             try await registry.remove(deviceID: deviceID)
@@ -362,7 +393,8 @@ final class SharedPushService {
     @MainActor
     func tokenDidRefresh(_ token: String) async {
         guard isEligible, !token.isEmpty else { return }
-        await saveDevice(token: token)
+        // 失敗した内容と同じなら、自動でやり直さない（トークンの更新が何回届いても、保存の嵐にしない）
+        await saveDevice(token: token, retryingFailed: false)
     }
 
     // MARK: - 内部
@@ -375,8 +407,11 @@ final class SharedPushService {
     @MainActor
     private func register() async {
         guard let permission, let tokens, isSignedIn, isJoined, preferences.receives, !isRegistrationInFlight else { return }
-        isRegistrationInFlight = true
-        defer { isRegistrationInFlight = false }
+        let registrationGeneration = contextGeneration
+        registrationInFlightGeneration = registrationGeneration
+        defer {
+            if registrationInFlightGeneration == registrationGeneration { registrationInFlightGeneration = nil }
+        }
         registrationStartCount += 1
         if status != .registered { status = .registering }
         tokens.setAutoInit(true)
@@ -390,35 +425,114 @@ final class SharedPushService {
             token = try await tokens.currentToken()
         } catch {
             // APNs のトークンがまだ届いていない：届いたとき（apnsTokenDidArrive）に1回だけもう一度試す
+            guard registrationGeneration == contextGeneration else { return }
             isWaitingForAPNsToken = true
             return
         }
+        // トークンを待つあいだに通知オフ・サインアウトなどがあった：保存しない
+        guard registrationGeneration == contextGeneration, isEligible else { return }
         isWaitingForAPNsToken = false
-        await saveDevice(token: token)
+        // 登録（画面の操作・アプリに戻ったとき）は、前に失敗した内容でも1回だけ試す
+        await saveDevice(token: token, retryingFailed: true)
     }
 
-    /// 端末の文書を保存する（同じ内容なら書かない。失敗しても自動で繰り返さない。次にアプリに戻ったときに1回だけ試す）
+    /// 端末の文書の保存を頼む（常に最大1件。2026-10-29）
+    /// - 保存中なら新しい保存を始めない。保存中と同じ内容は無視し、違う内容は最新の1件だけを保留する
+    /// - 保存済みと同じ内容なら書かない
+    /// - `retryingFailed` が false なら、前に失敗した内容と同じものはやり直さない（自動のやり直しの嵐を作らない）
     @MainActor
-    private func saveDevice(token: String) async {
-        guard let registry else { return }
+    private func saveDevice(token: String, retryingFailed: Bool) async {
+        guard registry != nil else { return }
         let record = PushDeviceRecord(token: token, showsPreview: preferences.showsTitle)
+        if let inFlight = inFlightRecord {
+            // 保存中：同じ内容（同じ世代）なら何もしない。保留も消す（最新の希望は、いま保存している内容）。
+            // 違う内容・前の世代の保存中なら、最新の1件だけを覚える（上書き。配列に積まない）
+            if record == inFlight, inFlightGeneration == contextGeneration {
+                pendingRecord = nil
+            } else {
+                pendingRecord = record
+            }
+            return
+        }
         if hasRegistration, record == lastSavedRecord {
             if status != .registered { status = .registered }
             return
         }
-        deviceSaveCount += 1
-        do {
-            try await registry.save(deviceID: preferences.deviceID, record: record)
-            lastSavedRecord = record
-            hasRegistration = true
-            status = .registered
-        } catch {
-            status = .failed
+        if !retryingFailed, record == lastFailedRecord { return }
+        await performSaves(startingWith: record)
+    }
+
+    /// 保存を1件ずつ行う。終わったあと、保留された最新の内容が違うときだけ、もう1回保存する
+    @MainActor
+    private func performSaves(startingWith first: PushDeviceRecord) async {
+        guard let registry else { return }
+        var next: PushDeviceRecord? = first
+        while let record = next {
+            next = nil
+            // 保存を始める前に「保存中」と保存する内容・世代を記録する（await の前。ここで同時に2件にならない）
+            let generation = contextGeneration
+            let deviceID = preferences.deviceID
+            inFlightRecord = record
+            inFlightGeneration = generation
+            pendingRecord = nil
+            deviceSaveCount += 1
+            concurrentSaveCount += 1
+            maxConcurrentSaveCount = max(maxConcurrentSaveCount, concurrentSaveCount)
+            var succeeded = false
+            do {
+                try await registry.save(deviceID: deviceID, record: record)
+                succeeded = true
+            } catch {
+                succeeded = false
+            }
+            concurrentSaveCount -= 1
+            inFlightRecord = nil
+
+            // 途中で通知オフ・サインアウト・退出・削除があった：この結果は使わない（登録済みに戻さない）
+            guard generation == contextGeneration else {
+                if let pending = pendingRecord, isEligible {
+                    // 古い保存のあいだに、新しい世代（サインインし直し・参加し直し）の保存が頼まれていた：それを1回だけ保存する
+                    next = pending
+                    continue
+                }
+                pendingRecord = nil
+                // 古い保存が後から届いた：端末の文書を残さないよう、念のためもう一度消す。
+                // （Firestore は同じ端末の書き込みを順番どおりに送るので、保存のあとに出した削除で消えた状態になる）
+                if succeeded, !hasRegistration {
+                    _ = await Self.run(timeout: signOutTimeout) { try await registry.remove(deviceID: deviceID) }
+                }
+                return
+            }
+            if succeeded {
+                lastSavedRecord = record
+                lastFailedRecord = nil
+                hasRegistration = true
+                if status != .registered { status = .registered }
+                // 保存中に届いた最新の内容が、いま保存したものと違うときだけ、もう1回
+                if let pending = pendingRecord, pending != record {
+                    next = pending
+                }
+                pendingRecord = nil
+            } else {
+                // 失敗：自動ではやり直さない（保留も捨てる。次にアプリに戻ったとき・画面で操作したときに1回だけ試す）
+                lastFailedRecord = record
+                pendingRecord = nil
+                status = .failed
+            }
         }
+    }
+
+    /// 保存中・保留中の保存の結果を使わないようにする（世代を進める）
+    @MainActor
+    private func invalidateSaves() {
+        contextGeneration += 1
+        pendingRecord = nil
+        lastFailedRecord = nil
     }
 
     @MainActor
     private func unregister(deleteToken: Bool) async {
+        invalidateSaves()
         if let registry {
             let deviceID = preferences.deviceID
             _ = await Self.run(timeout: signOutTimeout) {
