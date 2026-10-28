@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 共有用アカウント → わが家 → 設定（2026-10-28。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
 ///
@@ -9,7 +10,10 @@ import SwiftUI
 /// - UID・招待のリンク（トークン）は画面に出さない
 struct HouseholdSettingsView: View {
     @Bindable var household: HouseholdService
+    /// 共有の通知（2026-10-28 Build 8。docs/SHARED_PUSH_NOTIFICATIONS.md）
+    var push: SharedPushService = .live
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var draftName = ""
     /// 削除の確認の段階（2段階）
     @State private var deletionStep: DeletionStep = .none
@@ -29,6 +33,8 @@ struct HouseholdSettingsView: View {
                 SettingsNote(text: "わが家に参加していません。")
             }
         }
+        // 通知の許可の状態を読み直す（許可画面は出さない）
+        .task { await push.refreshAuthorization() }
         .onAppear {
             household.dismissActionFailure()
             draftName = household.state.summary?.name ?? ""
@@ -107,6 +113,8 @@ struct HouseholdSettingsView: View {
             SettingsNote(text: "予定・家事・家計簿・保証書・リスト・メモの共有は、今後のアップデートで対応します。いまは共有されません。")
         }
 
+        pushSection
+
         // 招待の状態
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
             LifeSectionTitle("招待")
@@ -134,6 +142,43 @@ struct HouseholdSettingsView: View {
                 .disabled(household.isWorking)
                 SettingsNote(text: "退出したあとは、別の招待からわが家に参加できます。")
             }
+        }
+    }
+
+    /// 共有の通知（初期値はオフ。オンにしたときだけ iOS の許可画面を出す）
+    private var pushSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            LifeSectionTitle("共有の通知")
+            VStack(spacing: 0) {
+                SettingsToggleRow(
+                    title: "共有の通知を受け取る",
+                    detail: "パートナーが共有のToDo・買い物を追加・変更したときにお知らせします",
+                    isOn: Binding(
+                        get: { push.preferences.receives },
+                        set: { isOn in Task { await push.setReceives(isOn) } }
+                    )
+                )
+                SettingsToggleRow(
+                    title: "通知に項目名を表示する",
+                    detail: "オフのときは「わが家のToDoが更新されました」のように、項目名を出しません",
+                    isOn: Binding(
+                        get: { push.preferences.receives && push.preferences.showsTitle },
+                        set: { isOn in Task { await push.setShowsTitle(isOn) } }
+                    )
+                )
+                .disabled(!push.canChangeShowsTitle)
+            }
+            if let message = push.status.message {
+                SettingsNote(text: message)
+            }
+            if push.status == .denied || (push.authorization == .denied && push.preferences.receives) {
+                LifeButton("設定を開く", systemImage: "gear", kind: .secondary) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+            }
+            SettingsNote(text: "自分の操作・自分だけの項目では通知しません。通知に出すのは、項目名を表示するときも名前だけです。")
         }
     }
 

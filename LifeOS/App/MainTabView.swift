@@ -11,6 +11,9 @@ struct MainTabView: View {
     private let sharedItems = SharedItemsService.live
     /// サインインの状態（サインイン・サインアウト・アカウント削除で、わが家を読み直す）
     private let auth = AuthService.live
+    /// 共有の通知（2026-10-28 Build 8）：端末の登録と、通知をタップしたときの行き先
+    private let push = SharedPushService.live
+    private let pushRouter = SharedPushRouter.shared
 
     /// 通知を予約し直すきっかけ（予定・タスク・保証書・プラン・通知設定が変わったとき）
     private struct NotificationSyncKey: Equatable {
@@ -72,6 +75,9 @@ struct MainTabView: View {
         // 退出・削除・サインアウトでわが家が無くなったら、共有項目の表示だけを消す（端末の個人データは消さない）
         .onAppear { sharedItems.attach(store) }
         .onChange(of: household.state) { applyHousehold() }
+        // 共有の通知をタップした：「やること」（ToDo）・「買い物」を開く。項目は変えない
+        .onAppear { openPendingPushRoute() }
+        .onChange(of: pushRouter.pending) { openPendingPushRoute() }
         .task(id: auth.account != nil) {
             await household.refresh()
             applyHousehold()
@@ -104,12 +110,30 @@ extension MainTabView {
         case .loaded(let summary):
             appState.householdMemberCount = summary.members.count
             sharedItems.apply(household: summary)
+            updatePushContext(isJoined: summary.groupID != nil)
         case .none, .signedOut, .unavailable:
             appState.householdMemberCount = nil
             sharedItems.apply(household: nil)
+            updatePushContext(isJoined: false)
         case .idle, .loading, .failed:
             // 読み込み中・通信できないときは、いまの表示のまま（勝手に消さない）
             break
+        }
+    }
+
+    /// 共有の通知：サインインしていて、わが家に参加しているときだけ端末を登録する（抜けたら消す）
+    private func updatePushContext(isJoined: Bool) {
+        let isSignedIn = auth.account != nil
+        Task { await push.updateContext(isSignedIn: isSignedIn, isJoined: isJoined) }
+    }
+
+    /// 通知をタップしたときの行き先を開く（項目が消えていても、画面を開くだけ）
+    private func openPendingPushRoute() {
+        guard let route = pushRouter.takePending() else { return }
+        switch route {
+        case .tasks(let segment):
+            appState.pendingTasksSegment = segment
+            appState.selectedTab = .tasks
         }
     }
 }

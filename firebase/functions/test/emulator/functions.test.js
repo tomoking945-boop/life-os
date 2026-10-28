@@ -575,16 +575,17 @@ describe('共有更新の通知', () => {
     await db.doc(`users/${carol.uid}/devices/c1`).set(device('token-carol'));
   }
 
+  // 2026-10-28（Build 8）：通知するのは共有の ToDo・買い物だけなので、見本は ToDo にした
   function item(actorUID, overrides = {}) {
     return {
-      title: '歯医者', kind: 'event', date: Timestamp.fromDate(new Date('2026-10-12T10:30:00+09:00')), hasTime: true,
+      schemaVersion: 1, title: '書類を出す', kind: 'todo', date: Timestamp.fromDate(new Date('2026-10-12T00:00:00+09:00')), hasTime: false,
       assigneeUID: null, isCompleted: false, deferredTo: null, droppedAt: null,
       createdBy: actorUID, updatedBy: actorUID, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       ...overrides,
     };
   }
 
-  it('alice が共有予定を追加すると、bob の通知 ON の端末にだけ1回届く', async () => {
+  it('alice が共有の ToDo を追加すると、bob の通知 ON の端末にだけ1回届く', async () => {
     await addMembersAndDevices();
     await db.doc(`groups/${GROUP}/items/item-1`).set(item(alice.uid));
 
@@ -596,8 +597,8 @@ describe('共有更新の通知', () => {
     await sleep(1500);
     const all = await sentMessages();
     assert.deepEqual(all.map((m) => m.token), ['token-bob'], '本人・通知 OFF・メンバー外には送らない');
-    assert.equal(all[0].notification.body, '共有情報が更新されました', '内容の表示を許可していなければ項目名を出さない');
-    assert.deepEqual(all[0].data, { groupID: GROUP, itemID: 'item-1', type: 'eventAdded' });
+    assert.equal(all[0].notification.body, 'わが家のToDoが更新されました', '内容の表示を許可していなければ項目名を出さない');
+    assert.deepEqual(all[0].data, { groupID: GROUP, itemID: 'item-1', type: 'taskAdded', kind: 'todo' });
   });
 
   it('使えなくなったトークンの端末は削除される', async () => {
@@ -621,13 +622,13 @@ describe('共有更新の通知', () => {
     assert.equal((await sentMessages()).length, 0);
   });
 
-  it('30秒以内に同じ予定を何度変えても、通知は1回にまとめる', async () => {
+  it('30秒以内に同じ ToDo の名前を何度変えても、通知は1回にまとめる', async () => {
     await addMembersAndDevices();
     const ref = db.doc(`groups/${GROUP}/items/item-4`);
     await ref.set(item(alice.uid));
     await waitFor(async () => (await sentMessages()).length > 0);
-    await ref.update({ date: Timestamp.fromDate(new Date('2026-10-12T11:00:00+09:00')), updatedBy: alice.uid });
-    await ref.update({ date: Timestamp.fromDate(new Date('2026-10-12T11:30:00+09:00')), updatedBy: alice.uid });
+    await ref.update({ title: '書類を出す（1）', updatedBy: alice.uid });
+    await ref.update({ title: '書類を出す（2）', updatedBy: alice.uid });
     await sleep(3000);
     assert.equal((await sentMessages()).length, 1);
   });
@@ -655,5 +656,83 @@ describe('共有更新の通知', () => {
     assert.ok(messages);
     assert.deepEqual(messages.map((m) => m.token).sort(), ['token-alice-ipad', 'token-alice-iphone']);
     assert.equal(messages[0].data.type, 'taskAdded');
+    assert.equal(messages[0].data.kind, 'shopping');
+  });
+
+  // MARK: Build 8（2026-10-28）。docs/SHARED_PUSH_NOTIFICATIONS.md
+
+  it('Build 8：内容の表示を許可した端末には項目名だけ、許可していない端末には出さない', async () => {
+    await addMembersAndDevices();
+    await db.doc(`users/${bob.uid}/devices/b1`).update({ showsPreview: true });
+    await db.doc(`users/${bob.uid}/devices/b4`).set({
+      fcmToken: 'token-bob-ipad', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true, showsPreview: false, updatedAt: Timestamp.now(),
+    });
+    await db.doc(`groups/${GROUP}/items/item-6`).set(item(alice.uid, { kind: 'shopping', title: '洗剤を買う' }));
+    const messages = await waitFor(async () => {
+      const list = await sentMessages();
+      return list.length >= 2 ? list : null;
+    });
+    assert.ok(messages);
+    const byToken = Object.fromEntries(messages.map((m) => [m.token, m.notification.body]));
+    assert.equal(byToken['token-bob'], '「洗剤を買う」が追加されました');
+    assert.equal(byToken['token-bob-ipad'], 'わが家の買い物が更新されました');
+    for (const message of messages) {
+      assert.equal(JSON.stringify(message).includes(alice.uid), false, '送信者の UID を入れない');
+      assert.equal(JSON.stringify(message).includes(bob.uid), false);
+    }
+  });
+
+  it('Build 8：予定・家事は通知しない。名前の変更は通知する', async () => {
+    await addMembersAndDevices();
+    await db.doc(`groups/${GROUP}/items/item-7`).set(item(alice.uid, { kind: 'event', hasTime: true }));
+    await db.doc(`groups/${GROUP}/items/item-8`).set(item(alice.uid, { kind: 'chore' }));
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0, '予定・家事');
+
+    const ref = db.doc(`groups/${GROUP}/items/item-9`);
+    await ref.set(item(alice.uid));
+    await waitFor(async () => (await sentMessages()).length > 0);
+    await clearCollection('_emulatorSentMessages');
+    await db.doc(`groups/${GROUP}/notificationLog/item-9`).delete();
+    await ref.update({ title: '書類を出す（市役所）', updatedBy: bob.uid, updatedAt: FieldValue.serverTimestamp() });
+    const changed = await waitFor(async () => {
+      const list = await sentMessages();
+      return list.length > 0 ? list : null;
+    });
+    assert.ok(changed, '名前の変更が届かない');
+    assert.deepEqual(changed.map((m) => m.data.type), ['taskChanged', 'taskChanged']);
+    assert.deepEqual(changed.map((m) => m.token).sort(), ['token-alice-ipad', 'token-alice-iphone'], '変えた bob には送らない');
+  });
+
+  it('Build 8：退出した人（メンバーでない人）には送らない。本人と同じトークンにも送らない', async () => {
+    await addMembersAndDevices();
+    // bob の端末に、alice と同じトークンが残っている（同じ iPhone を使い回した など）
+    await db.doc(`users/${bob.uid}/devices/b5`).set({
+      fcmToken: 'token-alice-iphone', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true, showsPreview: true, updatedAt: Timestamp.now(),
+    });
+    await db.doc(`groups/${GROUP}/items/item-10`).set(item(alice.uid));
+    await waitFor(async () => (await sentMessages()).length > 0);
+    await sleep(1500);
+    assert.deepEqual((await sentMessages()).map((m) => m.token), ['token-bob']);
+
+    // bob が退出（メンバー文書が無い）したあとは、bob の端末には送らない
+    await clearCollection('_emulatorSentMessages');
+    await db.doc(`groups/${GROUP}/members/${bob.uid}`).delete();
+    await db.doc(`groups/${GROUP}/items/item-11`).set(item(alice.uid));
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0);
+  });
+
+  it('Build 8：同じ出来事が2回届いても（再試行）、通知の記録に出来事の ID が残り、2回は送らない', async () => {
+    await addMembersAndDevices();
+    await db.doc(`groups/${GROUP}/items/item-12`).set(item(alice.uid));
+    await waitFor(async () => (await sentMessages()).length > 0);
+    const log = await waitFor(async () => {
+      const snap = await db.doc(`groups/${GROUP}/notificationLog/item-12`).get();
+      return snap.exists ? snap.data() : null;
+    });
+    assert.ok(log);
+    assert.equal(typeof log.lastEventID, 'string', '出来事の ID を記録する');
+    assert.deepEqual(Object.keys(log).sort(), ['lastEventID', 'lastSentAt'], '通知の記録に項目名・UID を入れない');
   });
 });

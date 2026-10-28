@@ -3,7 +3,7 @@ import UIKit
 
 /// 通知の設定。予定・やること・保証書の通知は、この iPhone の中で予約するローカル通知（外部へは送らない）。
 /// 2026-10-17：予定10分前・未完了タスク20時を追加。通知の許可が未確認なら、この画面を開いたときにお願いする。
-/// 「共有の更新」は、本物のパートナー同期ができるまで使えない（Push 通知は未接続）。
+/// 共有の通知（プッシュ通知）の設定は「わが家の設定」にある（2026-10-28 Build 8）。
 struct NotificationSettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(LifeStore.self) private var store
@@ -11,14 +11,6 @@ struct NotificationSettingsView: View {
 
     /// 通知が許可されているか（未確認なら nil）
     @State private var isAuthorized: Bool?
-
-    /// 本物のメンバー参加が確認できるまでは、オフとして表示する（保存されている値は変えない）
-    private var sharedUpdatesBinding: Binding<Bool> {
-        Binding(
-            get: { appState.canUseSharedUpdates && appState.notificationSettings.sharedUpdates },
-            set: { appState.notificationSettings.sharedUpdates = $0 }
-        )
-    }
 
     var body: some View {
         @Bindable var appState = appState
@@ -38,16 +30,9 @@ struct NotificationSettingsView: View {
                         isOn: $appState.notificationSettings.taskReminder
                     )
                     LifeDivider()
-                    // パートナー共有（2026-10-11）：本物のメンバー参加が確認できた場合だけ使える（仕様 7-7）。
-                    // まだ同期していないのに届くと誤解されないよう、それまでは切り替えられない
-                    SettingsToggleRow(
-                        title: "共有の更新",
-                        detail: appState.canUseSharedUpdates
-                            ? "共有メンバーが追加・変更したときにお知らせします"
-                            : "パートナーが参加して同期が始まると使えます（いまは同期していません）",
-                        isOn: sharedUpdatesBinding
-                    )
-                    .disabled(!appState.canUseSharedUpdates)
+                    // 共有の通知（2026-10-28 Build 8）：設定は「共有用アカウント → わが家 → わが家の設定」の1か所だけ。
+                    // ここでは案内だけを出す（以前の「共有の更新」の切り替えは、端末の登録が無く使えなかったので置き換えた）
+                    SettingsValueRow(title: "共有の通知", value: "わが家の設定で")
                     LifeDivider()
                     // 保証書管理（2026-10-13）：Premium の保証書の期限（30日前・7日前・当日 9:00）。端末内の通知
                     SettingsToggleRow(
@@ -69,7 +54,7 @@ struct NotificationSettingsView: View {
                 }
             }
 
-            SettingsNote(text: "予定・やること・保証書のお知らせは、この iPhone の中で予約します（外部のサービスには送りません）。「共有の更新」は、パートナーとの同期ができるようになるまで使えません。設定はこの端末の中に保存されます。")
+            SettingsNote(text: "予定・やること・保証書のお知らせは、この iPhone の中で予約します（外部のサービスには送りません）。パートナーが共有のToDo・買い物を変えたときの「共有の通知」は、プロフィール →「共有用アカウント・わが家」→「わが家の設定」で選べます（初期値はオフ）。設定はこの端末の中に保存されます。")
         }
         .task {
             await refreshAuthorization(askIfNeeded: true)

@@ -59,3 +59,15 @@ test('使えなくなったトークンだけを削除の対象にする', () =>
   ];
   assert.deepEqual(devicesToRemove(recipients, responses), [{ uid: 'bob', deviceID: 'b2' }]);
 });
+
+test('Build 8：本人の端末と同じトークンは、相手の端末として登録されていても送らない', () => {
+  const recipients = selectRecipients({
+    memberUIDs: ['alice', 'bob'],
+    actorUID: 'alice',
+    devicesByUID: {
+      alice: [device('a1', 'shared-phone-token')],
+      bob: [device('b1', 'shared-phone-token'), device('b2', 'tb2')],
+    },
+  });
+  assert.deepEqual(recipients.map((r) => r.token), ['tb2']);
+});

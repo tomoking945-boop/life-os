@@ -34,6 +34,8 @@ enum AppTab: Hashable, CaseIterable {
 @Observable
 final class AppState {
     var selectedTab: AppTab = .today
+    /// 共有の通知をタップしたとき、「やること」で開く切り替え（2026-10-28 Build 8）。保存しない。画面が受け取ったら nil に戻す
+    var pendingTasksSegment: TaskSegment?
     /// 今日・カレンダーで共通の「すべて / 自分 / 共有」フィルター
     /// TODO: 今日とカレンダーでフィルターを共有するか、画面ごとに持つかは仕様未定。現状は共有。
     var scope: ScopeFilter = .all

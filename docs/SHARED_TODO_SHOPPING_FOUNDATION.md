@@ -148,7 +148,7 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 | 1回の更新で重複しない | 同じ項目は30秒以内に1回だけ（`notificationLog` のトランザクション）・同じトークンは1回・`apns-collapse-id` |
 | 個人項目では通知しない | 個人項目は Firestore に無いので、通知の処理が動かない。決まっていない種類・更新者の無い文書も送らない |
 | 秘密情報を含めない | 内容の表示を許可していない端末には「共有情報が更新されました」だけ。UID・メール・トークンは本文に入れない（データには文書の ID だけ） |
-| 準備の状況 | **アプリはまだ端末（FCM トークン）を登録していない**ため、宛先が0件になり、実際の通知は送られない。Function は公開済みのまま変えない（変える必要がないため公開もしない）。通知の記録（`notificationLog`）は項目ごとに1つでき、わが家の削除で一緒に消える |
+| 準備の状況 | （Build 7 の時点）**アプリはまだ端末（FCM トークン）を登録していない**ため、宛先が0件になり、実際の通知は送られない。Build 8 で端末の登録と通知の文面を変えた（[SHARED_PUSH_NOTIFICATIONS.md](SHARED_PUSH_NOTIFICATIONS.md)）。Function は公開済みのまま変えない（変える必要がないため公開もしない）。通知の記録（`notificationLog`）は項目ごとに1つでき、わが家の削除で一緒に消える |
 
 ## 既存データの扱い
 
@@ -224,6 +224,15 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 1. `firebase/functions` で `npm install`、`npm test`（目安：単体 73・Rules 55・Functions 37・アカウント削除 20、すべて `# fail 0`）
 2. `LifeOS.xcodeproj` を開き、⌘U（**357件の予定**・失敗0件）
 3. Edit Scheme で Run を Release にして ⌘B（確かめたら Debug に戻す）
+
+## Build 7 の結果（2026-10-28、池上さんの報告）
+
+| 項目 | 結果 |
+| --- | --- |
+| TestFlight | Build 7 が「テスト中」になった |
+| 2台の実機での確認 | 共有 ToDo・買い物の動作確認が完了した（細かな確認の内容・件数は報告なし。ここには推測で書かない） |
+| 本番公開 | Functions と Firestore のルールを公開済み |
+| プッシュ通知 | 端末（通知用のトークン）の登録が未実装だったため、Build 7 では届かない。Build 8 で対応（[SHARED_PUSH_NOTIFICATIONS.md](SHARED_PUSH_NOTIFICATIONS.md)） |
 
 ## 2台での確認の計画（別々の Apple ID：A＝オーナー、B＝パートナー）
 

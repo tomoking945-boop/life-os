@@ -2,7 +2,7 @@
 
 /**
  * 通知の宛先を選ぶ（仕様 5・6）。
- * - 操作した本人（の、すべての端末）には送らない
+ * - 操作した本人（の、すべての端末）には送らない。本人の端末と同じトークンにも送らない
  * - 通知を許可していない端末・「共有の更新」を切っている端末には送らない
  * - 同じトークンは1回だけ
  */
@@ -12,7 +12,13 @@
  * @returns {Array<{uid: string, deviceID: string, token: string, showsPreview: boolean}>}
  */
 function selectRecipients({ memberUIDs, actorUID, devicesByUID }) {
-  const seen = new Set();
+  // 操作した本人の端末のトークン（同じ iPhone を別の人がサインインして使った後などで、トークンが重なっても本人へ送らない。2026-10-28）
+  const actorTokens = new Set(
+    ((devicesByUID && devicesByUID[actorUID]) || [])
+      .map((device) => device && device.fcmToken)
+      .filter((token) => typeof token === 'string' && token)
+  );
+  const seen = new Set(actorTokens);
   const result = [];
   for (const uid of memberUIDs || []) {
     if (!uid || uid === actorUID) continue;

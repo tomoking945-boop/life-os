@@ -9,6 +9,8 @@ struct PartnerAccountView: View {
     var household: HouseholdService = .live
     /// 「なんでも追加」を出すか（招待の確認画面の中では出さない）
     var showsQuickAdd = true
+    /// 共有の通知（2026-10-28 Build 8）：サインアウトの前に、この端末の登録を消す
+    var push: SharedPushService = .live
     /// 削除の確認画面を出しているか（画面の中だけの状態。削除の処理はこの値に関係なく動く）
     @State private var isConfirmingDeletion = false
 
@@ -42,6 +44,7 @@ struct PartnerAccountView: View {
         ) {
             // 確定したときだけ削除する。確認画面が閉じる処理の順番には関係しない
             Button("アカウントを削除", role: .destructive) {
+                // 通知の端末の文書は、アカウント削除のあとのサーバーの整理（users/{uid} を丸ごと消す）で消える
                 Task { await auth.deleteAccount() }
             }
             // やめる・確認画面を閉じたときは、何もしない
@@ -101,7 +104,11 @@ struct PartnerAccountView: View {
             )
             HouseholdSection(household: household)
             LifeButton("サインアウト", systemImage: "rectangle.portrait.and.arrow.right", kind: .secondary) {
-                auth.signOut()
+                // 先に、この端末の通知の登録を消してからサインアウトする（決まった時間だけ待つ。消せなくてもサインアウトする）
+                Task {
+                    await push.prepareForSignOut()
+                    auth.signOut()
+                }
             }
             LifeButton("アカウントを削除", systemImage: "trash", kind: .destructive) {
                 isConfirmingDeletion = true

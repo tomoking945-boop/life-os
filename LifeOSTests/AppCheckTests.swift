@@ -137,9 +137,12 @@ final class NoFirestoreWritesTests: XCTestCase {
         var swiftFiles = 0
         var offenders: [String] = []
         var backendText: String?
+        var deviceRegistryText: String?
         let forbidden = ["import FirebaseFirestore", "Firestore.firestore(", ".setData(", ".addDocument(", ".updateData("]
         // 2026-10-28（Build 7）：Firestore を使ってよいのは、わが家の共有 ToDo・買い物の窓口のファイルだけ
+        // 2026-10-28（Build 8）：共有の通知の端末の文書（自分の users/{uid}/devices）の窓口も
         let allowedFile = "FirestoreSharedItemsBackend.swift"
+        let deviceRegistryFile = "FirestoreDeviceRegistry.swift"
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             swiftFiles += 1
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -147,12 +150,27 @@ final class NoFirestoreWritesTests: XCTestCase {
                 backendText = text
                 continue
             }
+            if url.lastPathComponent == deviceRegistryFile {
+                deviceRegistryText = text
+                continue
+            }
             for word in forbidden where text.contains(word) {
                 offenders.append("\(url.lastPathComponent): \(word)")
             }
         }
         try XCTSkipIf(swiftFiles == 0, "アプリのソースを読めない環境のため、確認を省きます")
-        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift だけ")
+        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift と FirestoreDeviceRegistry.swift だけ")
+
+        // 端末の窓口が読み書きするのは、自分の users/{uid}/devices/{deviceID} だけ。決まった項目だけを書く
+        let registry = try XCTUnwrap(deviceRegistryText, "FirestoreDeviceRegistry.swift が見つからない")
+        XCTAssertEqual(Set(Self.matches(of: #"\.collection\("([^"]+)"\)"#, in: registry)), ["users", "devices"])
+        XCTAssertTrue(registry.contains("collection(\"users\").document(uid).collection(\"devices\")"), "自分の UID の下だけ")
+        XCTAssertTrue(registry.contains("Auth.auth().currentUser?.uid"), "UID はサインインの情報から読む（ほかの人を指定できない）")
+        let fieldKeys = Set(Self.matches(of: #"^\s*"([A-Za-z]+)": "#, in: registry, options: [.anchorsMatchLines]))
+        XCTAssertEqual(fieldKeys, ["fcmToken", "platform", "notificationsEnabled", "sharedUpdatesEnabled", "showsPreview", "updatedAt"], "端末の文書は決まった項目だけ")
+        for word in ["print(", "NSLog", "os_log", "Logger(", "localizedDescription", "collectionGroup", ".addDocument(", "identifierForVendor", "advertisingIdentifier"] {
+            XCTAssertFalse(registry.contains(word), "端末の窓口：\(word)")
+        }
 
         // その窓口が読み書きするのは groups/{groupID}/items だけ（ほかの場所・一括の追加・別のコレクションは使わない）
         let backend = try XCTUnwrap(backendText, "FirestoreSharedItemsBackend.swift が見つからない")
@@ -167,8 +185,8 @@ final class NoFirestoreWritesTests: XCTestCase {
         }
     }
 
-    private static func matches(of pattern: String, in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    private static func matches(of pattern: String, in text: String, options: NSRegularExpression.Options = []) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return [] }
         return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
             Range(match.range(at: 1), in: text).map { String(text[$0]) }
         }

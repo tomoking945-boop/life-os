@@ -12,5 +12,11 @@
 	</array>
 	<key>com.apple.developer.devicecheck.appattest-environment</key>
 	<string>production</string>
+	<!--
+	共有の通知（Push Notifications。2026-10-28 Build 8。docs/SHARED_PUSH_NOTIFICATIONS.md）。
+	Xcode で実行するときは development（APNs のサンドボックス）。TestFlight・App Store 用に書き出すと、Xcode が production に置き換える
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

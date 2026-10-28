@@ -63,6 +63,19 @@ final class TasksViewModel {
         store.isHouseholdItem(item.id)
     }
 
+    // MARK: - 共有の通知から開いたとき（2026-10-28 Build 8）
+
+    /// 共有の通知をタップしたときに開く切り替え（AppState から）
+    var requestedSegment: TaskSegment? { appState.pendingTasksSegment }
+
+    /// 通知から開いたとき：ToDo は「今日」、買い物は「買い物」、未完了を出す。項目は変えない
+    func applyRequestedSegment() {
+        guard let segment = appState.pendingTasksSegment else { return }
+        self.segment = segment
+        completion = .incomplete
+        appState.pendingTasksSegment = nil
+    }
+
     // MARK: - 編集（名前・保存先・削除。2026-10-28）
 
     var editingItem: LifeItem?

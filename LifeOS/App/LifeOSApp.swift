@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct LifeOSApp: App {
+    /// 共有の通知（2026-10-28 Build 8）：APNs のトークンの受け取りと、通知をタップしたとき（AppDelegate.swift）
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // 端末内に保存したデータを読み込んで始める。
     // はじめての設定（2026-10-09）：先に AppState を読み込み、初回設定が終わっていない（新しく使い始める）人は、
     // 保存データが無ければ空のデータから始める（見本の Mock データは入れない）。以前から使っている人は保存データをそのまま読む。

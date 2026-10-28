@@ -51,15 +51,19 @@ service cloud.firestore {
         && (!('sharedMigrationCompletedAt' in request.resource.data)
             || isNullOrTimestamp(request.resource.data.sharedMigrationCompletedAt));
 
-      // 通知の宛先（端末ごと）。ドキュメント ID はトークンのハッシュ
+      // 通知の宛先（端末ごと）。ドキュメント ID はアプリを入れるたびに作るランダムな ID（2026-10-28 Build 8。
+      // 広告の識別子・端末固有の番号は使わない。docs/SHARED_PUSH_NOTIFICATIONS.md）
       match /devices/{deviceID} {
         allow read, delete: if isSelf(uid);
         allow create, update: if isSelf(uid)
+          && deviceID.matches('^[A-Za-z0-9_-]{1,128}$')
           && request.resource.data.keys().hasOnly([
             'fcmToken', 'platform', 'notificationsEnabled', 'sharedUpdatesEnabled', 'showsPreview', 'updatedAt'
           ])
           && request.resource.data.keys().hasAll(['fcmToken', 'platform', 'notificationsEnabled', 'sharedUpdatesEnabled', 'updatedAt'])
           && isShortText(request.resource.data.fcmToken, 4096)
+          // トークンは決まった文字だけ（空白・改行・記号の入った値を拒否。2026-10-28）
+          && request.resource.data.fcmToken.matches('^[A-Za-z0-9:_-]+$')
           && request.resource.data.platform == 'ios'
           && request.resource.data.notificationsEnabled is bool
           && request.resource.data.sharedUpdatesEnabled is bool

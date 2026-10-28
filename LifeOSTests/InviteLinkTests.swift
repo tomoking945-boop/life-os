@@ -392,7 +392,10 @@ final class InviteLinkConfigurationTests: XCTestCase {
             "com.apple.developer.applesignin",
             "com.apple.developer.devicecheck.appattest-environment",
             "com.apple.developer.associated-domains",
+            // 2026-10-28（Build 8）：共有の通知（Push Notifications）。docs/SHARED_PUSH_NOTIFICATIONS.md
+            "aps-environment",
         ])
+        XCTAssertEqual(entitlements["aps-environment"] as? String, "development", "TestFlight 用の書き出しで Xcode が production にする")
     }
 
     /// Debug・Release とも同じ entitlements と Info.plist を使う。テストのターゲットには付けない
@@ -474,7 +477,10 @@ final class InviteLinkConfigurationTests: XCTestCase {
         XCTAssertEqual(types.count, 1)
         XCTAssertEqual(types[0]["CFBundleURLSchemes"] as? [String], [InviteLink.appScheme])
         XCTAssertEqual(InviteLink.appScheme, "com.tomoking945boop.lifeos", "Bundle ID と同じ名前（ほかのアプリと重なりにくい）")
-        XCTAssertEqual(Set(info.keys), ["CFBundleURLTypes"], "ほかの設定は Xcode が作る（GENERATE_INFOPLIST_FILE）")
+        // 2026-10-28（Build 8）：共有の通知のため、Firebase Messaging の自動の開始と自動の置き換えを止める2つを追加
+        XCTAssertEqual(Set(info.keys), ["CFBundleURLTypes", "FirebaseMessagingAutoInitEnabled", "FirebaseAppDelegateProxyEnabled"], "ほかの設定は Xcode が作る（GENERATE_INFOPLIST_FILE）")
+        XCTAssertEqual(info["FirebaseMessagingAutoInitEnabled"] as? Bool, false, "オンにするまでトークンを作らない")
+        XCTAssertEqual(info["FirebaseAppDelegateProxyEnabled"] as? Bool, false)
         // 案内ページのボタンも同じ名前を使う
         let page = try read("firebase/hosting/invite/invite.js")
         XCTAssertTrue(page.contains("var APP_SCHEME = '\(InviteLink.appScheme)';"))

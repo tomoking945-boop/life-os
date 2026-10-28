@@ -608,3 +608,69 @@ describe('共有 ToDo・買い物（Build 7）', () => {
     await assertFails(deleteDoc(doc(as('alice'), `groups/${GROUP}`)));
   });
 });
+
+// MARK: - 共有の通知の端末（2026-10-28 Build 8）。docs/SHARED_PUSH_NOTIFICATIONS.md
+
+describe('共有の通知の端末（Build 8）', () => {
+  const DEVICE_ID = '6F1C2B7E-3D4A-4C5B-9E8F-0A1B2C3D4E5F';
+  const device = (overrides = {}) => ({
+    fcmToken: 'fcm-token_abc:DEF-123', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true,
+    showsPreview: false, updatedAt: serverTimestamp(), ...overrides,
+  });
+
+  it('自分の端末だけ作成・更新（トークンの更新・項目名の表示の切り替え）・削除できる', async () => {
+    const ref = doc(as('alice'), `users/alice/devices/${DEVICE_ID}`);
+    await assertSucceeds(setDoc(ref, device()));
+    await assertSucceeds(setDoc(ref, device({ fcmToken: 'fcm-token-new' })));
+    await assertSucceeds(setDoc(ref, device({ showsPreview: true })));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('他人の端末は読めない・書けない・消せない', async () => {
+    await assertFails(setDoc(doc(as('bob'), `users/alice/devices/${DEVICE_ID}`), device()));
+    await assertFails(getDoc(doc(as('alice'), 'users/bob/devices/device-1')));
+    await assertFails(updateDoc(doc(as('alice'), 'users/bob/devices/device-1'), { showsPreview: true, updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(as('alice'), 'users/bob/devices/device-1')));
+    await assertFails(getDocs(collection(as('alice'), 'users/bob/devices')));
+  });
+
+  it('サインインしていなければ、作成・読み取り・削除できない', async () => {
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(anon, `users/alice/devices/${DEVICE_ID}`), device()));
+    await assertFails(getDoc(doc(anon, 'users/bob/devices/device-1')));
+    await assertFails(deleteDoc(doc(anon, 'users/bob/devices/device-1')));
+  });
+
+  it('決まっていない項目（UID・メール・項目名・端末の名前など）を足せない', async () => {
+    const db = as('alice');
+    for (const [key, value] of [['uid', 'alice'], ['email', 'a@example.com'], ['itemTitle', '洗剤'], ['deviceName', 'iPhone'], ['advertisingID', 'x']]) {
+      await assertFails(setDoc(doc(db, `users/alice/devices/${DEVICE_ID}`), device({ [key]: value })), key);
+    }
+  });
+
+  it('型・長さ・形が正しくなければ拒否（トークン・設定・端末・時刻・端末 ID）', async () => {
+    const db = as('alice');
+    const ref = doc(db, `users/alice/devices/${DEVICE_ID}`);
+    await assertFails(setDoc(ref, device({ fcmToken: '' })));
+    await assertFails(setDoc(ref, device({ fcmToken: 'a'.repeat(4097) })));
+    await assertFails(setDoc(ref, device({ fcmToken: 'token with space' })));
+    await assertFails(setDoc(ref, device({ fcmToken: 123 })));
+    await assertFails(setDoc(ref, device({ platform: 'android' })));
+    await assertFails(setDoc(ref, device({ notificationsEnabled: 'yes' })));
+    await assertFails(setDoc(ref, device({ sharedUpdatesEnabled: 1 })));
+    await assertFails(setDoc(ref, device({ showsPreview: 'true' })));
+    await assertFails(setDoc(ref, device({ updatedAt: Timestamp.fromDate(new Date('2020-01-01T00:00:00Z')) })));
+    const { fcmToken, ...withoutToken } = device();
+    assert.equal(typeof fcmToken, 'string');
+    await assertFails(setDoc(ref, withoutToken));
+    await assertFails(setDoc(doc(db, `users/alice/devices/${'x'.repeat(129)}`), device()));
+    await assertFails(setDoc(doc(db, 'users/alice/devices/bad id'), device()));
+  });
+
+  it('端末の情報からは、共有項目・メンバーの権限は広がらない', async () => {
+    await assertSucceeds(setDoc(doc(as('mallory'), `users/mallory/devices/${DEVICE_ID}`), device()));
+    await assertFails(getDocs(collection(as('mallory'), `groups/${GROUP}/items`)));
+    await assertFails(getDocs(collectionGroup(as('mallory'), 'devices')));
+  });
+});

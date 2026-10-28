@@ -75,6 +75,9 @@ struct TasksView: View {
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        // 共有の通知をタップして開いたとき（2026-10-28 Build 8）
+        .onAppear { viewModel.applyRequestedSegment() }
+        .onChange(of: viewModel.requestedSegment) { viewModel.applyRequestedSegment() }
         .sheet(item: $viewModel.editingItem) { item in
             LifeItemEditSheet(item: item, store: viewModel.storeForEditing)
                 .lifeSheetPresentation()

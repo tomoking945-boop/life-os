@@ -22,5 +22,14 @@
 			</array>
 		</dict>
 	</array>
+	<!--
+	共有の通知（2026-10-28 Build 8。docs/SHARED_PUSH_NOTIFICATIONS.md）
+	- FirebaseMessagingAutoInitEnabled = NO：利用者が「共有の通知を受け取る」をオンにするまで、通知用のトークンを作らない・送らない
+	- FirebaseAppDelegateProxyEnabled = NO：Firebase にアプリの処理を自動で置き換えさせない（APNs のトークンはアプリが自分で渡す）
+	-->
+	<key>FirebaseMessagingAutoInitEnabled</key>
+	<false/>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
 </dict>
 </plist>

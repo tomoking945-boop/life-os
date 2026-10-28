@@ -209,6 +209,8 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
   if (!decision.notify) return;
 
   const { groupID, itemID } = event.params;
+  // Functions の再試行で同じ出来事が2回届いても、2回は送らない（出来事の ID を通知の記録に残す。2026-10-28）
+  const eventID = typeof event.id === 'string' ? event.id : null;
 
   // 30秒以内の同じ項目はまとめる（2回目以降は送らない）
   const logRef = db.doc(`groups/${groupID}/notificationLog/${itemID}`);
@@ -218,9 +220,11 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
     const groupSnap = await transaction.get(db.doc(`groups/${groupID}`));
     if (!groupSnap.exists) return false;
     const snap = await transaction.get(logRef);
+    if (snap.exists && eventID && snap.data().lastEventID === eventID) return false;
     const last = snap.exists ? toMillis(snap.data().lastSentAt) : null;
     if (!shouldSend(last, now)) return false;
-    transaction.set(logRef, { lastSentAt: Timestamp.fromMillis(now) });
+    // 記録を先に書いてから送る（送ったあとで失敗・再試行しても、もう一度は送らない＝重複より取りこぼしを選ぶ）
+    transaction.set(logRef, { lastSentAt: Timestamp.fromMillis(now), lastEventID: eventID });
     return true;
   });
   if (!allowed) return;
@@ -230,10 +234,10 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
   // 操作した本人が今もメンバーでなければ送らない（退出後の書き込みはルールで拒否されるが念のため）
   if (!memberUIDs.includes(decision.actorUID)) return;
 
+  // 本人の端末も読む（本人と同じトークンを宛先から除くため。本人には送らない）
   const devicesByUID = {};
   await Promise.all(
     memberUIDs
-      .filter((memberUID) => memberUID !== decision.actorUID)
       .map(async (memberUID) => {
         const devices = await db.collection(`users/${memberUID}/devices`).get();
         devicesByUID[memberUID] = devices.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -245,9 +249,9 @@ exports.onSharedItemWritten = onDocumentWritten('groups/{groupID}/items/{itemID}
 
   const messages = recipients.map((recipient) => ({
     token: recipient.token,
-    notification: buildMessage(decision.type, after.title, recipient.showsPreview),
-    // 通知をタップしたとき、アプリが該当の項目を開くための情報（項目名は入れない）
-    data: { groupID, itemID, type: decision.type },
+    notification: buildMessage(decision.type, after, recipient.showsPreview),
+    // 通知をタップしたとき、アプリが「やること」「買い物」を開くための情報（項目名・UID は入れない）
+    data: { groupID, itemID, type: decision.type, kind: after.kind },
     apns: {
       headers: { 'apns-collapse-id': collapseID(groupID, itemID) },
       payload: { aps: { sound: 'default', 'thread-id': groupID } },
