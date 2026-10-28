@@ -192,7 +192,8 @@ struct SharedSyncCheck: Equatable {
     }
 
     var isSignedIn: Bool
-    /// サインインの情報（ID トークン）を新しくできるか（Authentication の App Check の強制適用などで失敗すると、Firestore からは未サインインに見える）
+    /// Firebase Authentication の ID トークンを新しくできるか（App Check のトークンとは別のもの。
+    /// ID トークンが無い・期限切れ・更新できないときは、Firestore で未認証や権限エラーになることがある）
     var tokenRefresh: Step
     /// わが家の文書を読めるか（メンバーなら読める）
     var groupRead: Step

@@ -46,9 +46,32 @@ Build 7（`319ce63`）と Build 8（`7557637`）を比べ、次を確かめま�
 - このリポジトリのルールでは、パートナーの作成・更新は許されています。Mac の Rules Emulator の既存のテスト（bob＝パートナーが作成・更新）も成功しています。今回、オーナーとパートナーの両方について、ToDo・買い物の作成・更新のテストを足しました
 - したがって、実機で断られた理由は、**リポジトリのコードからは1つに決められません**。推測で直すことはしていません。考えられるのは次のどれかです：
   - 本番に公開されているルールが、リポジトリの `firestore.rules` と違う（別のフォルダから公開した など）
-  - パートナーの iPhone で、サインインの情報（ID トークン）を新しくできない（Authentication の App Check の強制適用は有効。トークンを新しくできないと、Firestore からは「サインインしていない人」に見える）
+  - パートナーの iPhone で、Firebase Authentication の ID トークンが無い・期限切れ・更新できない（このとき Firestore では未認証や権限エラーになることがある。下の「認証と App Check の整理」）
+  - Cloud Firestore の App Check の強制適用が有効で、その iPhone の App Check のリクエストが無効と判断された（強制適用がいまどうなっているかは、Console で確かめていないため推測しない）
   - 本番のデータが想定と違う（パートナーのメンバー文書・わが家の「共有する種類」）
 - Build 9 では、これを実機で確かめられるように「わが家の設定 → 共有の状態を確かめる」を追加しました（下）。Build 9 を入れたパートナーの iPhone で押すと、どこで止まっているかが分かります
+
+## 認証と App Check の整理（原因を考えるときの前提）
+
+1. Firebase Authentication の **ID トークン** と、**App Check のトークン** は別のもの
+2. Firestore のルールの `request.auth` は、Firebase Authentication の認証の情報（ID トークン）から作られる
+3. 「Authentication の App Check の強制適用」と「Cloud Firestore の App Check の強制適用」は、Console の別々の設定
+4. Authentication 側の App Check の失敗だけを理由に、Firestore の `request.auth` が null になるとは決めつけない
+5. ID トークンが無い・期限切れ・更新に失敗した場合は、Firestore で未認証、または権限エラーになることがある
+6. Cloud Firestore の App Check が強制適用されている場合は、無効な App Check のリクエストが、ルールとは別に拒否される
+7. いまの Console の「Cloud Firestore の App Check の強制適用」がオンかオフかは、今回確かめていないので推測しない（2026-10-20 の監査の時点では無効だった：[FIRESTORE_SHARING_RULES_AUDIT.md](FIRESTORE_SHARING_RULES_AUDIT.md)）
+8. Firestore のエラーコード 7 は「権限が拒否された」ことを示す。認証切れ・メンバーでない・入力の形・ルールの条件・App Check のどれなのかを、コード 7 だけで決めつけない
+
+「共有の状態を確かめる」は、これを切り分けるために、次を別々の行で表示する（`FirestoreSharedItemsBackend.diagnose`・`SharedSyncCheck.lines` で確認済み）：
+
+| 行 | 確かめ方 |
+| --- | --- |
+| サインイン | Firebase Authentication にサインインしている人がいるか（`Auth.auth().currentUser`） |
+| サインインの更新 | ID トークンを新しくできるか（`getIDTokenResult(forcingRefresh: true)`。トークンは保存・表示しない） |
+| わが家の読み取り | わが家の文書をサーバーから読めるか（読めたら、サーバーの共有する種類も読む） |
+| メンバーの登録 | 自分のメンバー文書をサーバーから読めるか・あるか（読めない「失敗」と、無い「見つかりません」を分ける） |
+| 共有項目の読み取り | 共有項目をサーバーから1件だけ読めるか |
+| サーバーの共有する種類 | わが家の設定でオンの種類（ToDo・買い物のうち） |
 
 ## 影響範囲
 
@@ -91,7 +114,24 @@ Build 7（`319ce63`）と Build 8（`7557637`）を比べ、次を確かめま�
 - ただし、本番に公開されているルールがリポジトリと同じかは、池上さんが Firebase Console → Firestore Database →「ルール」で確かめてください。次の言葉が入っていれば Build 8 のルールです：`kindIsEnabled`、`schemaVersion`、`deviceID.matches`
 - 違っていたら、main の `firestore.rules` を `firebase deploy --only firestore:rules` で公開し直すと直る見込みです（公開は許可のあとで）
 
-## Mac での確認
+## Mac での確認結果（2026-10-28、池上さんの報告）
+
+確認した commit：`1bf57e1`
+
+| テスト | 件数 | 失敗 | スキップ | 結果 |
+| --- | --- | --- | --- | --- |
+| サーバーの単体テスト | 74 | 0 | 0 | 成功 |
+| Firestore Rules | 70 | 0 | 0 | 成功 |
+| Functions | 43 | 0 | 0 | 成功 |
+| アカウント削除 | 20 | 0 | 0 | 成功 |
+| サーバーの合計 | 207 | 0 | 0 | 成功 |
+| Xcode のテスト | 未報告 | 0 | 未報告 | Test Succeeded |
+| Release ビルド | — | — | — | 成功 |
+
+Xcode の件数・スキップ数は報告が無いため書いていません（下の表の 385 は予定の件数）。
+このあと、`HouseholdItems.swift` のコメント1か所だけを、上の「認証と App Check の整理」に合わせて直しました（動きは変わりません）。
+
+## Mac での確認の手順
 
 1. `firebase/functions` で `npm test`（目安：単体 74・Rules 70・Functions 43・アカウント削除 20、すべて `# fail 0`）
    - Rules の件数は、オーナーとパートナーで同じテストを2回ずつ行う分を含めて 70
@@ -103,8 +143,8 @@ Build 7（`319ce63`）と Build 8（`7557637`）を比べ、次を確かめま�
 Build 9 を TestFlight で2台に入れてから行います。
 
 1. B：わが家の設定 →「共有の状態を確かめる」→ 結果をメモする（全部「OK」で、共有する種類に ToDo・買い物が出るか）
-   - 「サインインの更新：失敗」→ サインインの情報を新しくできない（App Check・Authentication 側）
-   - 「わが家の読み取り」「共有項目の読み取り」が「失敗（コード 7）」→ ルールかメンバーの登録の問題
+   - 「サインインの更新：失敗」→ Firebase Authentication の ID トークンを新しくできない（このままだと Firestore で未認証・権限エラーになることがある。理由は番号だけでは決めつけない）
+   - 「わが家の読み取り」「共有項目の読み取り」が「失敗（コード 7）」→ 権限が拒否された。コード 7 だけでは、認証切れ・メンバーでない・Firestore の App Check・ルールの条件のどれかを決められないので、ほかの行（サインインの更新・メンバーの登録）とあわせて見る
    - 「メンバーの登録：見つかりません」→ メンバー文書が無い
 2. A も同じく確かめる
 3. B：「わが家で共有」で ToDo を追加 → B の画面に共有マーク付きで残る → A に出る → A に通知が届く（B には届かない）
@@ -124,6 +164,8 @@ Build 9 を TestFlight で2台に入れてから行います。
 共有項目・メンバー・端末の Firestore のルール、Functions、索引、Hosting、Appleでサインイン、App Check の起動の順番、通知の登録の流れ、端末の個人データの保存の形、Version 1.0、`ITSAppUsesNonExemptEncryption = NO`。家計簿の共有は Build 10 へ延期（今回は実装しない）。
 
 ## テスト
+
+作業環境での実行（commit `1bf57e1` 時点の記録。Mac での結果は上）
 
 | テスト | 件数 | この作業環境 | 結果 |
 | --- | --- | --- | --- |
