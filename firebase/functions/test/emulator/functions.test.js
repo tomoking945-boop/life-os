@@ -442,6 +442,122 @@ describe('わが家：招待と参加', () => {
   });
 });
 
+describe('わが家：設定・削除・退出（2026-10-28）', () => {
+  /** オーナーがわが家を作り、パートナーが参加する（partner を省略するとオーナー1人） */
+  async function household({ withPartner = true, kinds = ['todo', 'shopping'] } = {}) {
+    const owner = await signUp('owner');
+    const created = await call('createHousehold', { name: 'わが家', sharedKinds: kinds }, owner.idToken);
+    assert.ok(created.result, JSON.stringify(created));
+    const groupID = created.result.household.groupID;
+    let partner = null;
+    if (withPartner) {
+      partner = await signUp('partner');
+      const token = tokenOf((await call('createInvite', {}, owner.idToken)).result.url);
+      assert.ok((await call('acceptInvite', { token }, partner.idToken)).result);
+    }
+    return { owner, partner, groupID };
+  }
+
+  it('わが家の情報に groupID を返す（UID は返さない）', async () => {
+    const { owner, groupID } = await household({ withPartner: false });
+    const view = (await call('getMyHousehold', {}, owner.idToken)).result.household;
+    assert.equal(view.groupID, groupID);
+    assert.ok(!JSON.stringify(view).includes(owner.uid));
+  });
+
+  it('名前と共有する種類は、オーナーもパートナーも変えられる。今後対応の種類は消さない', async () => {
+    const { owner, partner, groupID } = await household({ kinds: ['todo', 'shopping', 'money'] });
+    const byOwner = await call('updateHousehold', { name: '新しいわが家' }, owner.idToken);
+    assert.equal(byOwner.result.household.name, '新しいわが家');
+    const byPartner = await call('updateHousehold', { syncKinds: ['shopping'] }, partner.idToken);
+    assert.deepEqual(byPartner.result.household.sharedKinds, ['shopping', 'money'], '家計簿（今後対応）は残る');
+    const group = (await db.doc(`groups/${groupID}`).get()).data();
+    assert.deepEqual(group.sharedKinds, ['shopping', 'money']);
+    assert.equal(group.name, '新しいわが家');
+    // 送れない値・空の名前・何も送らない
+    assert.equal((await call('updateHousehold', { syncKinds: ['event'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
+    assert.equal((await call('updateHousehold', { name: '  ' }, owner.idToken)).error.details.reason, 'invalid-name');
+    assert.equal((await call('updateHousehold', {}, owner.idToken)).error.details.reason, 'invalid-update');
+    const stranger = await signUp('stranger');
+    assert.equal((await call('updateHousehold', { name: 'x' }, stranger.idToken)).error.details.reason, 'no-household');
+  });
+
+  it('種類をオフにしても、すでにある共有項目は消さない', async () => {
+    const { owner, groupID } = await household();
+    await db.doc(`groups/${groupID}/items/keep`).set({
+      title: '牛乳', kind: 'shopping', date: Timestamp.now(), hasTime: false, assigneeUID: null, isCompleted: false,
+      deferredTo: null, droppedAt: null, createdBy: owner.uid, updatedBy: null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    assert.ok((await call('updateHousehold', { syncKinds: ['todo'] }, owner.idToken)).result);
+    assert.ok((await db.doc(`groups/${groupID}/items/keep`).get()).exists);
+  });
+
+  it('1人のオーナーはわが家を削除できる（共有項目・メンバー・招待・通知の記録・memberships を消す。アカウントは残る）', async () => {
+    const { owner, groupID } = await household({ withPartner: false });
+    await call('createInvite', {}, owner.idToken);
+    await db.doc(`groups/${groupID}/items/i1`).set({ title: 'x', kind: 'todo', updatedBy: null });
+    await db.doc(`groups/${groupID}/notificationLog/i1`).set({ lastSentAt: Timestamp.now() });
+    const response = await call('deleteHousehold', {}, owner.idToken);
+    assert.deepEqual(response.result, { deleted: true }, JSON.stringify(response));
+    assert.equal((await db.doc(`groups/${groupID}`).get()).exists, false);
+    assert.deepEqual((await db.doc(`groups/${groupID}`).listCollections()).map((c) => c.id), []);
+    assert.equal((await db.collection('invites').where('groupID', '==', groupID).get()).size, 0);
+    assert.equal((await db.doc(`memberships/${owner.uid}`).get()).exists, false);
+    // アカウントは残っている（サインインのまま、新しく作れる）
+    assert.deepEqual((await call('getMyHousehold', {}, owner.idToken)).result, { household: null });
+    assert.ok((await call('createHousehold', { name: '次の家', sharedKinds: ['todo'] }, owner.idToken)).result);
+  });
+
+  it('2人いるときは、オーナーでも削除できない。パートナーは削除できない', async () => {
+    const { owner, partner, groupID } = await household();
+    assert.equal((await call('deleteHousehold', {}, owner.idToken)).error.details.reason, 'household-not-empty');
+    assert.equal((await call('deleteHousehold', {}, partner.idToken)).error.details.reason, 'not-owner');
+    assert.ok((await db.doc(`groups/${groupID}`).get()).exists);
+    assert.equal((await db.collection(`groups/${groupID}/members`).get()).size, 2);
+  });
+
+  it('パートナーは退出でき、わが家・オーナー・共有項目は残る。退出したあと別の招待へ参加できる', async () => {
+    const { owner, partner, groupID } = await household();
+    await db.doc(`groups/${groupID}/items/mine`).set({
+      title: '電池', kind: 'shopping', date: Timestamp.now(), hasTime: false, assigneeUID: partner.uid, isCompleted: false,
+      deferredTo: null, droppedAt: null, createdBy: partner.uid, updatedBy: null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    assert.deepEqual((await call('leaveHousehold', {}, partner.idToken)).result, { left: true });
+    assert.equal((await db.doc(`groups/${groupID}/members/${partner.uid}`).get()).exists, false);
+    assert.equal((await db.doc(`memberships/${partner.uid}`).get()).exists, false);
+    assert.ok((await db.doc(`groups/${groupID}/members/${owner.uid}`).get()).exists);
+    const item = (await db.doc(`groups/${groupID}/items/mine`).get()).data();
+    assert.equal(item.title, '電池', '共有項目は残る');
+    assert.equal(item.assigneeUID, null, '退出した人の担当は外す');
+    assert.deepEqual((await call('getMyHousehold', {}, partner.idToken)).result, { household: null });
+    assert.equal((await call('leaveHousehold', {}, partner.idToken)).error.details.reason, 'no-household');
+
+    // 別の招待へ参加できる
+    const other = await household({ withPartner: false });
+    const token = tokenOf((await call('createInvite', {}, other.owner.idToken)).result.url);
+    assert.ok((await call('acceptInvite', { token }, partner.idToken)).result);
+    // 元のオーナーはまた招待できる（1人に戻った）
+    assert.ok((await call('createInvite', {}, owner.idToken)).result);
+  });
+
+  it('オーナーは2人いるあいだ退出できない', async () => {
+    const { owner, groupID } = await household();
+    assert.equal((await call('leaveHousehold', {}, owner.idToken)).error.details.reason, 'owner-cannot-leave');
+    assert.equal((await db.collection(`groups/${groupID}/members`).get()).size, 2);
+  });
+
+  it('App Check が無い・サインインしていない管理の呼び出しは断られる', async () => {
+    const { owner, groupID } = await household({ withPartner: false });
+    for (const name of ['updateHousehold', 'deleteHousehold', 'leaveHousehold']) {
+      const payload = { name: 'x', syncKinds: ['todo'] };
+      assert.equal((await call(name, payload, owner.idToken, { appCheck: false })).error.status, 'UNAUTHENTICATED', `${name}：App Check なし`);
+      assert.equal((await call(name, payload)).error.status, 'UNAUTHENTICATED', `${name}：サインインなし`);
+    }
+    assert.ok((await db.doc(`groups/${groupID}`).get()).exists, '何も変わっていない');
+    assert.equal((await db.doc(`groups/${groupID}`).get()).data().name, 'わが家');
+  });
+});
+
 describe('共有更新の通知', () => {
   async function addMembersAndDevices() {
     const now = Timestamp.now();

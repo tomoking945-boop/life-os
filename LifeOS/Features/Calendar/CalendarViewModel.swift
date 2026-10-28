@@ -138,24 +138,8 @@ final class CalendarViewModel {
         return parts.joined(separator: "・")
     }
 
-    // MARK: - パートナーと共有（v2 1タップ家族招待）
-
-    /// 招待シートで見せる項目（パートナー未参加のとき）
-    var invitingItem: LifeItem?
-
-    /// 家族・パートナーモードの自分の項目だけ共有ボタンを出す
-    func canShare(_ item: LifeItem) -> Bool {
-        appState.usageStyle == .shared && item.ownership == .personal
-    }
-
-    /// 参加済みならすぐ共有、未参加なら招待を出す
-    func shareTapped(_ item: LifeItem) {
-        if appState.partnerJoined {
-            store.share(item.id)
-        } else {
-            invitingItem = item
-        }
-    }
+    // 予定の「パートナーと共有」ボタン（端末の中で印を付けるだけの Mock）は 2026-10-28 になくした。
+    // 予定の共有は今後対応（いま2台で同期できるのは ToDo・買い物だけ。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
 
     func toggle(_ item: LifeItem) {
         store.toggleCompletion(of: item.id)

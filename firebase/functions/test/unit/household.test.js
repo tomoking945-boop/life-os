@@ -10,8 +10,8 @@ const path = require('node:path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  SHARED_SPACE_KINDS, DEFAULT_SHARED_SPACE_KINDS, MAX_MEMBERS, DEFAULT_GROUP_NAME,
-  validateSharedKinds, validateGroupName, buildHouseholdSummary, buildInvitePreview, pickActiveInvite,
+  SHARED_SPACE_KINDS, SYNC_SUPPORTED_KINDS, DEFAULT_SHARED_SPACE_KINDS, MAX_MEMBERS, DEFAULT_GROUP_NAME,
+  validateSharedKinds, validateGroupName, planSharedKindsUpdate, buildHouseholdSummary, buildInvitePreview, pickActiveInvite,
 } = require('../../src/household');
 const { isActiveInvite } = require('../../src/invites');
 
@@ -56,8 +56,9 @@ describe('アプリに返す内容', () => {
   ];
 
   it('オーナーが見ると：オーナーが先・自分の印・有効な招待の期限。UID は入らない', () => {
-    const summary = buildHouseholdSummary(group, members, 'uid-owner', { expiresAt: 5000, createdBy: 'uid-owner' });
+    const summary = buildHouseholdSummary(group, members, 'uid-owner', { expiresAt: 5000, createdBy: 'uid-owner' }, 'group-1');
     assert.deepEqual(summary, {
+      groupID: 'group-1',
       name: '池上家',
       sharedKinds: ['todo', 'shopping'],
       isOwner: true,
@@ -118,5 +119,30 @@ describe('ログ・保存に出さないもの', () => {
   it('アプリへ返すエラーは、決まった理由（reason）だけ', () => {
     assert.match(index, /new HttpsError\(HOUSEHOLD_FAILURES\[error\.reason\], 'わが家の操作ができませんでした。', \{ reason: error\.reason \}\)/);
     assert.match(index, /new HttpsError\('internal', 'わが家の操作ができませんでした。', \{ reason: 'internal' \}\)/);
+  });
+});
+
+describe('わが家の設定：共有する種類の変更（2026-10-28）', () => {
+  it('いま同期できるのは ToDo・買い物だけ', () => {
+    assert.deepEqual(SYNC_SUPPORTED_KINDS, ['todo', 'shopping']);
+    assert.equal(Object.isFrozen(SYNC_SUPPORTED_KINDS), true);
+    for (const kind of SYNC_SUPPORTED_KINDS) assert.ok(SHARED_SPACE_KINDS.includes(kind));
+  });
+
+  it('ToDo・買い物だけを切り替え、保存されている「今後対応」の種類は消さない', () => {
+    assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping'], ['shopping']), { ok: true, kinds: ['shopping'] });
+    assert.deepEqual(planSharedKindsUpdate(['todo'], ['todo', 'shopping']), { ok: true, kinds: ['todo', 'shopping'] });
+    assert.deepEqual(planSharedKindsUpdate(['event', 'money', 'todo'], []), { ok: true, kinds: ['event', 'money'] }, '今後対応の種類は残す');
+    assert.deepEqual(planSharedKindsUpdate(['warranty', 'list'], ['shopping']), { ok: true, kinds: ['shopping', 'warranty', 'list'] });
+  });
+
+  it('今後対応の種類・知らない値・重複は送れない。1つも残らない変更は不可', () => {
+    for (const bad of [['event'], ['money'], ['todo', 'todo'], ['TODO'], 'todo', null, undefined, [1]]) {
+      assert.deepEqual(planSharedKindsUpdate(['todo'], bad), { ok: false, code: 'invalid-kinds' }, JSON.stringify(bad));
+    }
+    assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping'], []), { ok: false, code: 'invalid-kinds' });
+    assert.deepEqual(planSharedKindsUpdate(undefined, []), { ok: false, code: 'invalid-kinds' });
+    // 保存されている知らない値は数えない
+    assert.deepEqual(planSharedKindsUpdate(['unknown'], []), { ok: false, code: 'invalid-kinds' });
   });
 });

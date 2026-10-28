@@ -100,9 +100,9 @@ final class OnboardingTests: XCTestCase {
         let (state, store) = makeNewUser()
         let viewModel = OnboardingViewModel(appState: state, store: store, now: TestDates.friday)
         advanceToName(viewModel, usage: .shared)
-        XCTAssertTrue(viewModel.asksGroupName)
+        // 2026-10-28：端末の中だけの生活グループ名は聞かない（わが家は「共有用アカウント」で作る）
+        XCTAssertFalse(viewModel.asksGroupName)
         viewModel.name = "池上"
-        viewModel.groupName = "さくら家"
         XCTAssertTrue(viewModel.complete())
         XCTAssertEqual(state.usageStyle, .shared)
         XCTAssertTrue(state.usageStyle.showsScopeFilter)
@@ -135,26 +135,19 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(me.name, "池上")
     }
 
-    func testGroupNameIsSavedOnlyForShared() {
-        let (state, store) = makeNewUser()
-        let viewModel = OnboardingViewModel(appState: state, store: store, now: TestDates.friday)
-        advanceToName(viewModel, usage: .shared)
-        viewModel.name = "池上"
-        viewModel.groupName = " さくら家 "
-        XCTAssertTrue(viewModel.complete())
-        XCTAssertEqual(state.profile.groupName, "さくら家")
-        XCTAssertEqual(AppState.persistent().profile.groupName, "さくら家")
-
-        // 一人モードでは生活グループ名を聞かず、変えない
-        let solo = AppState()
-        solo.hasCompletedOnboarding = false
-        let soloModel = OnboardingViewModel(appState: solo, store: LifeStore.empty(), now: TestDates.friday)
-        advanceToName(soloModel, usage: .solo)
-        XCTAssertFalse(soloModel.asksGroupName)
-        soloModel.name = "池上"
-        soloModel.groupName = "使わない名前"
-        XCTAssertTrue(soloModel.complete())
-        XCTAssertEqual(solo.profile.groupName, MockData.profile.groupName)
+    /// 2026-10-28：家族・パートナーでも一人でも、端末の中だけの生活グループ名を聞かない・変えない
+    /// （端末の中のグループと Firebase の「わが家」が別々にできて迷うため。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+    func testGroupNameIsNoLongerAsked() {
+        for usage in [UsageStyle.shared, .solo] {
+            let state = AppState()
+            state.hasCompletedOnboarding = false
+            let viewModel = OnboardingViewModel(appState: state, store: LifeStore.empty(), now: TestDates.friday)
+            advanceToName(viewModel, usage: usage)
+            XCTAssertFalse(viewModel.asksGroupName)
+            viewModel.name = "池上"
+            XCTAssertTrue(viewModel.complete())
+            XCTAssertEqual(state.profile.groupName, MockData.profile.groupName, "端末の中のグループ名は変えない")
+        }
     }
 
     // MARK: - 9〜12. 最初の習慣

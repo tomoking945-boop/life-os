@@ -114,9 +114,12 @@ struct TodayView: View {
             }
         }
         .warrantyDestinations()
+        // 招待は Firebase の「わが家」だけ（2026-10-28）。プロフィールと同じ画面を開く
         .sheet(isPresented: $viewModel.isShowingInvite) {
-            SharingFlowView(item: viewModel.invitingItem, store: store)
-                .lifeSheetPresentation()
+            NavigationStack {
+                PartnerAccountView(auth: AuthService.live, showsQuickAdd: false)
+            }
+            .lifeSheetPresentation()
         }
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             animate { viewModel.postpone(item, to: option) }
@@ -332,17 +335,6 @@ struct TodayView: View {
                 }
             }
 
-            if viewModel.isNextEvent(item) && viewModel.canShare(item) {
-                Button {
-                    viewModel.shareTapped(item)
-                } label: {
-                    Label("パートナーと共有", systemImage: "person.2")
-                        .font(LifeTypography.footnote)
-                        .foregroundStyle(LifeColors.primary)
-                        .frame(minHeight: LifeSpacing.minTapTarget)
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 

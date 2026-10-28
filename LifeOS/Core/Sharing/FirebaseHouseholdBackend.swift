@@ -53,6 +53,24 @@ final class FirebaseHouseholdBackend: HouseholdBackend {
         return summary
     }
 
+    func updateHousehold(name: String?, syncKinds: [SharedSpaceKind]?) async throws -> HouseholdSummary {
+        var data: [String: Any] = [:]
+        if let name { data["name"] = name }
+        if let syncKinds { data["syncKinds"] = syncKinds.map(\.rawValue) }
+        let result = try await call("updateHousehold", data)
+        guard let dictionary = result as? [String: Any],
+              let summary = HouseholdSummary(payload: dictionary["household"]) else { throw HouseholdFailure.other }
+        return summary
+    }
+
+    func deleteHousehold() async throws {
+        _ = try await call("deleteHousehold", [:])
+    }
+
+    func leaveHousehold() async throws {
+        _ = try await call("leaveHousehold", [:])
+    }
+
     private func call(_ name: String, _ data: [String: Any]) async throws -> Any {
         do {
             return try await functions.httpsCallable(name).call(data).data

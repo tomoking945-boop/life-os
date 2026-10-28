@@ -381,32 +381,6 @@ final class LifeStore {
         save()
     }
 
-    // MARK: - 共有スターター
-
-    /// 二人の生活OSを30秒で作る：選んだものだけ反映する（どれも省略できる）
-    func applySharedStarter(trashWeekdays: [Int], frequentTitles: [String], commonEvent: (title: String, date: Date)?) {
-        if !trashWeekdays.isEmpty {
-            if let index = memories.firstIndex(where: { $0.title == "ゴミ" }) {
-                memories[index].rule = .weekdays(trashWeekdays.sorted())
-            } else {
-                memories.append(LifeMemory(title: "ゴミ", rule: .weekdays(trashWeekdays.sorted()), action: .notifyOnly))
-            }
-        }
-        for title in frequentTitles where !frequentPurchases.contains(where: { $0.title == title }) {
-            frequentPurchases.append(FrequentPurchase(title: title, categories: ShoppingCategorizer.categories(for: title)))
-        }
-        if let commonEvent {
-            items.append(LifeItem(
-                title: commonEvent.title,
-                kind: .event,
-                ownership: .shared,
-                date: LifeCalendar.startOfDay(commonEvent.date),
-                assignee: .either
-            ))
-        }
-        save()
-    }
-
     // MARK: - おまかせInbox
 
     /// 分類せずに「とりあえず保存」する

@@ -161,9 +161,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: LifeSpacing.lg) {
             question("あなたの名前を教えてください")
             textField("あなたの名前", text: $viewModel.name, field: .name, prompt: "名前")
-            if viewModel.asksGroupName {
-                textField("生活グループ名", text: $viewModel.groupName, field: .groupName, prompt: "例：わが家")
-                Text("家族やパートナーとの共有の情報を、この名前でまとめます。")
+            if viewModel.usageStyle == .shared {
+                Text("パートナーとの共有（わが家）は、あとでプロフィールの「共有用アカウント・わが家」から始められます。")
                     .font(LifeTypography.footnote)
                     .foregroundStyle(LifeColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

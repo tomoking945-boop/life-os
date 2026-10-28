@@ -81,6 +81,9 @@ const HOUSEHOLD_FAILURES = {
   'household-full': 'failed-precondition',
   'no-household': 'failed-precondition',
   'not-owner': 'permission-denied',
+  'invalid-update': 'invalid-argument',
+  'household-not-empty': 'failed-precondition',
+  'owner-cannot-leave': 'failed-precondition',
 };
 
 /** 処理を実行し、決まった理由のエラーだけをアプリへ返す（中身の情報・UID・トークンは返さない・ログに出さない） */
@@ -138,6 +141,30 @@ exports.getInvitePreview = onCall({ enforceAppCheck: true }, async (request) => 
   return runHousehold('getInvitePreview', async () => ({
     preview: await householdStore.getInvitePreview({ db, uid, token: data(request).token }),
   }));
+});
+
+// MARK: - わが家の設定・削除・退出（2026-10-28。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.updateHousehold = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('updateHousehold', async () => ({
+    household: await householdStore.updateHousehold({
+      db, FieldValue, uid, name: data(request).name, syncKinds: data(request).syncKinds,
+    }),
+  }));
+});
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.deleteHousehold = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('deleteHousehold', () => householdStore.deleteHousehold({ db, FieldValue, uid }));
+});
+
+// App Check 必須（正規のアプリから）＋サインイン必須（requireUID）
+exports.leaveHousehold = onCall({ enforceAppCheck: true }, async (request) => {
+  const uid = requireUID(request);
+  return runHousehold('leaveHousehold', () => householdStore.leaveHousehold({ db, FieldValue, uid }));
 });
 
 // App Check 必須（正規のアプリから）＋サインイン必須（requireUID）

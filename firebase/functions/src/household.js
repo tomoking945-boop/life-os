@@ -19,6 +19,12 @@ const { toMillis } = require('./timestamps');
  */
 const SHARED_SPACE_KINDS = Object.freeze(['event', 'todo', 'chore', 'shopping', 'money', 'warranty', 'list']);
 
+/**
+ * いま実際に同期できる種類（2026-10-28 の第2段階で ToDo・買い物だけ。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）。
+ * ほかの種類は「今後対応」。保存されていても消さないが、アプリから切り替えられるのはこの2つだけ
+ */
+const SYNC_SUPPORTED_KINDS = Object.freeze(['todo', 'shopping']);
+
 /** はじめに選んでおく種類 */
 const DEFAULT_SHARED_SPACE_KINDS = Object.freeze(['todo', 'shopping']);
 
@@ -36,6 +42,8 @@ const HouseholdError = Object.freeze({
   noHousehold: 'no-household',
   notOwner: 'not-owner',
   householdFull: 'household-full',
+  householdNotEmpty: 'household-not-empty',
+  ownerCannotLeave: 'owner-cannot-leave',
 });
 
 /**
@@ -66,19 +74,41 @@ function validateGroupName(value) {
   return { ok: true, name };
 }
 
+/**
+ * 共有する種類の変更（わが家の設定）。アプリが送るのは「同期できる種類（ToDo・買い物）のうち、オンにするもの」だけ。
+ * - 送られた値は ToDo・買い物だけ・重複なし（空でもよい）
+ * - すでに保存されている「今後対応」の種類（予定・家計簿など）は、そのまま残す（勝手に消さない）
+ * - 変更のあとに1つも残らないときは不可（わが家の共有する種類は1つ以上）
+ * @returns {{ok: true, kinds: string[]} | {ok: false, code: string}}
+ */
+function planSharedKindsUpdate(existingKinds, requestedSyncKinds) {
+  const invalid = { ok: false, code: HouseholdError.invalidKinds };
+  if (!Array.isArray(requestedSyncKinds)) return invalid;
+  if (!requestedSyncKinds.every((kind) => typeof kind === 'string' && SYNC_SUPPORTED_KINDS.includes(kind))) return invalid;
+  if (new Set(requestedSyncKinds).size !== requestedSyncKinds.length) return invalid;
+  const existing = Array.isArray(existingKinds) ? existingKinds : [];
+  const kept = existing.filter((kind) => SHARED_SPACE_KINDS.includes(kind) && !SYNC_SUPPORTED_KINDS.includes(kind));
+  const kinds = SHARED_SPACE_KINDS.filter((kind) => kept.includes(kind) || requestedSyncKinds.includes(kind));
+  if (kinds.length === 0) return invalid;
+  return { ok: true, kinds };
+}
+
 /** 役割の並び（オーナーが先） */
 function roleOrder(role) {
   return role === 'owner' ? 0 : 1;
 }
 
 /**
- * アプリに返すわが家の情報。UID・メール・トークンは入れない（自分かどうかと役割だけ）
+ * アプリに返すわが家の情報。UID・メール・トークンは入れない（自分かどうかと役割だけ）。
+ * groupID（わが家の文書の ID。人の情報ではない）は、共有 ToDo・買い物の保存先 groups/{groupID}/items を開くために返す
+ * （2026-10-28。読み書きは Security Rules でメンバーだけに限っている）
  * @param {{name: string, sharedKinds?: string[]}} group
  * @param {{uid: string, role: string, joinedAt?: unknown}[]} members
  * @param {string} viewerUID 見ている人
  * @param {{expiresAt: unknown}|null} activeInvite 有効な招待（オーナーにだけ返す）
+ * @param {string} groupID わが家の文書の ID
  */
-function buildHouseholdSummary(group, members, viewerUID, activeInvite) {
+function buildHouseholdSummary(group, members, viewerUID, activeInvite, groupID) {
   const viewer = members.find((member) => member.uid === viewerUID);
   const isOwner = Boolean(viewer && viewer.role === 'owner');
   const kinds = Array.isArray(group.sharedKinds) ? SHARED_SPACE_KINDS.filter((kind) => group.sharedKinds.includes(kind)) : [];
@@ -90,6 +120,7 @@ function buildHouseholdSummary(group, members, viewerUID, activeInvite) {
     }))
     .sort((a, b) => roleOrder(a.role) - roleOrder(b.role) || (a.joinedAt || 0) - (b.joinedAt || 0));
   return {
+    groupID: typeof groupID === 'string' ? groupID : null,
     name: typeof group.name === 'string' ? group.name : DEFAULT_GROUP_NAME,
     sharedKinds: kinds,
     isOwner,
@@ -119,6 +150,7 @@ function pickActiveInvite(invites, nowMs, isActive) {
 
 module.exports = {
   SHARED_SPACE_KINDS,
+  SYNC_SUPPORTED_KINDS,
   DEFAULT_SHARED_SPACE_KINDS,
   MAX_MEMBERS,
   DEFAULT_GROUP_NAME,
@@ -126,6 +158,7 @@ module.exports = {
   HouseholdError,
   validateSharedKinds,
   validateGroupName,
+  planSharedKindsUpdate,
   buildHouseholdSummary,
   buildInvitePreview,
   pickActiveInvite,

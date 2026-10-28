@@ -106,8 +106,9 @@ final class OnboardingViewModel {
         }
     }
 
-    /// 生活グループ名を聞くか（家族・パートナーと使うときだけ）
-    var asksGroupName: Bool { progress.usageStyle == .shared }
+    /// 生活グループ名を聞くか。2026-10-28 から聞かない（端末の中だけのグループと Firebase の「わが家」が
+    /// 別々にできて迷うため。わが家は「共有用アカウント」で作る）
+    var asksGroupName: Bool { false }
 
     var hasValidName: Bool {
         !progress.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -143,7 +144,8 @@ final class OnboardingViewModel {
               let usageStyle = progress.usageStyle, hasValidName else { return false }
         isCompleting = true
 
-        guard appState.applyOnboarding(usageStyle: usageStyle, name: progress.name, groupName: progress.groupName) else {
+        // 生活グループ名は聞かないので、途中から再開した古い入力が残っていても使わない（2026-10-28）
+        guard appState.applyOnboarding(usageStyle: usageStyle, name: progress.name, groupName: asksGroupName ? progress.groupName : "") else {
             isCompleting = false
             return false
         }

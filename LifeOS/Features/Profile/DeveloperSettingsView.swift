@@ -27,12 +27,7 @@ struct DeveloperSettingsView: View {
                     LifeSegmentControl(UsageStyle.allCases, selection: $appState.usageStyle) { style in
                         style == .solo ? "ひとり" : "家族・パートナー"
                     }
-                    Toggle("パートナー参加済み", isOn: $appState.partnerJoined)
-                        .font(LifeTypography.body)
-                        .tint(LifeColors.primary)
-                        .disabled(appState.usageStyle == .solo)
-                        .frame(minHeight: LifeSpacing.minTapTarget)
-                    Text("ひとり：共有を前面に出さず「すべて / 自分 / 共有」を隠します。家族・パートナー：共有ボタンを出し、未参加なら招待画面を出します。")
+                    Text("ひとり：共有を前面に出さず「すべて / 自分 / 共有」を隠します。家族・パートナー：フィルターを出します。招待・参加は「共有用アカウント」のわが家だけで行います。")
                         .font(LifeTypography.footnote)
                         .foregroundStyle(LifeColors.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)

@@ -34,10 +34,6 @@ struct CalendarView: View {
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
-        .sheet(item: $viewModel.invitingItem) { item in
-            SharingFlowView(item: item, store: store)
-                .lifeSheetPresentation()
-        }
     }
 
     // MARK: - 月表示
@@ -181,19 +177,6 @@ struct CalendarView: View {
                                 title: item.title,
                                 detail: viewModel.detailText(for: item)
                             )
-                        }
-                        if viewModel.canShare(item) {
-                            Button {
-                                viewModel.shareTapped(item)
-                            } label: {
-                                Image(systemName: "person.2")
-                                    .font(LifeTypography.callout)
-                                    .foregroundStyle(LifeColors.primary)
-                                    .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(item.title)をパートナーと共有")
                         }
                     }
                     .padding(.vertical, LifeSpacing.xxs)

@@ -56,8 +56,13 @@ final class AppState {
     var effectiveScope: ScopeFilter {
         usageStyle.showsScopeFilter ? scope : .all
     }
-    /// パートナーが参加済みか（Mock。招待の流れを確認するため開発用設定で切り替える）
+    /// パートナーが参加済みか（Mock 時代の値。2026-10-28 から画面では使わない。保存形式を変えないため残す）。
+    /// 招待・参加は Firebase の「わが家」（HouseholdService）だけで扱う
     var partnerJoined = true
+
+    /// Firebase の「わが家」の人数（自分を含む。参加していない・読めないときは nil）。保存しない。2026-10-28
+    /// 「今日」の招待のカード（1人のときだけ）に使う。通知の verifiedSharedMemberCount とは別（通知は端末の登録がまだ無いため）
+    var householdMemberCount: Int?
 
     /// パートナー共有（2026-10-11）：本物の生活グループで確認できたメンバーの数（自分を含む）。保存しない。
     /// 第1段階では Firebase に接続していないため、常に 0（本物の参加は確認できない）。
@@ -255,7 +260,8 @@ final class AppState {
         save()
     }
 
-    /// 生活グループ名を変更する。空白だけの名前は受け付けない。
+    /// 生活グループ名（端末の中だけの古い値）を変更する。空白だけの名前は受け付けない。
+    /// 2026-10-28 から画面では使わない（わが家の名前は Firebase の「わが家の設定」で変える）。Firebase へは送らない
     func updateGroupName(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

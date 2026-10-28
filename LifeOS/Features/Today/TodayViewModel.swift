@@ -9,10 +9,8 @@ final class TodayViewModel {
 
     /// 「あとで」シートの対象
     var postponingItem: LifeItem?
-    /// 家族招待シートを出しているか
+    /// 「共有用アカウント・わが家」のシートを出しているか（招待のカードから）
     var isShowingInvite = false
-    /// 家族招待シートで見せる項目（項目から招待したとき）
-    var invitingItem: LifeItem?
     /// 「今日これだけ」の残りを開いているか
     var isShowingRest = false
     /// 操作のあとに短く出す一言（例：明日に回しました）と「元に戻す」
@@ -101,30 +99,14 @@ final class TodayViewModel {
 
     var usageCopy: String { appState.usageStyle.copy }
 
-    /// 家族・パートナーモードで、パートナーがまだ参加していないとき招待を出す
+    /// 招待のカードを出すか（2026-10-28）：家族・パートナーモードで、Firebase の「わが家」がまだ自分1人のときだけ。
+    /// 端末の中の Mock の「参加済み」の値は使わない。わが家が無い・サインインしていないときは、プロフィールから始める
     var showsInviteCard: Bool {
-        appState.usageStyle == .shared && !appState.partnerJoined
+        appState.usageStyle == .shared && appState.householdMemberCount == 1
     }
 
-    /// 「パートナーと共有」ボタンを出すか（家族・パートナーモードの自分の項目だけ）
-    func canShare(_ item: LifeItem) -> Bool {
-        appState.usageStyle == .shared && item.ownership == .personal
-    }
-
-    /// パートナーと共有：参加済みならすぐ共有、未参加なら招待を出す
-    func shareTapped(_ item: LifeItem) {
-        if appState.partnerJoined {
-            let before = snapshot(of: item)
-            store.share(item.id)
-            notify("「\(item.title)」をパートナーと共有しました", undo: undoRestoring(before))
-        } else {
-            invitingItem = item
-            isShowingInvite = true
-        }
-    }
-
+    /// 招待のカードから、プロフィールと同じ「共有用アカウント・わが家」を開く（別の招待の画面は作らない）
     func startInvite() {
-        invitingItem = nil
         isShowingInvite = true
     }
 

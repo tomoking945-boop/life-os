@@ -120,12 +120,21 @@ private struct HouseholdDetail: View {
                 Text("共有する種類")
                     .font(LifeTypography.footnoteEmphasis)
                     .foregroundStyle(LifeColors.secondaryText)
-                Text(SharedSpaceKind.titles(summary.sharedKinds))
+                Text(syncKindsText)
                     .font(LifeTypography.body)
                     .foregroundStyle(LifeColors.text)
                     .fixedSize(horizontal: false, vertical: true)
-                SettingsNote(text: "予定やお金などのデータは、まだ共有されません（共有は次のアップデートから、種類ごとに始まります）。共有する種類の変更も、次のアップデートで相手の確認とあわせて使えるようになります。")
+                SettingsNote(text: "共有されるのは、あなたが「わが家で共有」を選んだToDo・買い物だけです。今ある個人のデータは送信されません。予定・家計簿などの共有は今後対応します。")
             }
+
+            // 名前・共有する種類・削除・退出（2026-10-28）
+            NavigationLink {
+                HouseholdSettingsView(household: household)
+            } label: {
+                LifeButtonLabel(title: "わが家の設定", systemImage: "gearshape", kind: .secondary)
+            }
+            .buttonStyle(LifePressButtonStyle())
+            .disabled(household.isWorking)
 
             if summary.isOwner {
                 inviteSection
@@ -133,6 +142,12 @@ private struct HouseholdDetail: View {
                 SettingsNote(text: "2人がそろっています。")
             }
         }
+    }
+
+    /// いま同期している種類（ToDo・買い物のうちオンのもの）
+    private var syncKindsText: String {
+        let kinds = summary.sharedKinds.filter(\.isSyncSupported)
+        return kinds.isEmpty ? "なし（設定でオンにできます）" : SharedSpaceKind.titles(kinds)
     }
 
     @ViewBuilder
@@ -192,19 +207,21 @@ struct CreateHouseholdView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                 LifeSectionTitle("共有する種類")
                 VStack(spacing: 0) {
-                    ForEach(SharedSpaceKind.allCases) { kind in
+                    // いま2台で同期できるのは ToDo・買い物だけ（2026-10-28）
+                    ForEach(SharedSpaceKind.syncSupported) { kind in
                         SettingsToggleRow(title: kind.title, isOn: binding(for: kind))
                     }
                 }
                 if kinds.isEmpty {
                     SettingsNote(text: "1つ以上選んでください。")
                 }
+                SettingsNote(text: "予定・家事・家計簿・保証書・リスト・メモの共有は、今後対応します。")
             }
 
             VStack(alignment: .leading, spacing: LifeSpacing.xs) {
                 SettingsNote(text: "選んだ種類は「これから共有する場所」を用意するだけです。いま iPhone にある予定やお金などの個人データは送信されません。")
                 SettingsNote(text: "送るのは、わが家の名前・選んだ種類・あなたを見分けるための番号（Appleでのサインインの情報）だけです。")
-                SettingsNote(text: "作ったあとに種類を変える機能は、次のアップデートで用意します。")
+                SettingsNote(text: "名前と種類は、作ったあとも「わが家の設定」で変えられます。")
             }
 
             if let failure = household.actionFailure {
@@ -236,6 +253,7 @@ struct CreateHouseholdView: View {
         Binding(
             get: { kinds.contains(kind) },
             set: { isOn in
+                guard kind.isSyncSupported else { return }
                 if isOn { kinds.insert(kind) } else { kinds.remove(kind) }
             }
         )

@@ -36,6 +36,17 @@ enum SharedSpaceKind: String, CaseIterable, Identifiable, Hashable {
     /// はじめに選んでおく種類
     static let defaultSelection: Set<SharedSpaceKind> = [.todo, .shopping]
 
+    /// いま実際に2台で同期できる種類（2026-10-28。ToDo・買い物だけ。サーバーの SYNC_SUPPORTED_KINDS と同じ）。
+    /// ほかの種類は「今後対応」。保存されていても消さないが、画面から切り替えられるのはこの2つだけ。
+    /// docs/SHARED_TODO_SHOPPING_FOUNDATION.md
+    static let syncSupported: [SharedSpaceKind] = [.todo, .shopping]
+
+    /// 2台で同期できる種類か
+    var isSyncSupported: Bool { Self.syncSupported.contains(self) }
+
+    /// 「今後対応」の種類（予定・家事・家計簿・保証書・リスト・メモ）
+    static var comingSoon: [SharedSpaceKind] { allCases.filter { !$0.isSyncSupported } }
+
     /// 決まった並び（画面・送る値の並び）にそろえる
     static func ordered(_ kinds: Set<SharedSpaceKind>) -> [SharedSpaceKind] {
         allCases.filter { kinds.contains($0) }
@@ -96,6 +107,8 @@ struct HouseholdMember: Equatable {
 
 /// わが家の情報（サーバーの getMyHousehold などが返す内容）
 struct HouseholdSummary: Equatable {
+    /// わが家の文書の ID（共有 ToDo・買い物の保存先 groups/{groupID}/items を開くため。人の情報ではない。画面・ログには出さない）
+    let groupID: String?
     let name: String
     let sharedKinds: [SharedSpaceKind]
     let isOwner: Bool
@@ -106,6 +119,31 @@ struct HouseholdSummary: Equatable {
 
     /// 満員か（2人そろっている）
     var isFull: Bool { members.count >= maxMembers }
+
+    /// 自分だけのわが家か（削除できるのは、このときのオーナーだけ）
+    var isSoleMember: Bool { members.count == 1 && members.first?.isSelf == true }
+
+    /// わが家を削除できるか（オーナーで、メンバーが自分1人）
+    var canDelete: Bool { isOwner && isSoleMember }
+
+    /// わが家から退出できるか（パートナーだけ。オーナーの退出・所有権の移譲は次の段階）
+    var canLeave: Bool { !isOwner }
+
+    /// 同期できる種類のオン・オフを変えたあとの、共有する種類（サーバーの planSharedKindsUpdate と同じ決まり）。
+    /// 「今後対応」の種類はそのまま残す。1つも残らないときは nil（わが家の共有する種類は1つ以上）
+    func sharedKinds(afterSettingSyncKinds syncKinds: Set<SharedSpaceKind>) -> [SharedSpaceKind]? {
+        let kept = sharedKinds.filter { !$0.isSyncSupported }
+        let result = SharedSpaceKind.ordered(Set(kept).union(syncKinds.filter(\.isSyncSupported)))
+        return result.isEmpty ? nil : result
+    }
+
+    /// 保存されている「今後対応」の種類（画面には「今後対応」として見せるだけ。消さない）
+    var comingSoonKinds: [SharedSpaceKind] { sharedKinds.filter { !$0.isSyncSupported } }
+
+    /// その種類で「わが家で共有」を選べるか（同期できる種類で、わが家の設定でオンになっている）
+    func allowsSharing(_ kind: SharedSpaceKind) -> Bool {
+        kind.isSyncSupported && sharedKinds.contains(kind)
+    }
 
     /// サーバーから届いた内容を読む。形が違えば nil
     init?(payload: Any?) {
@@ -122,6 +160,8 @@ struct HouseholdSummary: Equatable {
             return HouseholdMember(role: role, isSelf: isSelf)
         }
         guard members.count == rawMembers.count, !members.isEmpty else { return nil }
+        let rawGroupID = dictionary["groupID"] as? String
+        self.groupID = (rawGroupID?.isEmpty == false) ? rawGroupID : nil
         self.name = name
         self.sharedKinds = SharedSpaceKind.parse(dictionary["sharedKinds"])
         self.isOwner = isOwner
@@ -131,7 +171,8 @@ struct HouseholdSummary: Equatable {
         self.activeInviteExpiresAt = HouseholdPayload.date(invite?["expiresAt"])
     }
 
-    init(name: String, sharedKinds: [SharedSpaceKind], isOwner: Bool, members: [HouseholdMember], maxMembers: Int = HouseholdRules.maxMembers, activeInviteExpiresAt: Date? = nil) {
+    init(name: String, sharedKinds: [SharedSpaceKind], isOwner: Bool, members: [HouseholdMember], maxMembers: Int = HouseholdRules.maxMembers, activeInviteExpiresAt: Date? = nil, groupID: String? = nil) {
+        self.groupID = groupID
         self.name = name
         self.sharedKinds = sharedKinds
         self.isOwner = isOwner
@@ -241,6 +282,10 @@ enum HouseholdFailure: Error, Equatable {
     case noHousehold
     /// 入力が正しくない
     case invalidInput
+    /// ほかのメンバーがいるので、わが家を削除できない
+    case householdNotEmpty
+    /// オーナーは退出できない（2人いるとき）
+    case ownerCannotLeave
     /// そのほか
     case other
 
@@ -255,7 +300,9 @@ enum HouseholdFailure: Error, Equatable {
         case "own-invite": self = .ownInvite
         case "not-owner": self = .notOwner
         case "no-household": self = .noHousehold
-        case "invalid-kinds", "invalid-name": self = .invalidInput
+        case "invalid-kinds", "invalid-name", "invalid-update": self = .invalidInput
+        case "household-not-empty": self = .householdNotEmpty
+        case "owner-cannot-leave": self = .ownerCannotLeave
         default: self = .other
         }
     }
@@ -274,6 +321,8 @@ enum HouseholdFailure: Error, Equatable {
         case .notOwner: return "招待を作ったり取り消したりできるのは、オーナーだけです。"
         case .noHousehold: return "まだわが家に参加していません。"
         case .invalidInput: return "名前と共有する種類を確認してください（種類は1つ以上選びます）。"
+        case .householdNotEmpty: return "パートナーが参加しているあいだは、わが家を削除できません。"
+        case .ownerCannotLeave: return "オーナーは、わが家から退出できません。"
         case .other: return "うまくいきませんでした。時間をおいて、もう一度お試しください。"
         }
     }
@@ -295,4 +344,10 @@ protocol HouseholdBackend: AnyObject {
     func fetchInvitePreview(token: String) async throws -> InvitePreview
     /// 招待で参加する
     func acceptInvite(token: String) async throws -> HouseholdSummary
+    /// わが家の名前・共有する種類（同期できる種類のうちオンにするもの）を変える。nil は変えない
+    func updateHousehold(name: String?, syncKinds: [SharedSpaceKind]?) async throws -> HouseholdSummary
+    /// わが家を削除する（オーナーで、メンバーが自分1人のときだけ）
+    func deleteHousehold() async throws
+    /// わが家から退出する（パートナーだけ）
+    func leaveHousehold() async throws
 }

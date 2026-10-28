@@ -81,6 +81,33 @@ final class FakeHouseholdBackend: HouseholdBackend {
         household = partnerView
         return partnerView
     }
+
+    private(set) var updatedWith: [(name: String?, syncKinds: [SharedSpaceKind]?)] = []
+
+    func updateHousehold(name: String?, syncKinds: [SharedSpaceKind]?) async throws -> HouseholdSummary {
+        calls.append("update")
+        if let error { throw error }
+        updatedWith.append((name, syncKinds))
+        let current = household ?? ownerOnly
+        // サーバーと同じく「今後対応」の種類は残す
+        var kinds = current.sharedKinds.filter { !$0.isSyncSupported }
+        if let syncKinds { kinds += syncKinds } else { kinds += current.sharedKinds.filter(\.isSyncSupported) }
+        let summary = HouseholdSummary(name: name ?? current.name, sharedKinds: SharedSpaceKind.ordered(Set(kinds)), isOwner: current.isOwner, members: current.members, activeInviteExpiresAt: current.activeInviteExpiresAt, groupID: current.groupID)
+        household = summary
+        return summary
+    }
+
+    func deleteHousehold() async throws {
+        calls.append("delete")
+        if let error { throw error }
+        household = nil
+    }
+
+    func leaveHousehold() async throws {
+        calls.append("leave")
+        if let error { throw error }
+        household = nil
+    }
 }
 
 /// サインインしているかを切り替えられる

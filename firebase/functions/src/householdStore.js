@@ -30,6 +30,7 @@ const {
   HouseholdError,
   validateSharedKinds,
   validateGroupName,
+  planSharedKindsUpdate,
   buildHouseholdSummary,
   buildInvitePreview,
   pickActiveInvite,
@@ -96,7 +97,7 @@ async function getHouseholdSummary({ db, uid, nowMs = Date.now() }) {
     const invites = await db.collection('invites').where('groupID', '==', current.groupID).get();
     activeInvite = pickActiveInvite(invites.docs.map((doc) => doc.data()), nowMs, isActiveInvite);
   }
-  return buildHouseholdSummary(current.group, members, uid, activeInvite);
+  return buildHouseholdSummary(current.group, members, uid, activeInvite, current.groupID);
 }
 
 /** わが家を作る（グループ・オーナーのメンバー・memberships をまとめて一度に作る） */
@@ -250,8 +251,133 @@ async function acceptInvite({ db, FieldValue, uid, token, nowMs = Date.now() }) 
   return getHouseholdSummary({ db, uid, nowMs });
 }
 
+// MARK: - わが家の設定・削除・退出（2026-10-28。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+
+const PAGE_SIZE = 300;
+
+/** クエリに当たる文書を、少しずつ消す（何度実行しても同じ結果になる） */
+async function deleteAllMatching(db, query) {
+  let total = 0;
+  for (;;) {
+    const snap = await query.limit(PAGE_SIZE).get();
+    if (snap.empty) return total;
+    const batch = db.batch();
+    for (const doc of snap.docs) batch.delete(doc.ref);
+    await batch.commit();
+    total += snap.size;
+  }
+}
+
+/**
+ * わが家の名前・共有する種類を変える（オーナー・パートナーのどちらも。トランザクションの中でメンバーかを確かめ直す）
+ * - name：新しい名前（省略可）
+ * - syncKinds：同期できる種類（ToDo・買い物）のうち、オンにするもの（省略可）。「今後対応」の種類は保存されたまま残す
+ * - 種類をオフにしても、すでにある共有項目は消さない（新しく作れなくなるだけ。Security Rules で確かめる）
+ */
+async function updateHousehold({ db, FieldValue, uid, name, syncKinds, nowMs = Date.now() }) {
+  requireValidUID(uid);
+  if (name === undefined && syncKinds === undefined) throw new HouseholdFailure('invalid-update');
+  let checkedName = null;
+  if (name !== undefined) {
+    const result = validateGroupName(name);
+    if (!result.ok) throw new HouseholdFailure(result.code);
+    checkedName = result.name;
+  }
+  await db.runTransaction(async (transaction) => {
+    const current = await findCurrentHousehold(transaction, db, uid);
+    if (!current) throw new HouseholdFailure(HouseholdError.noHousehold);
+    const changes = { updatedAt: FieldValue.serverTimestamp() };
+    if (checkedName !== null) changes.name = checkedName;
+    if (syncKinds !== undefined) {
+      const planned = planSharedKindsUpdate(current.group.sharedKinds, syncKinds);
+      if (!planned.ok) throw new HouseholdFailure(planned.code);
+      changes.sharedKinds = planned.kinds;
+    }
+    transaction.update(db.doc(`groups/${current.groupID}`), changes);
+  });
+  return getHouseholdSummary({ db, uid, nowMs });
+}
+
+/** わが家の文書と、その下（items・members・notificationLog など）・招待・memberships をすべて消す（何度実行しても同じ結果） */
+async function finishHouseholdDeletion(db, groupID) {
+  await db.recursiveDelete(db.doc(`groups/${groupID}`));
+  await deleteAllMatching(db, db.collection('invites').where('groupID', '==', groupID));
+  // memberships は最後に消す（途中で止まっても、次の実行で「途中まで消したわが家」を見つけられるように）
+  await deleteAllMatching(db, db.collection('memberships').where('groupID', '==', groupID));
+}
+
+/**
+ * わが家を削除する（オーナーだけ・メンバーが自分1人のときだけ）。
+ * Firebase Authentication のアカウントと、端末の中のデータは消さない。
+ * 1. トランザクションの中で、オーナーであること・1人であることを確かめ、未使用の招待をすべて取り消す（同時に参加されないように）
+ * 2. わが家の下の共有項目・メンバー・通知の記録、招待、memberships を消す
+ * 途中で止まったときは、もう一度呼べば続きから消す（memberships が残っていて、わが家の文書が無いとき）
+ */
+async function deleteHousehold({ db, FieldValue, uid }) {
+  requireValidUID(uid);
+  const current = await findCurrentHousehold(directReader(), db, uid);
+  if (!current) {
+    // 前回、途中で止まった削除の続き：自分の memberships が、もう無いわが家を指している
+    const membership = await db.doc(`memberships/${uid}`).get();
+    const groupID = membership.exists ? membership.get('groupID') : null;
+    if (typeof groupID === 'string' && ID_PATTERN.test(groupID) && !(await db.doc(`groups/${groupID}`).get()).exists) {
+      await finishHouseholdDeletion(db, groupID);
+      await db.doc(`memberships/${uid}`).delete();
+      return { deleted: true };
+    }
+    throw new HouseholdFailure(HouseholdError.noHousehold);
+  }
+
+  const groupID = await db.runTransaction(async (transaction) => {
+    const now = await findCurrentHousehold(transaction, db, uid);
+    if (!now) throw new HouseholdFailure(HouseholdError.noHousehold);
+    if (now.role !== 'owner') throw new HouseholdFailure(HouseholdError.notOwner);
+    const members = await transaction.get(db.collection(`groups/${now.groupID}/members`));
+    if (members.size !== 1 || members.docs[0].id !== uid) throw new HouseholdFailure(HouseholdError.householdNotEmpty);
+    const invites = await transaction.get(db.collection('invites').where('groupID', '==', now.groupID));
+    for (const doc of invites.docs) {
+      if (isRevocableInvite(doc.data())) transaction.update(doc.ref, { revokedAt: FieldValue.serverTimestamp() });
+    }
+    return now.groupID;
+  });
+
+  await finishHouseholdDeletion(db, groupID);
+  await db.doc(`memberships/${uid}`).delete();
+  return { deleted: true };
+}
+
+/**
+ * わが家から退出する（パートナーだけ。オーナーは2人いるあいだ退出できない。所有権の移し替えは次の段階）。
+ * 自分のメンバー文書と memberships を消す。わが家・オーナー・共有項目は残す。
+ * 自分が担当になっている共有項目は、担当を null にする（Security Rules の「担当はメンバーだけ」で更新できなくならないように）
+ */
+async function leaveHousehold({ db, FieldValue, uid }) {
+  requireValidUID(uid);
+  const groupID = await db.runTransaction(async (transaction) => {
+    const current = await findCurrentHousehold(transaction, db, uid);
+    if (!current) throw new HouseholdFailure(HouseholdError.noHousehold);
+    if (current.role === 'owner') throw new HouseholdFailure(HouseholdError.ownerCannotLeave);
+    transaction.delete(db.doc(`groups/${current.groupID}/members/${uid}`));
+    transaction.delete(db.doc(`memberships/${uid}`));
+    transaction.update(db.doc(`groups/${current.groupID}`), { updatedAt: FieldValue.serverTimestamp() });
+    return current.groupID;
+  });
+
+  for (;;) {
+    const snap = await db.collection(`groups/${groupID}/items`).where('assigneeUID', '==', uid).limit(PAGE_SIZE).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    for (const doc of snap.docs) batch.update(doc.ref, { assigneeUID: null, updatedAt: FieldValue.serverTimestamp() });
+    await batch.commit();
+  }
+  return { left: true };
+}
+
 module.exports = {
   HouseholdFailure,
+  updateHousehold,
+  deleteHousehold,
+  leaveHousehold,
   findCurrentHousehold,
   getHouseholdSummary,
   createHousehold,

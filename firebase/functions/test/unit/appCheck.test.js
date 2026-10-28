@@ -12,7 +12,10 @@ const assert = require('node:assert/strict');
 
 const source = fs.readFileSync(path.join(__dirname, '../../index.js'), 'utf8');
 
-const CALLABLES = ['createHousehold', 'getMyHousehold', 'createInvite', 'revokeInvite', 'getInvitePreview', 'acceptInvite'];
+const CALLABLES = [
+  'createHousehold', 'getMyHousehold', 'createInvite', 'revokeInvite', 'getInvitePreview', 'acceptInvite',
+  'updateHousehold', 'deleteHousehold', 'leaveHousehold',
+];
 
 describe('Callable Function の App Check（招待・わが家）', () => {
   it('すべての Callable が enforceAppCheck: true で作られている', () => {

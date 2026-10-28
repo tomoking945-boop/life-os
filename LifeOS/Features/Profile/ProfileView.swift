@@ -23,16 +23,9 @@ struct ProfileView: View {
                             AccountSettingsView()
                         }
                         LifeDivider()
-                        ProfileLinkRow(title: "生活グループ", value: viewModel.groupName) {
-                            GroupSettingsView()
-                        }
-                        LifeDivider()
-                        ProfileLinkRow(title: "共有メンバー", value: viewModel.memberCountText) {
-                            MembersView(appState: appState)
-                        }
-                        LifeDivider()
-                        // パートナー共有の土台（2026-10-19）：Appleでサインイン
-                        ProfileLinkRow(title: "共有用アカウント", value: auth.status.shortLabel) {
+                        // わが家（招待・参加・メンバー・設定）は、ここ1か所だけ（2026-10-28）。
+                        // 端末の中だけの古い「生活グループ」「共有メンバー」の画面はなくした
+                        ProfileLinkRow(title: "共有用アカウント・わが家", value: auth.status.shortLabel) {
                             PartnerAccountView(auth: auth)
                         }
                     }

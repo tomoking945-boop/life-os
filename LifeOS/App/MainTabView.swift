@@ -5,6 +5,8 @@ struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @Environment(LifeStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+    /// Firebase の「わが家」（招待・参加・設定はすべてここ。2026-10-28）
+    private let household = HouseholdService.live
 
     /// 通知を予約し直すきっかけ（予定・タスク・保証書・プラン・通知設定が変わったとき）
     private struct NotificationSyncKey: Equatable {
@@ -62,7 +64,9 @@ struct MainTabView: View {
         .onChange(of: appState.plan) { appState.save() }
         .onChange(of: appState.notificationSettings) { appState.save() }
         .onChange(of: appState.usageStyle) { appState.save() }
-        .onChange(of: appState.partnerJoined) { appState.save() }
+        // Firebase の「わが家」の人数（「今日」の招待のカードに使う。2026-10-28）
+        .onChange(of: household.state) { appState.householdMemberCount = household.state.summary?.members.count }
+        .task { await household.refresh() }
         // 起動時・予定やタスクや保証書の変更時・プランや通知設定の変更時に、通知を予約し直す（2026-10-13・10-17）
         .task(id: notificationSyncKey) {
             await LifeNotificationService.shared.resync(store: store, appState: appState)
