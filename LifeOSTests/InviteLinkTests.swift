@@ -395,17 +395,76 @@ final class InviteLinkConfigurationTests: XCTestCase {
         ])
     }
 
-    /// Debug・Release とも同じ entitlements を使う。独自の URL スキームは追加しない
+    /// Debug・Release とも同じ entitlements と Info.plist を使う。テストのターゲットには付けない
+    /// （2026-10-28：設定のブロックごとに読んで確かめる。前は行の一部の文字で探していたため、
+    /// `GENERATE_INFOPLIST_FILE = YES;` を `INFOPLIST_FILE =` と取り違えていた）
     func testDebugAndReleaseUseSameEntitlements() throws {
         let project = try read("LifeOS.xcodeproj/project.pbxproj")
-        let lines = project.components(separatedBy: .newlines).filter { $0.contains("CODE_SIGN_ENTITLEMENTS") }
-        XCTAssertEqual(lines.count, 2, "アプリの Debug と Release")
-        XCTAssertTrue(lines.allSatisfy { $0.trimmingCharacters(in: .whitespaces) == "CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements;" })
-        // 2026-10-28：くらしOS専用の URL Scheme は LifeOS-Info.plist に1つだけ（アプリの Debug・Release だけ。テストのターゲットには付けない）
-        let infoLines = project.components(separatedBy: .newlines).filter { $0.contains("INFOPLIST_FILE =") }
-        XCTAssertEqual(infoLines.count, 2, "アプリの Debug と Release だけ")
-        XCTAssertTrue(infoLines.allSatisfy { $0.trimmingCharacters(in: .whitespaces) == "INFOPLIST_FILE = \"LifeOS-Info.plist\";" })
+        let configurations = InviteLinkProjectSettings.buildConfigurations(in: project)
+        XCTAssertEqual(configurations.count, 6, "プロジェクト・アプリ・テストの Debug と Release")
+
+        let app = configurations.filter { $0.settings["PRODUCT_BUNDLE_IDENTIFIER"] == "com.tomoking945boop.lifeos" }
+        let tests = configurations.filter { $0.settings["PRODUCT_BUNDLE_IDENTIFIER"] == "com.tomoking945boop.lifeos.tests" }
+        let projectLevel = configurations.filter { $0.settings["PRODUCT_BUNDLE_IDENTIFIER"] == nil }
+        XCTAssertEqual(Set(app.map(\.name)), ["Debug", "Release"])
+        XCTAssertEqual(Set(tests.map(\.name)), ["Debug", "Release"])
+        XCTAssertEqual(Set(projectLevel.map(\.name)), ["Debug", "Release"])
+
+        // アプリ：Debug・Release とも同じ entitlements・Info.plist（URL Scheme）
+        for configuration in app {
+            let settings = configuration.settings
+            XCTAssertEqual(settings["CODE_SIGN_ENTITLEMENTS"], "LifeOS.entitlements", configuration.name)
+            XCTAssertEqual(settings["INFOPLIST_FILE"], "LifeOS-Info.plist", configuration.name)
+            XCTAssertEqual(settings["GENERATE_INFOPLIST_FILE"], "YES", configuration.name)
+            XCTAssertEqual(settings["INFOPLIST_KEY_ITSAppUsesNonExemptEncryption"], "NO", configuration.name)
+        }
+        // テスト・プロジェクト全体：entitlements も Info.plist の URL Scheme も付けない
+        for configuration in tests + projectLevel {
+            XCTAssertNil(configuration.settings["CODE_SIGN_ENTITLEMENTS"], configuration.name)
+            XCTAssertNil(configuration.settings["INFOPLIST_FILE"], configuration.name)
+        }
+        // Build・Version は、アプリとテストの Debug・Release の4か所で同じ
+        let builds = Set((app + tests).compactMap { $0.settings["CURRENT_PROJECT_VERSION"] })
+        let versions = Set((app + tests).compactMap { $0.settings["MARKETING_VERSION"] })
+        XCTAssertEqual(builds.count, 1, "Build 番号がそろっていない：\(builds.sorted())")
+        XCTAssertEqual(versions, ["1.0"])
+        XCTAssertEqual((app + tests).compactMap { $0.settings["CURRENT_PROJECT_VERSION"] }.count, 4)
+
+        // ファイル全体でも、行の頭が一致するものだけを数える（ほかの設定の名前の一部とは取り違えない）
+        let lines = project.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        XCTAssertEqual(lines.filter { $0.hasPrefix("CODE_SIGN_ENTITLEMENTS = ") }, Array(repeating: "CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements;", count: 2))
+        XCTAssertEqual(lines.filter { $0.hasPrefix("INFOPLIST_FILE = ") }, Array(repeating: "INFOPLIST_FILE = \"LifeOS-Info.plist\";", count: 2))
         XCTAssertFalse(project.contains("CFBundleURLTypes"), "URL Scheme はプロジェクトの設定ではなく LifeOS-Info.plist に書く")
+    }
+
+    /// 設定の読み取りそのものが正しいか（取り違えないことを、小さな例で確かめる）
+    func testProjectSettingsParserDoesNotConfuseSimilarNames() {
+        let sample = """
+        \t\tA /* Debug */ = {
+        \t\t\tisa = XCBuildConfiguration;
+        \t\t\tbuildSettings = {
+        \t\t\t\tGENERATE_INFOPLIST_FILE = YES;
+        \t\t\t\tINFOPLIST_FILE = "LifeOS-Info.plist";
+        \t\t\t\tLD_RUNPATH_SEARCH_PATHS = (
+        \t\t\t\t\t"$(inherited)",
+        \t\t\t\t);
+        \t\t\t};
+        \t\t\tname = Debug;
+        \t\t};
+        \t\tB /* Release */ = {
+        \t\t\tisa = XCBuildConfiguration;
+        \t\t\tbuildSettings = {
+        \t\t\t\tGENERATE_INFOPLIST_FILE = YES;
+        \t\t\t};
+        \t\t\tname = Release;
+        \t\t};
+        """
+        let configurations = InviteLinkProjectSettings.buildConfigurations(in: sample)
+        XCTAssertEqual(configurations.map(\.name), ["Debug", "Release"])
+        guard configurations.count == 2 else { return XCTFail("設定を2つ読めていない") }
+        XCTAssertEqual(configurations[0].settings["INFOPLIST_FILE"], "LifeOS-Info.plist")
+        XCTAssertEqual(configurations[0].settings["GENERATE_INFOPLIST_FILE"], "YES")
+        XCTAssertNil(configurations[1].settings["INFOPLIST_FILE"], "GENERATE_INFOPLIST_FILE を INFOPLIST_FILE と取り違えない")
     }
 
     /// くらしOS専用の URL Scheme：Bundle ID と同じ名前が1つだけ（2026-10-28）
@@ -462,10 +521,17 @@ final class InviteLinkConfigurationTests: XCTestCase {
         }
         try XCTSkipIf(checked == 0, "アプリのソースを読めない環境のため、確認を省きます")
 
-        for file in ["LifeOS/Core/Sharing/SharedLinks.swift", "LifeOS/Core/Sharing/InviteLinkCoordinator.swift", "LifeOS/Features/Sharing/InviteLinkSheet.swift"] {
+        // ログ・保存・トークンの表示：言葉の一部ではなく、言葉そのものとして探す
+        // （2026-10-28：前は「print(」を文字で探していたため、`fingerprint(of:)` の一部を取り違えていた）
+        for file in [
+            "LifeOS/Core/Sharing/SharedLinks.swift",
+            "LifeOS/Core/Sharing/InviteLinkCoordinator.swift",
+            "LifeOS/Features/Sharing/InviteLinkSheet.swift",
+            "LifeOS/Features/Sharing/InviteLinkEntryView.swift",
+        ] {
             let text = try read(file)
-            for word in ["print(", "NSLog", "os_log", "Logger(", "UserDefaults", "@AppStorage", "@SceneStorage", "Analytics", "\\(url", ".token)"] {
-                XCTAssertFalse(text.contains(word), "\(file)：\(word)")
+            for finding in InviteLinkSourceScanner.findings(in: text) {
+                XCTFail("\(file) \(finding.line)行目：\(finding.rule)")
             }
         }
         let hosting = try read("firebase/hosting/invite/index.html")
@@ -624,5 +690,120 @@ final class InviteLinkReceivingRoutesTests: XCTestCase {
         dump(coordinator, to: &dumped)
         XCTAssertFalse(dumped.contains(token))
         XCTAssertNil(coordinator.pendingInvite)
+    }
+}
+
+/// project.pbxproj のビルド設定（XCBuildConfiguration）を、ブロックごとに読む（テスト用）
+enum InviteLinkProjectSettings {
+    struct BuildConfiguration {
+        let name: String
+        let settings: [String: String]
+    }
+
+    static func buildConfigurations(in project: String) -> [BuildConfiguration] {
+        project.components(separatedBy: "isa = XCBuildConfiguration;").dropFirst().compactMap { block -> BuildConfiguration? in
+            guard let open = block.range(of: "buildSettings = {"),
+                  let close = block.range(of: "\n\t\t\t};", range: open.upperBound..<block.endIndex) else {
+                return nil
+            }
+            var settings: [String: String] = [:]
+            for line in block[open.upperBound..<close.lowerBound].components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasSuffix(";"), let separator = trimmed.range(of: " = ") else { continue }
+                let key = String(trimmed[..<separator.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                let value = String(trimmed[separator.upperBound...].dropLast()).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                settings[key] = value
+            }
+            let nameLine = block[close.upperBound...].components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .first { $0.hasPrefix("name = ") && $0.hasSuffix(";") }
+            guard let nameLine else { return nil }
+            let name = String(nameLine.dropFirst("name = ".count).dropLast())
+            return BuildConfiguration(name: name, settings: settings)
+        }
+    }
+}
+
+/// 招待の処理のソースに、ログ・保存・トークンの表示が無いかを、言葉そのものとして探す（テスト用）
+enum InviteLinkSourceScanner {
+    struct Finding: Equatable {
+        let line: Int
+        let rule: String
+    }
+
+    /// 探す言葉（前後が別の言葉の一部でないものだけ。例：`fingerprint(` は `print(` ではない）
+    static let rules: [(name: String, pattern: String)] = [
+        ("print(", #"(?<![A-Za-z0-9_])print\("#),
+        ("debugPrint(", #"(?<![A-Za-z0-9_])debugPrint\("#),
+        ("dump(", #"(?<![A-Za-z0-9_.])dump\("#),
+        ("NSLog", #"(?<![A-Za-z0-9_])NSLog(?![A-Za-z0-9_])"#),
+        ("os_log", #"(?<![A-Za-z0-9_])os_log(?![A-Za-z0-9_])"#),
+        ("Logger(", #"(?<![A-Za-z0-9_])Logger\("#),
+        ("OSLog", #"(?<![A-Za-z0-9_])OSLog(?![A-Za-z0-9_])"#),
+        ("UserDefaults", #"(?<![A-Za-z0-9_])UserDefaults(?![A-Za-z0-9_])"#),
+        ("@AppStorage", #"@AppStorage(?![A-Za-z0-9_])"#),
+        ("@SceneStorage", #"@SceneStorage(?![A-Za-z0-9_])"#),
+        ("Analytics", #"(?<![A-Za-z0-9_])Analytics(?![A-Za-z0-9_])"#),
+        ("Crashlytics", #"(?<![A-Za-z0-9_])Crashlytics(?![A-Za-z0-9_])"#),
+        ("UIPasteboard", #"(?<![A-Za-z0-9_])UIPasteboard(?![A-Za-z0-9_])"#),
+        ("URL の文字への埋め込み \(url", #"\\\(url"#),
+        (tokenArgumentRule, #"\.token\)"#),
+    ]
+
+    /// トークンを関数に渡すところ（サーバーへ送る決まった2か所以外にあってはいけない）
+    static let tokenArgumentRule = "トークンを関数に渡す（.token)）"
+
+    /// - Parameter ignoring: 調べない決まり（名前）。理由のある場所で、別の確かめ方をするときだけ使う
+    static func findings(in text: String, ignoring: Set<String> = []) -> [Finding] {
+        var result: [Finding] = []
+        let lines = text.components(separatedBy: .newlines)
+        for (index, line) in lines.enumerated() {
+            let range = NSRange(line.startIndex..., in: line)
+            for rule in rules where !ignoring.contains(rule.name) {
+                guard let regex = try? NSRegularExpression(pattern: rule.pattern) else {
+                    result.append(Finding(line: index + 1, rule: "探し方が壊れている：\(rule.name)"))
+                    continue
+                }
+                if regex.firstMatch(in: line, range: range) != nil {
+                    result.append(Finding(line: index + 1, rule: rule.name))
+                }
+            }
+        }
+        return result
+    }
+}
+
+/// 探し方そのものが正しいか（見落とさない・取り違えない）
+final class InviteLinkSourceScannerTests: XCTestCase {
+    func testFindsRealLoggingAndStorage() {
+        let samples = [
+            "print(token)", "    print(\"x\")", "debugPrint(link)", "dump(invite)", "NSLog(\"%@\", x)", "os_log(.info, \"x\")",
+            "let logger = Logger(subsystem: \"a\", category: \"b\")", "import OSLog", "UserDefaults.standard.set(x, forKey: \"k\")",
+            "@AppStorage(\"k\") var k = \"\"", "@SceneStorage(\"k\") var k = \"\"", "Analytics.logEvent(\"x\")",
+            "Crashlytics.crashlytics().log(x)", "UIPasteboard.general.string", "Text(\"\\(url)\")", "show(invite.token)",
+        ]
+        for sample in samples {
+            XCTAssertFalse(InviteLinkSourceScanner.findings(in: sample).isEmpty, "見落とし：\(sample)")
+        }
+    }
+
+    func testDoesNotConfuseSafeWords() {
+        let samples = [
+            "private func fingerprint(of invite: InviteLink) -> Data {",
+            "guard receivedFingerprints.insert(fingerprint(of: invite)).inserted else {",
+            "static let appScheme = \"com.tomoking945boop.lifeos\"",
+            "items[0].name == \"token\",",
+            "Data(invite.token.utf8)",
+            "/// 形：com.tomoking945boop.lifeos://invite?token=<43文字>",
+            "let blueprint = 1",
+        ]
+        for sample in samples {
+            XCTAssertEqual(InviteLinkSourceScanner.findings(in: sample), [], "取り違え：\(sample)")
+        }
+    }
+
+    func testReportsLineNumber() {
+        let text = "let a = 1\nlet b = 2\nprint(a)\n"
+        XCTAssertEqual(InviteLinkSourceScanner.findings(in: text), [InviteLinkSourceScanner.Finding(line: 3, rule: "print(")])
     }
 }

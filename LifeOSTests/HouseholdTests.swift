@@ -449,9 +449,24 @@ final class HouseholdSourceTests: XCTestCase {
         ]
         for file in files {
             let text = try read(file)
-            for word in ["print(", "NSLog", "os_log", "Logger(", "UserDefaults", "@AppStorage", "@SceneStorage", "Analytics", "localizedDescription"] {
-                XCTAssertFalse(text.contains(word), "\(file)：\(word)")
+            // ログ・保存：言葉の一部ではなく言葉そのものとして探す（InviteLinkSourceScanner。2026-10-28）
+            // HouseholdService だけは、サーバーへトークンを送る決まった2か所があるので、その2か所だけを下で別に確かめる
+            let isService = file.hasSuffix("HouseholdService.swift")
+            let ignoring: Set<String> = isService ? [InviteLinkSourceScanner.tokenArgumentRule] : []
+            for finding in InviteLinkSourceScanner.findings(in: text, ignoring: ignoring) {
+                XCTFail("\(file) \(finding.line)行目：\(finding.rule)")
             }
+            if isService {
+                let tokenLines = text.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { $0.contains(".token)") }
+                XCTAssertEqual(tokenLines, [
+                    "preview = .loaded(try await backend.fetchInvitePreview(token: invite.token))",
+                    "apply(try await backend.acceptInvite(token: invite.token))",
+                ], "トークンを渡すのは、サーバーの Preview と参加の2か所だけ")
+            }
+            // Firebase の生のエラー文を画面に出さない
+            XCTAssertFalse(text.contains("localizedDescription"), "\(file)：localizedDescription")
         }
         // 画面には UID を出さない（アカウントの番号の表示もやめた）
         for file in ["LifeOS/Features/Profile/HouseholdSection.swift", "LifeOS/Features/Profile/PartnerAccountView.swift", "LifeOS/Features/Sharing/InviteLinkSheet.swift"] {
