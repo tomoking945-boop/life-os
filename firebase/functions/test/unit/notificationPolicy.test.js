@@ -65,3 +65,66 @@ test('内容の表示を許可していなければ、項目名も種類も出�
   assert.equal(buildMessage('eventAdded', '歯医者', true).body, '共有予定が追加されました：歯医者');
   assert.equal(buildMessage('taskAdded', '  ', true).body, '共有のやることが追加されました');
 });
+
+// MARK: - 共有 ToDo・買い物（2026-10-28 Build 7）の通知の監査。docs/SHARED_TODO_SHOPPING_FOUNDATION.md
+
+const { selectRecipients } = require('../../src/recipients');
+const { shouldSend } = require('../../src/throttle');
+
+const sharedTodo = {
+  schemaVersion: 1,
+  title: '牛乳を買う',
+  kind: 'shopping',
+  date: new Date('2026-10-28T00:00:00+09:00'),
+  hasTime: false,
+  assigneeUID: null,
+  isCompleted: false,
+  createdBy: 'alice',
+  updatedBy: 'alice',
+};
+
+test('Build 7：共有の ToDo・買い物の追加だけを知らせる。完了・名前の変更・削除は知らせない', () => {
+  assert.equal(decide(null, sharedTodo).type, 'taskAdded');
+  assert.equal(decide(null, { ...sharedTodo, kind: 'todo' }).type, 'taskAdded');
+  assert.equal(decide(sharedTodo, { ...sharedTodo, isCompleted: true, updatedBy: 'bob' }).notify, false, '完了（初期値）');
+  assert.equal(decide(sharedTodo, { ...sharedTodo, title: '低脂肪牛乳を買う', updatedBy: 'bob' }).notify, false, '名前の変更');
+  assert.equal(decide(sharedTodo, null).notify, false, '削除');
+  assert.equal(decide(null, null).notify, false);
+});
+
+test('Build 7：個人項目（Firestore に無い・決まっていない形）では通知の処理が動かない', () => {
+  // 個人項目はアプリが送らない。万一、決まっていない種類や更新者の無い文書が来ても送らない
+  assert.equal(decide(null, { ...sharedTodo, kind: 'payment' }).notify, false);
+  assert.equal(decide(null, { ...sharedTodo, kind: 'habit' }).notify, false);
+  assert.equal(decide(null, { ...sharedTodo, updatedBy: null }).notify, false);
+  assert.equal(decide(null, { title: '個人のメモ' }).notify, false);
+});
+
+test('Build 7：操作した本人には送らない（本人のどの端末にも）。同じトークンは1回だけ', () => {
+  const recipients = selectRecipients({
+    memberUIDs: ['alice', 'bob'],
+    actorUID: 'alice',
+    devicesByUID: {
+      alice: [{ id: 'a1', fcmToken: 'token-a', notificationsEnabled: true, sharedUpdatesEnabled: true }],
+      bob: [
+        { id: 'b1', fcmToken: 'token-b', notificationsEnabled: true, sharedUpdatesEnabled: true },
+        { id: 'b2', fcmToken: 'token-b', notificationsEnabled: true, sharedUpdatesEnabled: true },
+      ],
+    },
+  });
+  assert.deepEqual(recipients.map((r) => r.uid), ['bob']);
+  // アプリはまだ端末（FCM トークン）を登録しないので、宛先は0件になり、何も送られない
+  assert.deepEqual(selectRecipients({ memberUIDs: ['alice', 'bob'], actorUID: 'alice', devicesByUID: {} }), []);
+});
+
+test('Build 7：同じ項目の通知は30秒以内に2回送らない。文面に項目名を出すのは、内容の表示を許可した端末だけ', () => {
+  const now = Date.parse('2026-10-28T10:00:00Z');
+  assert.equal(shouldSend(null, now), true);
+  assert.equal(shouldSend(now - 5_000, now), false);
+  const hidden = buildMessage('taskAdded', sharedTodo.title, false);
+  assert.equal(hidden.body, GENERIC_BODY);
+  assert.equal(JSON.stringify(hidden).includes('牛乳'), false);
+  for (const secret of ['alice', 'bob', 'token', '@']) {
+    assert.equal(JSON.stringify(buildMessage('taskAdded', sharedTodo.title, true)).includes(secret), false, secret);
+  }
+});

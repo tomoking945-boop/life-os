@@ -248,7 +248,12 @@ final class TodayViewModel {
 
     /// 変更前の状態（保存されている最新のもの）
     private func snapshot(of item: LifeItem) -> LifeItem {
-        store.items.first(where: { $0.id == item.id }) ?? item
+        store.visibleItems.first(where: { $0.id == item.id }) ?? item
+    }
+
+    /// わが家で共有している項目か（共有マーク。2026-10-28）
+    func isShared(_ item: LifeItem) -> Bool {
+        store.isHouseholdItem(item.id)
     }
 
     private func undoRestoring(_ before: LifeItem) -> () -> Void {
@@ -543,7 +548,7 @@ final class TodayViewModel {
     /// 「移動する」：提案どおりに移し、理由と「元に戻す」を出す
     func acceptSuggestion(_ suggestion: LifeSuggestion) {
         let store = self.store
-        guard let item = store.items.first(where: { $0.id == suggestion.itemID }) else { return }
+        guard let item = store.visibleItems.first(where: { $0.id == suggestion.itemID }) else { return }
         let before = snapshot(of: item)
         let decision = SuggestionDecision(kind: suggestion.kind, subject: suggestion.itemTitle, decidedAt: now, choice: .accepted)
         store.reschedule(item.id, to: suggestion.targetDate)

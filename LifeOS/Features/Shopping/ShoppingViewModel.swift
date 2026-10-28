@@ -33,10 +33,12 @@ final class ShoppingViewModel {
 
     // MARK: - 買い物リスト
 
-    /// まだ買っていない買い物（日付に関係なく、買い物リストとしてすべて出す）
+    /// まだ買っていない買い物（日付に関係なく、買い物リストとしてすべて出す）。
+    /// 端末の買い物とわが家の共有の買い物を一緒に出し、「すべて / 自分 / 共有」で絞る（2026-10-28）
     var openItems: [LifeItem] {
-        store.items
-            .filter { $0.kind == .shopping && !$0.isCompleted && !$0.isDropped }
+        let scope = appState.effectiveScope
+        return store.visibleItems
+            .filter { $0.kind == .shopping && !$0.isCompleted && !$0.isDropped && scope.includes($0.ownership) }
             .sorted { $0.displayDate < $1.displayDate }
     }
 
@@ -51,10 +53,35 @@ final class ShoppingViewModel {
 
     /// 今日かごに入れたもの（完了した買い物のうち、今日の分）
     var boughtItems: [LifeItem] {
-        store.items.filter {
+        let scope = appState.effectiveScope
+        return store.visibleItems.filter {
             $0.kind == .shopping && $0.isCompleted && !$0.isDropped && LifeCalendar.isSameDay($0.displayDate, now)
+                && scope.includes($0.ownership)
         }
     }
+
+    /// わが家で共有している買い物か（共有マーク）
+    func isShared(_ item: LifeItem) -> Bool {
+        store.isHouseholdItem(item.id)
+    }
+
+    // MARK: - 追加先（2026-10-28）
+
+    /// 追加先（自分だけ／わが家で共有）。初期値は必ず「自分だけ」
+    var destination: SaveDestination = .initial
+
+    /// 「わが家で共有」を選べるか（わが家に参加していて、買い物がオン）
+    var canChooseDestination: Bool {
+        appState.usageStyle.showsScopeFilter && store.canShareInHousehold(.shopping)
+    }
+
+    private var effectiveDestination: SaveDestination {
+        canChooseDestination ? destination : .personal
+    }
+
+    /// 編集画面
+    var editingItem: LifeItem?
+    var storeForEditing: LifeStore { store }
 
     func categoryText(for item: LifeItem) -> String {
         ShoppingCategorizer.categories(for: item.title).map(\.label).joined(separator: " / ")
@@ -95,20 +122,15 @@ final class ShoppingViewModel {
         return days == 0 ? "今日購入" : "前回購入から\(days)日"
     }
 
-    /// 家族・パートナーモードでは共有の買い物として追加する
-    private var defaultOwnership: Ownership {
-        appState.usageStyle == .shared ? .shared : .personal
-    }
-
-    /// ワンタップ追加
+    /// ワンタップ追加（2026-10-28：自動で共有にしない。選んだ追加先へ。初期値は自分だけ）
     func add(_ purchase: FrequentPurchase) {
-        let added = store.addShopping([purchase.title], ownership: defaultOwnership, now: now)
+        let added = store.addShopping([purchase.title], destination: effectiveDestination, now: now)
         feedbackMessage = added > 0 ? "「\(purchase.title)」を追加しました" : "「\(purchase.title)」はもうリストにあります"
     }
 
     // MARK: - 献立から作る
 
     func addFromMealPlan(_ names: [String]) -> Int {
-        store.addShopping(names, ownership: defaultOwnership, now: now)
+        store.addShopping(names, destination: effectiveDestination, now: now)
     }
 }

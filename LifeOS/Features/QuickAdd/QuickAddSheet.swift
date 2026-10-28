@@ -33,6 +33,11 @@ struct QuickAddSheet: View {
                         examples
                     }
 
+                    // 保存先（2026-10-28）：わが家に参加していて、ToDo・買い物を共有できるときだけ。初期値は「自分だけ」
+                    if appState.usageStyle.showsScopeFilter, viewModel.canChooseDestination {
+                        SaveDestinationPicker(selection: $viewModel.destination)
+                    }
+
                     actions
                     typeSection
                 }
@@ -174,10 +179,10 @@ struct QuickAddSheet: View {
 
             HStack(spacing: LifeSpacing.xs) {
                 Text(viewModel.understandingTiming ?? "")
-                if appState.usageStyle.showsScopeFilter, let ownershipText = understanding.ownershipText {
+                if appState.usageStyle.showsScopeFilter, viewModel.canChooseDestination {
                     Text("・")
                         .accessibilityHidden(true)
-                    Text(ownershipText)
+                    Text(viewModel.destination.title)
                 }
             }
             .font(LifeTypography.callout)

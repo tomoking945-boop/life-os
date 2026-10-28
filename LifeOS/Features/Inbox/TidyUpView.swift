@@ -311,11 +311,6 @@ struct TidyUpEditView: View {
                     }
 
                     VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-                        LifeSectionTitle("自分 / 共有")
-                        LifeSegmentControl(Ownership.allCases, selection: $draft.ownership) { $0.label }
-                    }
-
-                    VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                         LifeSectionTitle("いつ")
                         LifeSegmentControl(InboxDay.allCases, selection: $draft.day) { $0.label }
                     }

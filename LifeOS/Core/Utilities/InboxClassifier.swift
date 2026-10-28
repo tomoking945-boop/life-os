@@ -4,8 +4,6 @@ import Foundation
 /// AI API は使わず、決まった言葉を手がかりにするだけの固定ロジック。
 /// TODO: AI 接続時（OpenAI API 等）は、ここを本物の分類に置き換える。
 enum InboxClassifier {
-    /// パートナーと一緒にやることを表す言葉
-    private static let sharedKeywords = ["妻と", "夫と", "二人で", "ふたりで", "家族で", "相談"]
     private static let shoppingKeywords = ["買う", "買い", "購入"]
     private static let paymentKeywords = ["払う", "支払", "振込", "振り込"]
     private static let choreKeywords = ["掃除", "洗濯", "ゴミ", "片付け"]
@@ -35,8 +33,8 @@ enum InboxClassifier {
             clues.append(match.word)
         }
 
-        let sharedWord = sharedKeywords.first { trimmed.contains($0) }
-        if let sharedWord { clues.append(sharedWord) }
+        // 2026-10-28：自動の分類は「共有」を選ばない（「妻と」などの言葉があっても自分の項目にする）。
+        // わが家で共有するのは、利用者が保存先で「わが家で共有」を選んだ ToDo・買い物だけ（docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
 
         let kind: LifeItemKind
         if let word = shoppingKeywords.first(where: { trimmed.contains($0) }) {
@@ -67,7 +65,7 @@ enum InboxClassifier {
         return InboxSuggestion(
             title: cleanTitle(trimmed, kind: kind),
             kind: kind,
-            ownership: sharedWord == nil ? .personal : .shared,
+            ownership: .personal,
             day: day,
             softTime: softTime,
             clues: clues,

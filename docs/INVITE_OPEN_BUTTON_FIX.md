@@ -164,6 +164,18 @@ Archive の手順は [TESTFLIGHT_BUILD_5.md](TESTFLIGHT_BUILD_5.md) と同じ（
 7. B が同じリンクをボタン・貼り付けで何度開いても、参加し直しにならない（使用済み・すでに参加の案内）
 8. 参加済みの B の画面には「招待リンクを入力」が出ないこと
 
+### Build 6 の確認結果（2026-10-28、池上さんの報告）
+
+| 項目 | 結果 |
+| --- | --- |
+| Hosting | 2026-10-28 に3ファイルを公開（案内ページの「くらしOSで開く」ボタン） |
+| Xcode のテスト | 成功・**失敗0件**（実行件数・スキップ数は報告なし。ここには推測で書かない） |
+| Release ビルド | 成功 |
+| 別の Apple ID での確認 | Appleでサインイン、招待の確認、わが家への参加まで成功 |
+| TestFlight | Build 6 を外部テスト中 |
+
+次の Build 7（わが家の管理・共有 ToDo・買い物）は [SHARED_TODO_SHOPPING_FOUNDATION.md](SHARED_TODO_SHOPPING_FOUNDATION.md)。
+
 ## 元に戻す方法
 
 - このブランチは main に入れていない。やめるときはブランチを使わなければよい

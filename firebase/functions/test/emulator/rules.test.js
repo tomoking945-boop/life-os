@@ -50,11 +50,22 @@ beforeEach(async () => {
   });
 });
 
-/** 共有項目（作成時は createdAt・updatedAt にサーバーの時刻を使う） */
+/** メンバー文書を外す（退出・削除はサーバーの Function だけが行うので、テストの準備はルールを止めて書く） */
+async function removeMemberAsServer(uid) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await deleteDoc(doc(context.firestore(), `groups/${GROUP}/members/${uid}`));
+  });
+}
+
+/**
+ * 共有項目（作成時は createdAt・updatedAt にサーバーの時刻を使う）。
+ * 2026-10-28（Build 7）から新しく作れるのは ToDo・買い物だけ（schemaVersion 1）なので、見本は ToDo にした
+ */
 function sharedItem(uid, time = serverTimestamp()) {
   return {
-    title: '歯医者',
-    kind: 'event',
+    schemaVersion: 1,
+    title: '歯医者を予約',
+    kind: 'todo',
     date: Timestamp.fromDate(new Date('2026-10-12T10:30:00+09:00')),
     hasTime: true,
     assigneeUID: null,
@@ -151,10 +162,13 @@ describe('メンバー', () => {
     }));
   });
 
-  it('自分は退出できるが、ほかの人は外せない', async () => {
+  it('アプリからはメンバー文書を消せない（自分も他人も。退出は leaveHousehold だけ。2026-10-28）', async () => {
     await assertFails(deleteDoc(doc(as('bob'), `groups/${GROUP}/members/alice`)));
-    await assertSucceeds(deleteDoc(doc(as('bob'), `groups/${GROUP}/members/bob`)));
-    // 退出したあとは読めない
+    await assertFails(deleteDoc(doc(as('bob'), `groups/${GROUP}/members/bob`)));
+    await assertFails(deleteDoc(doc(as('alice'), `groups/${GROUP}/members/alice`)));
+    await assertFails(deleteDoc(doc(as('alice'), `groups/${GROUP}/members/bob`)));
+    // サーバーが退出させたあとは読めない
+    await removeMemberAsServer('bob');
     await assertFails(getDoc(doc(as('bob'), `groups/${GROUP}/items/item-1`)));
   });
 
@@ -327,7 +341,7 @@ describe('監査（2026-10-20）：個人データらしい項目・場所', () 
 describe('監査（2026-10-20）：権限・作成の情報', () => {
   it('退出した人は、同じ生活グループに owner としても member としても戻れない', async () => {
     const bob = as('bob');
-    await assertSucceeds(deleteDoc(doc(bob, `groups/${GROUP}/members/bob`)));
+    await removeMemberAsServer('bob');
     await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'owner', joinedAt: serverTimestamp(), displayName: 'bob' }));
     await assertFails(setDoc(doc(bob, `groups/${GROUP}/members/bob`), { uid: 'bob', role: 'member', joinedAt: serverTimestamp(), displayName: 'bob' }));
     // グループを作り直して owner になることもできない（既にあるグループは「作成」ではない）
@@ -340,7 +354,7 @@ describe('監査（2026-10-20）：権限・作成の情報', () => {
 
   it('owner も一度退出すると戻れない（owner の役割を取り直せない）', async () => {
     const alice = as('alice');
-    await assertSucceeds(deleteDoc(doc(alice, `groups/${GROUP}/members/alice`)));
+    await removeMemberAsServer('alice');
     await assertFails(setDoc(doc(alice, `groups/${GROUP}/members/alice`), { uid: 'alice', role: 'owner', joinedAt: serverTimestamp(), displayName: 'alice' }));
   });
 
@@ -373,7 +387,7 @@ describe('監査（2026-10-20）：権限・作成の情報', () => {
   });
 
   it('退出した人は、担当者に設定できない', async () => {
-    await assertSucceeds(deleteDoc(doc(as('bob'), `groups/${GROUP}/members/bob`)));
+    await removeMemberAsServer('bob');
     await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}/items/item-1`), {
       assigneeUID: 'bob', updatedBy: 'alice', updatedAt: serverTimestamp(),
     }));
@@ -481,5 +495,116 @@ describe('わが家：共有する種類・メンバー・memberships', () => {
     await assertFails(setDoc(doc(as('alice'), 'invites/hash-new'), {
       groupID: GROUP, createdBy: 'alice', expiresAt: Timestamp.now(), usedAt: null, usedBy: null, revokedAt: null,
     }));
+  });
+});
+
+// MARK: - 共有 ToDo・買い物（2026-10-28 Build 7）。docs/SHARED_TODO_SHOPPING_FOUNDATION.md
+
+describe('共有 ToDo・買い物（Build 7）', () => {
+  /** わが家の設定（sharedKinds）を、サーバーが変えたのと同じように書く */
+  async function setSharedKinds(kinds) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: kinds });
+    });
+  }
+
+  it('新しく作れるのは ToDo・買い物だけ（予定・家事は Build 7 では作れない）', async () => {
+    const db = as('bob');
+    await setSharedKinds(['event', 'todo', 'chore', 'shopping']);
+    await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/k-todo`), sharedItem('bob')));
+    await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/k-shop`), { ...sharedItem('bob'), kind: 'shopping' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-event`), { ...sharedItem('bob'), kind: 'event' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-chore`), { ...sharedItem('bob'), kind: 'chore' }));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-money`), { ...sharedItem('bob'), kind: 'money' }));
+  });
+
+  it('schemaVersion は 1 が必須で、あとから変えられない', async () => {
+    const db = as('bob');
+    const { schemaVersion, ...withoutVersion } = sharedItem('bob');
+    assert.equal(schemaVersion, 1);
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/v0`), withoutVersion));
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/v2`), { ...sharedItem('bob'), schemaVersion: 2 }));
+    await assertFails(updateDoc(doc(db, `groups/${GROUP}/items/item-1`), { schemaVersion: 2, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+  });
+
+  it('種類（kind）はあとから変えられない', async () => {
+    const db = as('bob');
+    await assertFails(updateDoc(doc(db, `groups/${GROUP}/items/item-1`), { kind: 'shopping', updatedBy: 'bob', updatedAt: serverTimestamp() }));
+  });
+
+  it('わが家の設定でオフの種類は、新しく作れない（オンに戻せば作れる）', async () => {
+    const db = as('bob');
+    await setSharedKinds(['shopping']);
+    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/off-1`), sharedItem('bob')));
+    await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/on-1`), { ...sharedItem('bob'), kind: 'shopping' }));
+    await setSharedKinds(['todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/off-1`), sharedItem('bob')));
+  });
+
+  it('テスト10：種類をオフにしても、すでにある共有項目は残り、完了・編集・削除できる', async () => {
+    await setSharedKinds(['shopping']);
+    const alice = as('alice');
+    const ref = doc(alice, `groups/${GROUP}/items/item-1`);
+    const before = await getDoc(ref);
+    assert.equal(before.exists(), true);
+    await assertSucceeds(updateDoc(ref, { isCompleted: true, updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(ref, { title: '歯医者に電話', updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('テスト4：2人のあいだで追加・編集・完了・未完了・削除が反映される', async () => {
+    const alice = as('alice');
+    const bob = as('bob');
+    const path = `groups/${GROUP}/items/shared-1`;
+    await assertSucceeds(setDoc(doc(bob, path), { ...sharedItem('bob'), kind: 'shopping', title: '牛乳を買う' }));
+    assert.equal((await getDoc(doc(alice, path))).data().title, '牛乳を買う');
+    await assertSucceeds(updateDoc(doc(alice, path), { title: '低脂肪牛乳を買う', updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    assert.equal((await getDoc(doc(bob, path))).data().title, '低脂肪牛乳を買う');
+    await assertSucceeds(updateDoc(doc(alice, path), { isCompleted: true, updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    assert.equal((await getDoc(doc(bob, path))).data().isCompleted, true);
+    await assertSucceeds(updateDoc(doc(bob, path), { isCompleted: false, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    const reopened = (await getDoc(doc(alice, path))).data();
+    assert.equal(reopened.isCompleted, false);
+    assert.equal(reopened.updatedBy, 'bob');
+    assert.equal(reopened.createdBy, 'bob', '作成者は変わらない');
+    await assertSucceeds(deleteDoc(doc(alice, path)));
+    assert.equal((await getDoc(doc(bob, path))).exists(), false);
+  });
+
+  it('テスト9：同じ ID の作成をくり返しても、2件目はできない（上書きで作成日時を変えられない）', async () => {
+    const db = as('bob');
+    const path = `groups/${GROUP}/items/same-id`;
+    await assertSucceeds(setDoc(doc(db, path), sharedItem('bob')));
+    await assertFails(setDoc(doc(db, path), sharedItem('bob')));
+    const all = await getDocs(collection(db, `groups/${GROUP}/items`));
+    assert.equal(all.docs.filter((d) => d.id === 'same-id').length, 1);
+  });
+
+  it('テスト5・6：サインインしていない人・メンバーでない人は、作成も読み取りもできない。ほかのわが家は読めない', async () => {
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(anon, `groups/${GROUP}/items/anon`), sharedItem('anon')));
+    await assertFails(getDocs(collection(anon, `groups/${GROUP}/items`)));
+    const mallory = as('mallory');
+    await assertFails(setDoc(doc(mallory, `groups/${GROUP}/items/m1`), sharedItem('mallory')));
+    await assertFails(getDocs(collection(mallory, `groups/${GROUP}/items`)));
+    await assertFails(getDocs(collection(as('bob'), `groups/${OTHER_GROUP}/items`)));
+    await assertFails(getDocs(collectionGroup(as('bob'), 'items')));
+  });
+
+  it('退出（サーバーがメンバー文書を外した）あとは、読めず書けない', async () => {
+    await removeMemberAsServer('bob');
+    const bob = as('bob');
+    await assertFails(getDocs(collection(bob, `groups/${GROUP}/items`)));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/items/after-leave`), sharedItem('bob')));
+    await assertFails(updateDoc(doc(bob, `groups/${GROUP}/items/item-1`), { isCompleted: true, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+  });
+
+  it('アプリから共有する種類（sharedKinds）は変えられない（updateHousehold だけ）', async () => {
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}`), { sharedKinds: ['todo'], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as('bob'), `groups/${GROUP}`), { sharedKinds: ['todo', 'shopping', 'money'], updatedAt: serverTimestamp() }));
+  });
+
+  it('アプリからわが家（グループ）を消せない（deleteHousehold だけ）', async () => {
+    await assertFails(deleteDoc(doc(as('alice'), `groups/${GROUP}`)));
   });
 });

@@ -18,6 +18,11 @@ struct TasksView: View {
 
                 LifeSegmentControl(TaskSegment.allCases, selection: $viewModel.segment) { $0.title }
 
+                // すべて / 自分 / 共有（2026-10-28。今日画面と同じ切り替え）
+                if viewModel.showsScopeFilter {
+                    LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
+                }
+
                 if viewModel.segment == .shopping {
                     // v2：買い物は専用の表示（売り場ごと・よく買うもの・再購入候補・お店モード）
                     ShoppingSection(viewModel: shoppingViewModel)
@@ -43,6 +48,7 @@ struct TasksView: View {
                                 assigneeImage: avatar?.image,
                                 isCompleted: item.isCompleted,
                                 tint: item.kind.tint,
+                                isShared: viewModel.isShared(item),
                                 onLater: { viewModel.startPostponing(item) }
                             ) {
                                 withLifeAnimation(reduceMotion: reduceMotion) {
@@ -50,6 +56,15 @@ struct TasksView: View {
                                 }
                             }
                             .padding(.vertical, LifeSpacing.xxs)
+                            .contextMenu {
+                                if HouseholdItemPolicy.kinds.contains(item.kind) {
+                                    Button {
+                                        viewModel.startEditing(item)
+                                    } label: {
+                                        Label("編集", systemImage: "pencil")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -60,6 +75,10 @@ struct TasksView: View {
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        .sheet(item: $viewModel.editingItem) { item in
+            LifeItemEditSheet(item: item, store: viewModel.storeForEditing)
+                .lifeSheetPresentation()
+        }
         .postponeSheet(item: $viewModel.postponingItem) { item, option in
             withLifeAnimation(reduceMotion: reduceMotion) {
                 viewModel.postpone(item, to: option)

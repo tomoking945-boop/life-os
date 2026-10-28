@@ -144,4 +144,9 @@ final class CalendarViewModel {
     func toggle(_ item: LifeItem) {
         store.toggleCompletion(of: item.id)
     }
+
+    /// わが家で共有している項目か（共有マーク。2026-10-28）
+    func isShared(_ item: LifeItem) -> Bool {
+        store.isHouseholdItem(item.id)
+    }
 }

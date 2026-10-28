@@ -6,6 +6,9 @@ import Foundation
 /// 送らないもの：柔らかい時間（帰宅時など）・暮らしメモリーとのつながり・持ち主の区別。
 /// これらは端末ごとの見え方や個人の記録なので、端末の中だけに置く。
 /// createdAt・updatedAt はサーバーの時刻を使う（Firestore に書き込むときに付ける。Security Rules で確認している）。
+///
+/// 2026-10-28（Build 7）：実際の読み書きには SharedItemPayload（HouseholdItems.swift）を使う。
+/// こちらはアプリの中で UID を扱う形のため使わない（UID は Firebase の窓口だけが付ける）。以前のテストのために残している
 struct SharedItemRecord: Codable, Hashable {
     var title: String
     /// event / todo / chore / shopping

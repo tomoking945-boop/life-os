@@ -49,7 +49,8 @@ final class UnderstandingTests: XCTestCase {
     func testExistingSummariesAreUnchanged() {
         XCTAssertEqual(InboxClassifier.suggest(for: "明日牛乳買う").summary, "買い物・明日")
         XCTAssertNil(InboxClassifier.suggest(for: "明日牛乳買う").softTime)
-        XCTAssertEqual(InboxClassifier.suggest(for: "妻と旅行相談").summary, "共有ToDo・今日")
+        // 2026-10-28：自動の分類は「共有」を選ばないので「共有」を付けない
+        XCTAssertEqual(InboxClassifier.suggest(for: "妻と旅行相談").summary, "ToDo・今日")
     }
 
     func testExpenseUnderstanding() throws {
@@ -160,7 +161,8 @@ final class TidyUpSummaryTests: XCTestCase {
         let viewModel = TidyUpViewModel(store: makeStore(), now: TestDates.friday)
         XCTAssertTrue(viewModel.isShowingSummary)
         XCTAssertEqual(viewModel.summaryTitle, "4件を整理しました")
-        XCTAssertEqual(Set(viewModel.summaryGroups.map(\.title)), ["買い物へ", "家族と共有へ", "支払いへ", "やることへ"])
+        // 2026-10-28：整理からは共有にしないので「家族と共有へ」は出ない（「妻と旅行相談」は やることへ）
+        XCTAssertEqual(Set(viewModel.summaryGroups.map(\.title)), ["買い物へ", "支払いへ", "やることへ"])
         XCTAssertEqual(viewModel.summaryGroups.map(\.count).reduce(0, +), 4)
     }
 

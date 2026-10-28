@@ -47,12 +47,40 @@ final class TasksViewModel {
         self.now = now
     }
 
-    /// 決定済み：やること画面には「すべて / 自分 / 共有」フィルターを付けない（2026-09-28）。
+    // MARK: - すべて / 自分 / 共有（2026-10-28）
+
+    /// 2026-10-28：わが家で共有する ToDo・買い物を始めたので、やること画面にも「すべて / 自分 / 共有」を付ける
+    /// （2026-09-28 の「付けない」を変更。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）。今日画面と同じ切り替えを使う
+    var showsScopeFilter: Bool { appState.usageStyle.showsScopeFilter }
+
+    var scope: ScopeFilter {
+        get { appState.scope }
+        set { appState.scope = newValue }
+    }
+
+    /// わが家で共有している項目か（共有マーク）
+    func isShared(_ item: LifeItem) -> Bool {
+        store.isHouseholdItem(item.id)
+    }
+
+    // MARK: - 編集（名前・保存先・削除。2026-10-28）
+
+    var editingItem: LifeItem?
+
+    func startEditing(_ item: LifeItem) {
+        editingItem = item
+    }
+
+    /// 編集画面に渡す置き場
+    var storeForEditing: LifeStore { store }
+
     /// 習慣は今日画面の「習慣」に表示し、やること画面には出さない。
+    /// 端末の項目とわが家の共有項目を一緒に出す（同じ項目は1回だけ）
     var tasks: [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
-        return store.items
-            .filter { $0.isTask && !$0.isHabit && !$0.isDropped }
+        let scope = appState.effectiveScope
+        return store.visibleItems
+            .filter { $0.isTask && !$0.isHabit && !$0.isDropped && scope.includes($0.ownership) }
             .filter { item in
                 switch segment {
                 case .today:
@@ -72,6 +100,7 @@ final class TasksViewModel {
     /// 担当：どちらでも など
     /// TODO: 担当者が未設定の項目の表示は仕様未定。現状は「担当：未設定」。
     func assigneeText(for item: LifeItem) -> String {
+        if isShared(item) { return HouseholdSharedMark.label }
         guard let assignee = item.assignee else { return "担当：未設定" }
         return "担当：\(appState.profile.displayName(for: assignee))"
     }

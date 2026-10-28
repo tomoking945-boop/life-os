@@ -9,6 +9,9 @@ rules_version = '2';
 //   1人1つのわが家・最大2人・招待の使用済み／取り消しは、Functions のトランザクションで守る（docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md）
 // - 共有する種類（groups の sharedKinds）はアプリから変えられない
 // - 役割（owner / member）の変更はできない（権限の昇格を拒否）
+// - 共有項目（2026-10-28 Build 7）：新しく作れるのは ToDo・買い物だけ。わが家の設定でオンの種類だけ。
+//   種類・作成者・作成日時・schemaVersion は変えられない（docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+// - 退出・削除は leaveHousehold・deleteHousehold（サーバー）だけ。アプリからメンバー文書を消せない（2026-10-28）
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
 service cloud.firestore {
@@ -92,20 +95,23 @@ service cloud.firestore {
         // 役割の変更（権限の昇格）・uid の変更は誰にもできない
         allow update: if false;
 
-        // 退出：自分のメンバー情報だけ消せる
-        allow delete: if isSelf(memberUID);
+        // 退出・わが家の削除は leaveHousehold・deleteHousehold（サーバー）だけ（2026-10-28）。
+        // オーナーの退出の禁止・所属の記録（memberships）の片付け・担当の解除をサーバーのトランザクションで行うため、
+        // アプリからはメンバー文書を消せない（以前は本人なら消せた）
+        allow delete: if false;
       }
 
-      // 共有項目（予定・ToDo・家事・買い物）
+      // 共有項目。2026-10-28（Build 7）から新しく作れるのは ToDo・買い物だけ
       match /items/{itemID} {
         function validItem(data) {
           return data.keys().hasOnly([
-              'title', 'kind', 'date', 'hasTime', 'assigneeUID', 'isCompleted',
+              'schemaVersion', 'title', 'kind', 'date', 'hasTime', 'assigneeUID', 'isCompleted',
               'deferredTo', 'droppedAt', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
             ])
             && data.keys().hasAll([
               'title', 'kind', 'date', 'hasTime', 'isCompleted', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
             ])
+            && (!('schemaVersion' in data) || data.schemaVersion == 1)
             && isShortText(data.title, 200)
             && data.kind in ['event', 'todo', 'chore', 'shopping']
             && data.date is timestamp
@@ -119,17 +125,30 @@ service cloud.firestore {
             && data.updatedAt == request.time;
         }
 
+        // わが家の設定でオンになっている種類か（groups の sharedKinds。変えられるのは updateHousehold だけ）
+        function kindIsEnabled(kind) {
+          return kind in get(/databases/$(database)/documents/groups/$(groupID)).data.get('sharedKinds', []);
+        }
+
         allow read: if isMember(groupID);
 
+        // 作成：ToDo・買い物だけ・設定でオンの種類だけ・schemaVersion 1・作成者は本人・作成日時はサーバーの時刻
         allow create: if isMember(groupID)
           && validItem(request.resource.data)
+          && request.resource.data.kind in ['todo', 'shopping']
+          && kindIsEnabled(request.resource.data.kind)
+          && request.resource.data.get('schemaVersion', 0) == 1
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.createdAt == request.time;
 
+        // 更新：種類・作成者・作成日時・schemaVersion は変えられない。
+        // 種類をオフにしたあとも、すでにある共有項目の完了・編集・削除はできる（勝手に消さない）
         allow update: if isMember(groupID)
           && validItem(request.resource.data)
+          && request.resource.data.kind == resource.data.kind
           && request.resource.data.createdBy == resource.data.createdBy
-          && request.resource.data.createdAt == resource.data.createdAt;
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.get('schemaVersion', 0) == resource.data.get('schemaVersion', 0);
 
         allow delete: if isMember(groupID);
       }

@@ -86,9 +86,9 @@ final class TidyUpViewModel {
     }
 
     /// 行き先の言い方。
-    /// 新しい解釈：共有 → 家族と共有へ／買い物 → 買い物へ／今日以外 → 明日へ・土曜へ／それ以外は種類ごと。
+    /// 新しい解釈：買い物 → 買い物へ／今日以外 → 明日へ・土曜へ／それ以外は種類ごと。
+    /// 2026-10-28：「家族と共有へ」は無くした（整理からは共有にしない。共有は保存先で選ぶ）
     static func destination(of suggestion: InboxSuggestion) -> String {
-        if suggestion.ownership == .shared { return "家族と共有へ" }
         if suggestion.kind == .shopping { return "買い物へ" }
         if suggestion.day != .today { return "\(suggestion.day.label)へ" }
         switch suggestion.kind {

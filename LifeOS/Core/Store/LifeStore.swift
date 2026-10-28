@@ -39,6 +39,12 @@ final class LifeStore {
     /// パートナー共有（2026-10-11）：項目の変更を知らせる先（observeItems で登録）
     @ObservationIgnored private var itemObservers: [UUID: ([LifeItem]) -> Void] = [:]
 
+    /// わが家で共有している ToDo・買い物（2026-10-28 Build 7）。Firestore から受け取る。
+    /// 端末の life-store.json には保存しない（items とは別。個人データの保存の形は変えない）
+    private(set) var householdItems: [LifeItem] = []
+    /// 共有項目の保存を頼む先（SharedItemsService）。無ければ「わが家で共有」は選べない
+    @ObservationIgnored weak var householdSync: HouseholdItemSyncing?
+
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
     private struct Snapshot: Codable {
@@ -240,7 +246,9 @@ final class LifeStore {
     }
 
     /// 完了を切り替える。暮らしメモリーから追加した項目なら、完了で「前回」の記録を残し、取り消しで記録を消す。
+    /// わが家の共有項目なら、共有の保存先へ送る（2026-10-28）
     func toggleCompletion(of id: LifeItem.ID, at now: Date) {
+        if updateHouseholdItem(id, { $0.isCompleted.toggle() }) { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].isCompleted.toggle()
         let item = items[index]
@@ -276,7 +284,7 @@ final class LifeStore {
     /// 「あとで」「未完了救済」で回した項目は、回した先の日に表示する（元の日付は変えない）。
     /// 「もうやらない」にした項目は出さない。
     func items(on day: Date, scope: ScopeFilter) -> [LifeItem] {
-        items
+        visibleItems
             .filter { !$0.isDropped && LifeCalendar.isSameDay($0.displayDate, day) && scope.includes($0.ownership) }
             .sorted { lhs, rhs in
                 if lhs.showsTime != rhs.showsTime { return lhs.showsTime }
@@ -287,7 +295,7 @@ final class LifeStore {
     /// 未完了救済：指定日より前に残っている未完了のタスク（習慣は除く）
     func leftovers(before day: Date, scope: ScopeFilter) -> [LifeItem] {
         let start = LifeCalendar.startOfDay(day)
-        return items
+        return visibleItems
             .filter { item in
                 item.isTask && !item.isHabit && !item.isCompleted && !item.isDropped
                     && item.displayDate < start && scope.includes(item.ownership)
@@ -297,6 +305,7 @@ final class LifeStore {
 
     /// あとで・未完了救済：表示先の日時を変える（元の日付 `date` は変えない）
     func reschedule(_ id: LifeItem.ID, to date: Date) {
+        if updateHouseholdItem(id, { $0.deferredTo = date }) { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].deferredTo = date
         save()
@@ -304,6 +313,7 @@ final class LifeStore {
 
     /// もうやらない：削除せず、一覧に出さないだけにする
     func drop(_ id: LifeItem.ID, at date: Date = LifeCalendar.now) {
+        if updateHouseholdItem(id, { $0.droppedAt = date }) { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].droppedAt = date
         save()
@@ -317,11 +327,170 @@ final class LifeStore {
         save()
     }
 
+    // MARK: - 編集・削除（2026-10-28）
+
+    /// 名前を変える（端末の項目も、わが家の共有項目も）。空白だけの名前は受け付けない
+    func rename(_ id: LifeItem.ID, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if updateHouseholdItem(id, { $0.title = trimmed }) { return }
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].title = trimmed
+        save()
+    }
+
+    /// 削除する（利用者が編集画面で「削除」を選んだときだけ）。わが家の共有項目なら、相手の画面からも消える
+    func deleteItem(_ id: LifeItem.ID) {
+        if isHouseholdItem(id) {
+            deleteHouseholdItem(id)
+            return
+        }
+        guard items.contains(where: { $0.id == id }) else { return }
+        items.removeAll { $0.id == id }
+        save()
+    }
+
+    // MARK: - わが家で共有（2026-10-28 Build 7。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+
+    /// 画面に出す項目：端末の項目＋わが家の共有項目。
+    /// 同じ ID（共有へ変換中）なら共有の方だけを出す（二重に出さない）
+    var visibleItems: [LifeItem] {
+        guard !householdItems.isEmpty else { return items }
+        let sharedIDs = Set(householdItems.map(\.id))
+        return items.filter { !sharedIDs.contains($0.id) } + householdItems
+    }
+
+    /// わが家の共有項目か（共有マークを出す）
+    func isHouseholdItem(_ id: LifeItem.ID) -> Bool {
+        householdItems.contains { $0.id == id }
+    }
+
+    /// その種類で「わが家で共有」を選べるか（ToDo・買い物で、わが家の設定でオン）
+    func canShareInHousehold(_ kind: LifeItemKind) -> Bool {
+        HouseholdItemPolicy.kinds.contains(kind) && (householdSync?.allowsSharing(kind) ?? false)
+    }
+
+    /// 新しい項目を、選んだ保存先へ追加する。
+    /// 「わが家で共有」は、共有できる種類（ToDo・買い物）で、わが家の設定でオンのときだけ。それ以外は「自分だけ」として端末に保存する。
+    /// - Returns: わが家で共有した件数
+    @discardableResult
+    func add(_ newItems: [LifeItem], destination: SaveDestination) -> Int {
+        guard destination == .household else {
+            add(newItems.map(Self.personalCopy))
+            return 0
+        }
+        var local: [LifeItem] = []
+        var sharedCount = 0
+        for item in newItems {
+            if let sync = householdSync, canShareInHousehold(item.kind), HouseholdItemPolicy.canShare(item) {
+                let shared = Self.householdCopy(of: item)
+                householdItems.append(shared)
+                sync.createHouseholdItem(shared, convertingLocal: false)
+                sharedCount += 1
+            } else {
+                local.append(Self.personalCopy(item))
+            }
+        }
+        if !local.isEmpty { add(local) }
+        return sharedCount
+    }
+
+    /// 端末の項目を「わが家で共有」にする（利用者が編集画面で選んだときだけ）。
+    /// 端末の項目は、サーバーで保存が確かめられるまで消さない（通信できない・断られたときも残る）。
+    /// - Returns: 共有の保存を始めたら true
+    @discardableResult
+    func convertToHousehold(_ id: LifeItem.ID) -> Bool {
+        guard !isHouseholdItem(id),
+              let item = items.first(where: { $0.id == id }),
+              !item.isDropped,
+              canShareInHousehold(item.kind),
+              HouseholdItemPolicy.canShare(item),
+              let sync = householdSync else { return false }
+        let shared = Self.householdCopy(of: item)
+        householdItems.append(shared)
+        sync.createHouseholdItem(shared, convertingLocal: true)
+        return true
+    }
+
+    /// Firestore から届いた一覧で、共有項目を入れ替える（自分の変更も相手の変更も、ここに1件ずつだけ）。
+    /// サーバーで保存が確かめられた項目と同じ ID の端末の ToDo・買い物（共有へ変換したもの）は、ここで片付ける
+    func applyHouseholdSnapshot(_ snapshots: [SharedItemSnapshot]) {
+        householdItems = snapshots.map(\.item)
+        let confirmed = Set(snapshots.filter(\.isConfirmed).map(\.item.id))
+        removeConvertedLocalItems(confirmed)
+    }
+
+    /// 共有への変換がサーバーで保存されたとき（SharedItemsService から）
+    func finishHouseholdConversion(_ id: LifeItem.ID) {
+        removeConvertedLocalItems([id])
+    }
+
+    /// 共有の保存が断られたとき（SharedItemsService から）。
+    /// 新しく作った項目は「自分だけ」として端末に残す（消さない）。変換なら端末の項目がそのまま残っている
+    func householdCreateFailed(_ item: LifeItem, convertingLocal: Bool) {
+        householdItems.removeAll { $0.id == item.id }
+        guard !convertingLocal, !items.contains(where: { $0.id == item.id }) else { return }
+        items.append(Self.personalCopy(item))
+        save()
+    }
+
+    /// 共有項目の表示を消す（退出・わが家の削除・サインアウトのとき）。端末の個人データは消さない
+    func clearHouseholdItems() {
+        guard !householdItems.isEmpty else { return }
+        householdItems = []
+    }
+
+    private func removeConvertedLocalItems(_ ids: Set<LifeItem.ID>) {
+        guard !ids.isEmpty else { return }
+        let before = items.count
+        items.removeAll { ids.contains($0.id) && HouseholdItemPolicy.kinds.contains($0.kind) }
+        if items.count != before { save() }
+    }
+
+    /// わが家の共有項目を変えて、共有の保存先へ送る。共有項目でなければ false（端末の項目として扱う）
+    private func updateHouseholdItem(_ id: LifeItem.ID, _ change: (inout LifeItem) -> Void) -> Bool {
+        guard let index = householdItems.firstIndex(where: { $0.id == id }) else { return false }
+        var item = householdItems[index]
+        change(&item)
+        householdItems[index] = item
+        householdSync?.updateHouseholdItem(item)
+        return true
+    }
+
+    private func deleteHouseholdItem(_ id: LifeItem.ID) {
+        householdItems.removeAll { $0.id == id }
+        householdSync?.deleteHouseholdItem(id)
+    }
+
+    /// 共有へ送る形（持ち主は共有・担当なし・柔らかい時間と暮らしメモリーのつながりは送らない）
+    private static func householdCopy(of item: LifeItem) -> LifeItem {
+        var copy = item
+        copy.ownership = .shared
+        copy.assignee = nil
+        copy.softTime = nil
+        copy.memoryID = nil
+        copy.title = SharedItemPayload.title(item.title)
+        return copy
+    }
+
+    /// 端末に保存する形（自分だけ）
+    private static func personalCopy(_ item: LifeItem) -> LifeItem {
+        var copy = item
+        copy.ownership = .personal
+        if copy.assignee == nil || copy.assignee == .either { copy.assignee = .me }
+        return copy
+    }
+
     // MARK: - 元に戻す（Calm Future）
 
     /// 「元に戻す」：あとで・救済・もうやらない・共有 の前の状態に戻す。
     /// 戻すのは表示先・もうやらない・持ち主・担当だけ。その間に変えた完了チェックやタイトルは残す。
     func restore(_ snapshot: LifeItem) {
+        // わが家の共有項目：表示先・もうやらないだけを戻す（持ち主・担当は共有のまま）
+        if updateHouseholdItem(snapshot.id, { item in
+            item.deferredTo = snapshot.deferredTo
+            item.droppedAt = snapshot.droppedAt
+        }) { return }
         guard let index = items.firstIndex(where: { $0.id == snapshot.id }) else { return }
         items[index].deferredTo = snapshot.deferredTo
         items[index].droppedAt = snapshot.droppedAt
@@ -333,6 +502,10 @@ final class LifeStore {
     /// 「元に戻す」：直前に追加した項目を取り除く
     func removeItems(withIDs ids: Set<LifeItem.ID>) {
         guard !ids.isEmpty else { return }
+        // わが家の共有項目は、共有の保存先から消す（2026-10-28）
+        for id in ids where isHouseholdItem(id) {
+            deleteHouseholdItem(id)
+        }
         items.removeAll { ids.contains($0.id) }
         // 項目と一緒に登録した習慣も取り除く（id が同じ）
         habits.removeAll { ids.contains($0.id) }
@@ -370,6 +543,26 @@ final class LifeStore {
         guard !newItems.isEmpty else { return 0 }
         items.append(contentsOf: newItems)
         save()
+        return newItems.count
+    }
+
+    /// 買い物を、選んだ保存先へ追加する（2026-10-28）。同じ品名の未完了の買い物（共有の買い物も含む）があれば追加しない。
+    /// 「わが家で共有」は、わが家の設定で買い物がオンのときだけ。それ以外は自分だけ
+    /// - Returns: 実際に追加した件数
+    @discardableResult
+    func addShopping(_ names: [String], destination: SaveDestination, now: Date = LifeCalendar.now) -> Int {
+        let today = LifeCalendar.startOfDay(now)
+        let open = Set(visibleItems
+            .filter { $0.kind == .shopping && !$0.isCompleted && !$0.isDropped }
+            .map { ShoppingCategorizer.itemName(from: $0.title) })
+        var seen = Set<String>()
+        let newItems = names
+            .filter { !open.contains($0) && seen.insert($0).inserted }
+            .map { name in
+                LifeItem(title: "\(name)を買う", kind: .shopping, ownership: .personal, date: today, assignee: .me)
+            }
+        guard !newItems.isEmpty else { return 0 }
+        add(newItems, destination: destination)
         return newItems.count
     }
 

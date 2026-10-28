@@ -126,7 +126,7 @@ final class AppCheckBootstrapTests: XCTestCase {
     }
 }
 
-/// Firestore に書き込む処理が無いこと（ソースの中を調べる。シミュレーターでテストするとき Mac のファイルを読める）
+/// Firestore を使うのは、わが家の共有 ToDo・買い物の窓口（FirestoreSharedItemsBackend.swift）だけ（2026-10-28 Build 7。以前は「まったく使わない」）
 final class NoFirestoreWritesTests: XCTestCase {
     func testAppSourceDoesNotUseFirestore() throws {
         let testFile = URL(fileURLWithPath: #filePath)
@@ -136,16 +136,42 @@ final class NoFirestoreWritesTests: XCTestCase {
         }
         var swiftFiles = 0
         var offenders: [String] = []
+        var backendText: String?
         let forbidden = ["import FirebaseFirestore", "Firestore.firestore(", ".setData(", ".addDocument(", ".updateData("]
+        // 2026-10-28（Build 7）：Firestore を使ってよいのは、わが家の共有 ToDo・買い物の窓口のファイルだけ
+        let allowedFile = "FirestoreSharedItemsBackend.swift"
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             swiftFiles += 1
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if url.lastPathComponent == allowedFile {
+                backendText = text
+                continue
+            }
             for word in forbidden where text.contains(word) {
                 offenders.append("\(url.lastPathComponent): \(word)")
             }
         }
         try XCTSkipIf(swiftFiles == 0, "アプリのソースを読めない環境のため、確認を省きます")
-        XCTAssertEqual(offenders, [], "Firestore に書き込む処理は、まだ追加しない")
+        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift だけ")
+
+        // その窓口が読み書きするのは groups/{groupID}/items だけ（ほかの場所・一括の追加・別のコレクションは使わない）
+        let backend = try XCTUnwrap(backendText, "FirestoreSharedItemsBackend.swift が見つからない")
+        let collections = Self.matches(of: #"\.collection\("([^"]+)"\)"#, in: backend)
+        XCTAssertEqual(Set(collections), ["groups", "items"], "使うコレクション")
+        XCTAssertFalse(backend.contains(".addDocument("), "文書の ID は項目の UUID（自動の ID で二重に作らない）")
+        XCTAssertFalse(backend.contains("collectionGroup"), "グループをまたいで探さない")
+        XCTAssertFalse(backend.contains("WriteBatch") || backend.contains(".batch()"), "まとめて送らない（既存データの一括アップロードをしない）")
+        XCTAssertTrue(backend.contains("document(id.uuidString)"), "文書の ID は項目の UUID")
+        for word in ["print(", "NSLog", "os_log", "Logger(", "localizedDescription"] {
+            XCTAssertFalse(backend.contains(word), "ログ・エラー文を出さない：\(word)")
+        }
+    }
+
+    private static func matches(of pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+            Range(match.range(at: 1), in: text).map { String(text[$0]) }
+        }
     }
 
     /// Debug Token の実値をソースや設定に書かない（環境変数で渡す設定も使わない）

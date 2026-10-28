@@ -7,6 +7,10 @@ import Foundation
 /// - 支払予定・習慣は、仕様の共有の対象（予定・ToDo・家事・買い物）に無いため送らない（TODO：共有したい場合は仕様で決める）
 ///
 /// サーバー側の Security Rules（firestore.rules）と通知の判定（firebase/functions/src/notificationPolicy.js）も、同じ4種類だけを受け付ける。
+///
+/// 2026-10-28（Build 7）：実際の同期は HouseholdItems.swift（HouseholdItemPolicy・SharedItemPayload）が行い、
+/// 新しく作れるのは ToDo・買い物だけ（Security Rules も作成は2種類だけ）。ここは以前の下準備のまま残し、アプリの同期には使わない
+/// （端末の「共有」の項目をまとめて送る仕組みにしないため。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
 enum SharedSyncPolicy {
     /// 共有の保存先へ送れる種類
     static let syncableKinds: Set<LifeItemKind> = [.event, .todo, .chore, .shopping]

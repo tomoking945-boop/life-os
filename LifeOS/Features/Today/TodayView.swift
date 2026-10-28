@@ -329,6 +329,7 @@ struct TodayView: View {
                     detail: viewModel.timelineDetail(for: item),
                     isCompleted: item.isCompleted,
                     tint: item.kind.tint,
+                    isShared: viewModel.isShared(item),
                     onLater: { viewModel.startPostponing(item) }
                 ) {
                     animate { viewModel.toggle(item) }
@@ -344,6 +345,7 @@ struct TodayView: View {
             detail: viewModel.detailText(for: item),
             isCompleted: item.isCompleted,
             tint: item.kind.tint,
+            isShared: viewModel.isShared(item),
             onLater: { viewModel.startPostponing(item) }
         ) {
             animate { viewModel.toggle(item) }
@@ -408,6 +410,9 @@ struct TodayView: View {
                     Text(item.title)
                         .font(LifeTypography.body)
                         .foregroundStyle(LifeColors.text)
+                    if viewModel.isShared(item) {
+                        HouseholdSharedMark()
+                    }
                     Spacer(minLength: LifeSpacing.xs)
                     Text(viewModel.leftoverDetail(for: item))
                         .font(LifeTypography.footnote)
@@ -421,7 +426,7 @@ struct TodayView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(item.title)、\(viewModel.leftoverDetail(for: item))")
+            .accessibilityLabel([item.title, viewModel.isShared(item) ? HouseholdSharedMark.label : nil, viewModel.leftoverDetail(for: item)].compactMap { $0 }.joined(separator: "、"))
             .accessibilityHint(isExpanded ? "選択肢を閉じます" : "どうするか選べます")
 
             if isExpanded {

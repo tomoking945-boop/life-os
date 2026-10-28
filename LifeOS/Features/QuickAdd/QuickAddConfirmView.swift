@@ -26,12 +26,9 @@ struct QuickAddConfirmView: View {
                         .foregroundStyle(LifeColors.secondaryText)
                 }
 
-                // 一人モードでは共有を前面に出さないため、追加先は出さない（常に「自分」）
-                if appState.usageStyle == .shared {
-                    VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-                        LifeSectionTitle("追加先")
-                        LifeSegmentControl(Ownership.allCases, selection: $viewModel.ownership) { $0.label }
-                    }
+                // 保存先（2026-10-28）：わが家に参加していて、ToDo・買い物を共有できるときだけ出す。初期値は「自分だけ」
+                if appState.usageStyle == .shared, viewModel.canChooseDestination {
+                    SaveDestinationPicker(selection: $viewModel.destination)
                 }
 
                 VStack(alignment: .leading, spacing: LifeSpacing.xs) {

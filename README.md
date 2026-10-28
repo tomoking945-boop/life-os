@@ -34,6 +34,7 @@
 - [アカウント削除のあとの Firestore の整理](docs/FIREBASE_ACCOUNT_DELETION_CLEANUP.md)
 - [招待リンクの土台（Associated Domains と受け取り）](docs/FIREBASE_INVITE_LINK_FOUNDATION.md)
 - [わが家の作成・招待・参加](docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md)
+- [わが家の管理と、共有 ToDo・買い物（Build 7）](docs/SHARED_TODO_SHOPPING_FOUNDATION.md)
 
 ## UIプロトタイプの動かし方
 

@@ -90,10 +90,10 @@ struct InboxSuggestion: Hashable, Codable {
     /// 柔らかい時間を自分で選んだか（選んでいれば、修正のあとも自動で変えない）
     var isSoftTimeChosen = false
 
-    /// 「買い物・明日」「共有ToDo・今日」のような短い説明
+    /// 「買い物・明日」「ToDo・今日」のような短い説明。
+    /// 2026-10-28：Inbox・なんでも追加から作る項目は、いつも自分の項目（共有は保存先で選ぶ）なので「共有」を付けない
     var summary: String {
-        let kindText = ownership == .shared ? "共有\(kind.label)" : kind.label
-        return "\(kindText)・\(day.label)"
+        "\(kind.label)・\(day.label)"
     }
 
     // MARK: - LifeOSの理解（Calm Future 第2段階）
@@ -123,9 +123,9 @@ struct InboxSuggestion: Hashable, Codable {
         return base
     }
 
-    /// 自分／共有
+    /// 自分／共有。2026-10-28：ここから作る項目はいつも自分の項目（makeItem）なので「自分」
     var ownershipText: String {
-        ownership == .shared ? "家族と共有" : "自分"
+        "自分"
     }
 
     /// 「修正」で変えたあとに呼ぶ：理由を「修正した内容」にする。
@@ -164,10 +164,11 @@ struct InboxSuggestion: Hashable, Codable {
         return LifeItem(
             title: title,
             kind: kind,
-            ownership: ownership,
+            // 2026-10-28：分類・修正の内容から「共有」にしない（端末の中の自分の項目。共有は保存先で選ぶ）
+            ownership: .personal,
             date: time?.date(on: dayStart) ?? dayStart,
             hasTime: time != nil,
-            assignee: ownership == .shared ? .either : .me,
+            assignee: .me,
             softTime: time == nil ? softTime : nil
         )
     }

@@ -102,11 +102,16 @@ final class InboxClassifierTests: XCTestCase {
         XCTAssertEqual(suggestion.summary, "買い物・明日")
     }
 
-    func testSharedTodo() {
+    /// 2026-10-28（Build 7）：自動の分類は「共有」を選ばない。「妻と」などの言葉があっても自分の項目
+    /// （わが家で共有するのは、利用者が保存先で選んだ ToDo・買い物だけ。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+    func testSharedWordsDoNotChooseShared() {
         let suggestion = InboxClassifier.suggest(for: "妻と旅行相談")
         XCTAssertEqual(suggestion.kind, .todo)
-        XCTAssertEqual(suggestion.ownership, .shared)
-        XCTAssertEqual(suggestion.summary, "共有ToDo・今日")
+        XCTAssertEqual(suggestion.ownership, .personal)
+        XCTAssertEqual(suggestion.summary, "ToDo・今日")
+        for text in ["夫と買い物", "二人で掃除", "家族で旅行の相談"] {
+            XCTAssertEqual(InboxClassifier.suggest(for: text).ownership, .personal, text)
+        }
     }
 
     func testPayment() {

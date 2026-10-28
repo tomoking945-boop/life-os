@@ -44,9 +44,9 @@ final class QuickAddViewModel {
 
     var inputText = ""
     var candidates: [QuickAddCandidate] = []
-    /// 整理結果を「自分」「共有」のどちらに追加するか
-    /// 決定済み：確認画面で選べるようにする（2026-10-01）。初期値は「自分」。
-    var ownership: Ownership = .personal
+    /// 保存先（自分だけ／わが家で共有）。2026-10-28：初期値は必ず「自分だけ」。
+    /// 「わが家で共有」は利用者が選んだときだけ（AI・自動の分類は選ばない）。共有できるのは ToDo・買い物だけ
+    var destination: SaveDestination = .initial
     var isShowingResults = false
     var isShowingVoiceInputNotice = false
     var isShowingAmountNotice = false
@@ -54,6 +54,16 @@ final class QuickAddViewModel {
     init(store: LifeStore, now: Date = LifeCalendar.now) {
         self.store = store
         self.now = now
+    }
+
+    /// 「わが家で共有」を選べるか（わが家に参加していて、ToDo・買い物のどちらかがオン）
+    var canChooseDestination: Bool {
+        store.canShareInHousehold(.todo) || store.canShareInHousehold(.shopping)
+    }
+
+    /// 実際に使う保存先（選べないときは「自分だけ」）
+    private var effectiveDestination: SaveDestination {
+        canChooseDestination ? destination : .personal
     }
 
     // MARK: - 入力
@@ -102,9 +112,10 @@ final class QuickAddViewModel {
                              date: match.time.date(on: today), hasTime: true, assignee: .me)
                 ])
             } else {
+                // ToDo・買い物は、選んだ保存先へ（初期値は自分だけ。予定は Build 7 では共有しない）
                 store.add([
                     LifeItem(title: trimmedInput, kind: kind, ownership: .personal, date: today, assignee: .me)
-                ])
+                ], destination: kind == .event ? .personal : effectiveDestination)
             }
 
         case .expense:
@@ -179,6 +190,7 @@ final class QuickAddViewModel {
     }
 
     /// 提案どおり追加：理解したとおりに追加する。
+    /// 自動の分類は「共有」を選ばない。わが家で共有するのは、利用者が保存先で選んだときの ToDo・買い物だけ（2026-10-28）。
     /// 一人モードでは共有を前面に出さないため、常に「自分」として追加する。
     /// - Returns: 追加できたら true（シートを閉じる）
     @discardableResult
@@ -186,12 +198,8 @@ final class QuickAddViewModel {
         guard let understanding else { return false }
         switch understanding.outcome {
         case let .items(suggestions):
-            let items = suggestions.map { suggestion -> LifeItem in
-                var adjusted = suggestion
-                if !usageStyle.showsScopeFilter { adjusted.ownership = .personal }
-                return adjusted.makeItem(today: now)
-            }
-            store.add(items)
+            let items = suggestions.map { $0.makeItem(today: now) }
+            store.add(items, destination: usageStyle.showsScopeFilter ? effectiveDestination : .personal)
         case let .expense(title, amount, category):
             store.add(Expense(title: title, amount: amount, category: category, date: LifeCalendar.startOfDay(now)))
         }
@@ -207,8 +215,8 @@ final class QuickAddViewModel {
             return
         }
         candidates = suggestions.map { QuickAddCandidate(item: $0.makeItem(today: now), isSelected: true) }
-        let suggestedOwnership = suggestions.first?.ownership ?? .personal
-        ownership = usageStyle.showsScopeFilter ? suggestedOwnership : .personal
+        // 保存先は、利用者がこの画面で選んだもの（初期値は自分だけ）。自動の分類からは決めない
+        if !usageStyle.showsScopeFilter { destination = .personal }
         isShowingResults = true
     }
 
@@ -216,7 +224,7 @@ final class QuickAddViewModel {
     /// TODO: 入力欄が空でも押せるかは仕様未定。現状は常に押せる。
     func organize() {
         candidates = MockData.quickAddResults().map { QuickAddCandidate(item: $0, isSelected: true) }
-        ownership = .personal
+        destination = .initial
         isShowingResults = true
     }
 
@@ -271,23 +279,17 @@ final class QuickAddViewModel {
         return parts.joined(separator: "・")
     }
 
-    /// 選択した項目を、選んだ「自分 / 共有」で Mock のデータに追加する
-    /// 決定済み：共有で追加したときの担当は「どちらでも」（2026-10-01）。
+    /// 選択した項目を、選んだ保存先へ追加する（わが家で共有にできるのは ToDo・買い物だけ。ほかは自分だけ）
     func addSelected() {
-        let items = candidates.filter(\.isSelected).map { candidate -> LifeItem in
-            var item = candidate.item
-            item.ownership = ownership
-            item.assignee = (ownership == .personal) ? .me : .either
-            return item
-        }
-        store.add(items)
+        let items = candidates.filter(\.isSelected).map(\.item)
+        store.add(items, destination: effectiveDestination)
         reset()
     }
 
     private func reset() {
         inputText = ""
         candidates = []
-        ownership = .personal
+        destination = .initial
         isShowingResults = false
     }
 }

@@ -21,6 +21,14 @@ struct ShoppingSection: View {
             .tint(LifeColors.primary)
             .frame(minHeight: LifeSpacing.minTapTarget)
 
+            // 追加先（2026-10-28）：わが家に参加していて、買い物がオンのときだけ。初期値は「自分だけ」
+            if viewModel.canChooseDestination {
+                SaveDestinationPicker(
+                    selection: $viewModel.destination,
+                    note: "よく買うもの・献立から追加するときの保存先です。「わが家で共有」の買い物は、パートナーの画面にも出ます。"
+                )
+            }
+
             if let message = viewModel.feedbackMessage {
                 // 今日画面・Inbox と同じ、すりガラスの一言
                 LifeUndoBanner(message: message)
@@ -36,6 +44,10 @@ struct ShoppingSection: View {
                 frequentSection
                 mealPlanLink
             }
+        }
+        .sheet(item: $viewModel.editingItem) { item in
+            LifeItemEditSheet(item: item, store: viewModel.storeForEditing)
+                .lifeSheetPresentation()
         }
         .task(id: viewModel.feedbackMessage) {
             guard viewModel.feedbackMessage != nil else { return }
@@ -74,7 +86,7 @@ struct ShoppingSection: View {
                 VStack(alignment: .leading, spacing: LifeSpacing.xs) {
                     LifeSectionTitle("かごに入れたもの", trailing: "\(viewModel.boughtItems.count)件")
                     ForEach(viewModel.boughtItems) { item in
-                        LifeTaskRow(title: item.title, isCompleted: true, tint: LifeItemKind.shopping.tint) {
+                        LifeTaskRow(title: item.title, isCompleted: true, tint: LifeItemKind.shopping.tint, isShared: viewModel.isShared(item)) {
                             animate { viewModel.toggle(item) }
                         }
                     }
@@ -100,13 +112,16 @@ struct ShoppingSection: View {
                         .font(LifeTypography.editorialTitle)
                         .foregroundStyle(LifeColors.text)
                         .strikethrough(item.isCompleted, color: LifeColors.secondaryText)
+                    if viewModel.isShared(item) {
+                        HouseholdSharedMark()
+                    }
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, minHeight: LifeSpacing.buttonHeight + LifeSpacing.md, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
+            .accessibilityLabel(viewModel.isShared(item) ? "\(item.title)、\(HouseholdSharedMark.label)" : item.title)
             .accessibilityValue(item.isCompleted ? "かごに入れた" : "まだ")
             .accessibilityHint("ダブルタップでかごに入れたことにします")
         } else {
@@ -114,9 +129,17 @@ struct ShoppingSection: View {
                 title: item.title,
                 detail: viewModel.categoryText(for: item),
                 isCompleted: item.isCompleted,
-                tint: LifeItemKind.shopping.tint
+                tint: LifeItemKind.shopping.tint,
+                isShared: viewModel.isShared(item)
             ) {
                 animate { viewModel.toggle(item) }
+            }
+            .contextMenu {
+                Button {
+                    viewModel.editingItem = item
+                } label: {
+                    Label("編集", systemImage: "pencil")
+                }
             }
         }
     }

@@ -13,6 +13,8 @@ struct LifeTaskRow: View {
     let isCompleted: Bool
     /// カテゴリー色（左の小さなドット）。nil なら出さない。
     var tint: Color?
+    /// わが家で共有している項目か（小さな共有マークを出す。2026-10-28）
+    var isShared: Bool = false
     var onLater: (() -> Void)?
     let onToggle: () -> Void
 
@@ -31,10 +33,15 @@ struct LifeTaskRow: View {
                     }
 
                     VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
-                        Text(title)
-                            .font(LifeTypography.body)
-                            .foregroundStyle(isCompleted ? LifeColors.secondaryText : LifeColors.text)
-                            .strikethrough(isCompleted, color: LifeColors.secondaryText)
+                        HStack(spacing: LifeSpacing.xxs) {
+                            Text(title)
+                                .font(LifeTypography.body)
+                                .foregroundStyle(isCompleted ? LifeColors.secondaryText : LifeColors.text)
+                                .strikethrough(isCompleted, color: LifeColors.secondaryText)
+                            if isShared {
+                                HouseholdSharedMark()
+                            }
+                        }
                         if let detail {
                             Text(detail)
                                 .font(LifeTypography.footnote)
@@ -60,7 +67,7 @@ struct LifeTaskRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel([title, detail, trailing].compactMap { $0 }.joined(separator: "、"))
+            .accessibilityLabel([title, isShared ? HouseholdSharedMark.label : nil, detail, trailing].compactMap { $0 }.joined(separator: "、"))
             .accessibilityValue(isCompleted ? "完了" : "未完了")
             .accessibilityHint("ダブルタップで完了と未完了を切り替えます")
             .accessibilityAddTraits(.isButton)

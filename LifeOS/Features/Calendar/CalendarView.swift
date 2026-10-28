@@ -167,7 +167,8 @@ struct CalendarView: View {
                                 title: item.title,
                                 detail: viewModel.detailText(for: item),
                                 isCompleted: item.isCompleted,
-                                tint: item.kind.tint
+                                tint: item.kind.tint,
+                                isShared: viewModel.isShared(item)
                             ) {
                                 viewModel.toggle(item)
                             }
