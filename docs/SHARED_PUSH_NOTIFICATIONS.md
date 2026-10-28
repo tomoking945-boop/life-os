@@ -144,7 +144,9 @@ Firebase から iPhone へ通知を届けるには、**Firebase Cloud Messaging 
 | 再試行の安全 | Functions「同じ出来事が2回届いても」 |
 | Rules：自分の端末だけ・他人・未認証・不正な形を拒否 | Rules「共有の通知の端末（Build 8）」 |
 
-### 結果
+### 結果（作業環境での実行。commit `7557637` 時点の記録）
+
+この表は commit を作った時点の記録です。Mac での結果は、下の「Mac での確認結果」を見てください。
 
 | テスト | 件数 | この作業環境 | 結果 |
 | --- | --- | --- | --- |
@@ -163,6 +165,42 @@ Firebase から iPhone へ通知を届けるには、**Firebase Cloud Messaging 
 4. Signing & Capabilities で自分の Team を選び、「Push Notifications」「Associated Domains」「Sign in with Apple」「App Attest」があることを確かめる
 5. ⌘U でテスト（**377件の予定**・失敗0件）
 6. Edit Scheme で Run を Release にして ⌘B（確かめたら Debug に戻す）
+
+## Mac での確認結果（2026-10-28、池上さんの報告）
+
+確認した commit：`7557637`
+
+| テスト | 件数 | 失敗 | スキップ | 結果 |
+| --- | --- | --- | --- | --- |
+| サーバーの単体テスト | 74 | 0 | 0 | 成功 |
+| Firestore Rules | 61 | 0 | 0 | 成功 |
+| Functions | 41 | 0 | 0 | 成功 |
+| アカウント削除 | 20 | 0 | 0 | 成功 |
+| サーバーの合計 | 196 | 0 | 0 | 成功 |
+| Xcode のテスト | 未報告 | 0 | 未報告 | Test Succeeded |
+| Release ビルド | — | — | — | 成功 |
+
+## APNs 認証キー
+
+Firebase Console の Cloud Messaging に、開発用・本番環境用の APNs 認証キーを **登録済み**（池上さん本人が登録。2026-10-28）。
+キーの中身・ファイル・識別子などの秘密の情報は、この文書にもリポジトリにも書きません。
+
+## Firebase Messaging の最終の設定の監査（2026-10-28、commit `7557637` のソースで確認）
+
+ソースと設定ファイルを読んで確かめました（実機での通信の確認ではありません）。問題は見つからず、**コードは変えていません**。
+
+| # | 確かめたこと | 結果 |
+| --- | --- | --- |
+| 1 | 起動時に通知用のトークンが自動で作られない・Firebase へ送られない | OK。起動時に動くのは、Messaging の窓口（`FirebaseMessagingTokenProvider`）の作成と受け取り先の設定だけ。トークンの取得（`token()`）・APNs への登録・端末の文書の保存は、`register()` の中だけで、`register()` は「受け取る」がオンのときだけ動く。トークンが届いても、条件（サインイン・わが家に参加・受け取るがオン・許可済み）を満たさなければ保存しない |
+| 2 | `LifeOS-Info.plist` の `FirebaseMessagingAutoInitEnabled = NO` が真偽値 | OK。`<false/>`（真偽値）。文字列ではない。Swift のテスト（`testAppURLSchemeIsRegisteredOnce`）も Bool の false を確かめている |
+| 3 | 「共有の通知を受け取る」を利用者がオンにしたあとだけ、自動の開始（`isAutoInitEnabled = true`）になる | OK。true にするのは `register()` だけ。「受け取る」が true になるのは `setReceives(true)`（画面の切り替え）で、許可を得たあとだけ |
+| 4 | 通知をオフにしたときのトークン・端末の文書 | OK。「受け取る」を false にして保存し、端末の文書を消し（決まった時間だけ待つ）、自動の開始を false にし、トークンを無効にする（`deleteToken`）。サインアウト・わが家の退出／削除でも、端末の文書を消し、自動の開始を false にする |
+| 5 | `FirebaseAppDelegateProxyEnabled` | `NO`（真偽値の false。自動の置き換え＝swizzling は使わない）。APNs のトークンは `AppDelegate` の `didRegisterForRemoteNotificationsWithDeviceToken` から `Messaging.messaging().apnsToken` へ明示的に渡している。自動の置き換えが無いので、二重の処理・競合は無い |
+| 6 | Debug・Release の両方で Push Notifications と正しい entitlements | OK。アプリの Debug・Release とも `CODE_SIGN_ENTITLEMENTS = LifeOS.entitlements`。その中に `aps-environment = development`（TestFlight・App Store 用の書き出しで Xcode が production にする）。Associated Domains・Sign in with Apple・App Attest もそのまま。Bundle ID は Debug・Release とも同じ |
+| 7 | テストのターゲットに Push Notifications・アプリの Info.plist が入っていない | OK。テストの Debug・Release には `CODE_SIGN_ENTITLEMENTS`・`INFOPLIST_FILE` が無い。テストのターゲットの Frameworks・パッケージも空（FirebaseMessaging はアプリのターゲットだけ） |
+| 8 | トークン・UID・項目名をログに出すコードが無い | OK。アプリのソース全体に `print`・`debugPrint`・`dump`・`NSLog`・`os_log`・`Logger`・Analytics・Crashlytics の呼び出しは無い。Swift のソースの確認テスト（`testNoLoggingOrDeviceIdentifiers` など）も同じことを確かめている |
+
+再テスト：コードを変えていないので、Xcode のテストと Release ビルドのやり直しは不要（この記録は文書だけの変更）。
 
 ## 2台の iPhone での確認（A：オーナー、B：パートナー。別々の Apple ID）
 
