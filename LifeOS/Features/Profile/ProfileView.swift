@@ -24,7 +24,7 @@ struct ProfileView: View {
                         }
                         LifeDivider()
                         // わが家（招待・参加・メンバー・設定）は、ここ1か所だけ（2026-10-28）。
-                        // 端末の中だけの古い「生活グループ」「共有メンバー」の画面はなくした
+                        // 端末の中だけの古いグループ名・メンバーの画面はなくした（2026-10-28）
                         ProfileLinkRow(title: "共有用アカウント・わが家", value: auth.status.shortLabel) {
                             PartnerAccountView(auth: auth)
                         }

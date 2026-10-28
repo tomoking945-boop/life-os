@@ -746,7 +746,8 @@ enum InviteLinkSourceScanner {
         ("Analytics", #"(?<![A-Za-z0-9_])Analytics(?![A-Za-z0-9_])"#),
         ("Crashlytics", #"(?<![A-Za-z0-9_])Crashlytics(?![A-Za-z0-9_])"#),
         ("UIPasteboard", #"(?<![A-Za-z0-9_])UIPasteboard(?![A-Za-z0-9_])"#),
-        ("URL の文字への埋め込み \(url", #"\\\(url"#),
+        // 決まりの名前は「\(url」という文字そのもの（文字列の補間ではない）なので、raw string で書く（2026-10-28 修正）
+        (#"URL の文字への埋め込み \(url"#, #"\\\(url"#),
         (tokenArgumentRule, #"\.token\)"#),
     ]
 
