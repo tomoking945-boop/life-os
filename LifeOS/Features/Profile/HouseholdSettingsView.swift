@@ -12,6 +12,8 @@ struct HouseholdSettingsView: View {
     @Bindable var household: HouseholdService
     /// 共有の通知（2026-10-28 Build 8。docs/SHARED_PUSH_NOTIFICATIONS.md）
     var push: SharedPushService = .live
+    /// 共有 ToDo・買い物の同期（共有の状態の確認。2026-10-28 Build 9）
+    var sharedItems: SharedItemsService = .live
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var draftName = ""
@@ -115,6 +117,8 @@ struct HouseholdSettingsView: View {
 
         pushSection
 
+        syncCheckSection
+
         // 招待の状態
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
             LifeSectionTitle("招待")
@@ -141,6 +145,32 @@ struct HouseholdSettingsView: View {
                 }
                 .disabled(household.isWorking)
                 SettingsNote(text: "退出したあとは、別の招待からわが家に参加できます。")
+            }
+        }
+    }
+
+    /// 共有の状態の確認（2026-10-28 Build 9）：共有の保存が断られたとき、どこで止まっているかを確かめる（読み取りだけ）
+    private var syncCheckSection: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            LifeSectionTitle("共有の状態")
+            if let failure = sharedItems.lastFailure {
+                SettingsNote(text: "最近の共有の保存：失敗（\(failure.reason)）")
+            }
+            LifeButton("共有の状態を確かめる", systemImage: "stethoscope", kind: .secondary) {
+                Task { await sharedItems.runDiagnosis() }
+            }
+            if let diagnosis = sharedItems.diagnosis {
+                VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                    ForEach(diagnosis.lines, id: \.self) { line in
+                        Text(line)
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.text)
+                    }
+                }
+                .padding(LifeSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+                SettingsNote(text: "うまくいかないときは、この結果を開発者に伝えてください（アカウントの番号などは表示していません）。")
             }
         }
     }

@@ -75,6 +75,14 @@ struct MainTabView: View {
         // 退出・削除・サインアウトでわが家が無くなったら、共有項目の表示だけを消す（端末の個人データは消さない）
         .onAppear { sharedItems.attach(store) }
         .onChange(of: household.state) { applyHousehold() }
+        // 共有の保存がうまくいかなかったとき：「共有できなかったため、自分だけに保存しました」などを上に出す（2026-10-28 Build 9）
+        .overlay(alignment: .top) {
+            if let notice = sharedItems.notice {
+                SharedSyncNoticeBanner(message: notice) { sharedItems.dismissNotice() }
+                    .padding(.top, LifeSpacing.xs)
+                    .transition(.opacity)
+            }
+        }
         // 共有の通知をタップした：「やること」（ToDo）・「買い物」を開く。項目は変えない
         .onAppear { openPendingPushRoute() }
         .onChange(of: pushRouter.pending) { openPendingPushRoute() }

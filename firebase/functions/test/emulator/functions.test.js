@@ -723,6 +723,40 @@ describe('共有更新の通知', () => {
     assert.equal((await sentMessages()).length, 0);
   });
 
+  // MARK: Build 9（2026-10-28）。docs/PARTNER_SHARED_ITEM_SYNC_FIX.md
+
+  it('Build 9：パートナー（bob）の追加はオーナー（alice）だけへ、オーナーの追加はパートナーだけへ届く（ToDo・買い物）', async () => {
+    await addMembersAndDevices();
+    await db.doc(`groups/${GROUP}/items/b9-member-todo`).set(item(bob.uid, { kind: 'todo', title: '書類を出す' }));
+    const toOwner = await waitFor(async () => {
+      const list = await sentMessages();
+      return list.length >= 2 ? list : null;
+    });
+    assert.ok(toOwner, 'パートナーの追加がオーナーへ届かない');
+    await sleep(1500);
+    assert.deepEqual((await sentMessages()).map((m) => m.token).sort(), ['token-alice-ipad', 'token-alice-iphone'], 'パートナー本人には送らない');
+
+    await clearCollection('_emulatorSentMessages');
+    await db.doc(`groups/${GROUP}/items/b9-owner-shopping`).set(item(alice.uid, { kind: 'shopping', title: '洗剤を買う' }));
+    const toMember = await waitFor(async () => {
+      const list = await sentMessages();
+      return list.length > 0 ? list : null;
+    });
+    assert.ok(toMember, 'オーナーの追加がパートナーへ届かない');
+    await sleep(1500);
+    const sent = await sentMessages();
+    assert.deepEqual(sent.map((m) => m.token), ['token-bob'], 'オーナー本人・通知 OFF の端末には送らない');
+    assert.equal(sent[0].notification.body, 'わが家の買い物が更新されました', '内容の表示がオフなら項目名を出さない');
+    assert.equal(sent[0].data.kind, 'shopping');
+  });
+
+  it('Build 9：保存されていない項目（文書が無い）では、通知も通知の記録も作らない', async () => {
+    await addMembersAndDevices();
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0);
+    assert.equal((await db.doc(`groups/${GROUP}/notificationLog/never-saved`).get()).exists, false);
+  });
+
   it('Build 8：同じ出来事が2回届いても（再試行）、通知の記録に出来事の ID が残り、2回は送らない', async () => {
     await addMembersAndDevices();
     await db.doc(`groups/${GROUP}/items/item-12`).set(item(alice.uid));

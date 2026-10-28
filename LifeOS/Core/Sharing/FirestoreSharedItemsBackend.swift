@@ -95,15 +95,54 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
     }
 
     /// Firestore のエラーを、画面で説明できる種類に分ける（エラーの中身は出さない）。
-    /// コードは gRPC と同じ番号（7：権限が無い、16：サインインしていない）
+    /// コードは gRPC と同じ番号（7：権限が無い、16：サインインしていない、14・4：通信できない）
     private static func failure(from error: Error) -> SharedItemsFailure {
         let nsError = error as NSError
         guard nsError.domain == FirestoreErrorDomain else { return .other }
         switch nsError.code {
         case 7: return .permissionDenied
         case 16: return .notSignedIn
+        case 14, 4: return .unavailable
         default: return .other
         }
+    }
+
+    // MARK: - 共有の状態の確認（読み取りだけ。2026-10-28 Build 9）
+
+    /// サインイン・サインインの更新・わが家の文書・自分のメンバー文書・共有項目の読み取りを、サーバーに直接たずねる。
+    /// 書き込みはしない。結果は決まった番号だけ（エラーの文・UID・トークンは出さない・保存しない）
+    func diagnose(groupID: String) async -> SharedSyncCheck {
+        var check = SharedSyncCheck.notAvailable
+        guard let user = Auth.auth().currentUser else { return check }
+        check.isSignedIn = true
+        do {
+            _ = try await user.getIDTokenResult(forcingRefresh: true)
+            check.tokenRefresh = .ok
+        } catch {
+            check.tokenRefresh = .failed(code: (error as NSError).code)
+        }
+        let groupRef = db.collection("groups").document(groupID)
+        do {
+            let group = try await groupRef.getDocument(source: .server)
+            check.groupRead = group.exists ? .ok : .missing
+            let kinds = group.get("sharedKinds") as? [String] ?? []
+            check.serverKinds = kinds.filter { name in HouseholdItemPolicy.kinds.contains { $0.rawValue == name } }
+        } catch {
+            check.groupRead = .failed(code: (error as NSError).code)
+        }
+        do {
+            let member = try await groupRef.collection("members").document(user.uid).getDocument(source: .server)
+            check.memberDocument = member.exists ? .ok : .missing
+        } catch {
+            check.memberDocument = .failed(code: (error as NSError).code)
+        }
+        do {
+            _ = try await items(groupID).limit(to: 1).getDocuments(source: .server)
+            check.itemsRead = .ok
+        } catch {
+            check.itemsRead = .failed(code: (error as NSError).code)
+        }
+        return check
     }
 }
 #endif

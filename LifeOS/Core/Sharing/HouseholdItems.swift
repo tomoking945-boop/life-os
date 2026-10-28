@@ -147,8 +147,10 @@ struct SharedItemSnapshot: Equatable {
 enum SharedItemsFailure: Error, Equatable {
     /// 権限が無い（わが家のメンバーでない・その種類がオフ など）
     case permissionDenied
-    /// サインインしていない
+    /// サインインしていない（サインインの情報を更新できない場合も含む）
     case notSignedIn
+    /// 通信できない・サーバーが使えない（2026-10-28 Build 9）
+    case unavailable
     /// そのほか
     case other
 
@@ -156,8 +158,72 @@ enum SharedItemsFailure: Error, Equatable {
         switch self {
         case .permissionDenied: return "わが家で共有できませんでした。わが家の設定（共有する種類）を確認してください。"
         case .notSignedIn: return "Appleでサインインしてください。"
+        case .unavailable: return "通信できないため、共有の保存ができませんでした。電波のよい場所で、もう一度お試しください。"
         case .other: return "共有の保存がうまくいきませんでした。時間をおいて、もう一度お試しください。"
         }
+    }
+
+    /// 理由の短い説明（画面のお知らせ・診断に出す。エラーの中身・UID は出さない）
+    var reason: String {
+        switch self {
+        case .permissionDenied: return "権限がありません"
+        case .notSignedIn: return "サインインの確認ができません"
+        case .unavailable: return "通信できません"
+        case .other: return "原因が分かりません"
+        }
+    }
+
+    /// 共有の保存が断られ、自分だけに残したときのお知らせ（2026-10-28 Build 9）
+    var fallbackNotice: String {
+        "共有できなかったため、自分だけに保存しました（\(reason)）。"
+    }
+}
+
+/// 共有の状態の確認の結果（わが家の設定の「共有の状態を確かめる」。2026-10-28 Build 9）。
+/// 実機で共有の保存が断られたとき、どこで止まっているかを、UID・トークンを出さずに確かめるためのもの
+struct SharedSyncCheck: Equatable {
+    enum Step: Equatable {
+        case ok
+        /// 失敗（Firestore・Authentication の決まった番号。中身の文は出さない）
+        case failed(code: Int)
+        /// 見つからない（メンバー文書が無い など）
+        case missing
+        case notChecked
+    }
+
+    var isSignedIn: Bool
+    /// サインインの情報（ID トークン）を新しくできるか（Authentication の App Check の強制適用などで失敗すると、Firestore からは未サインインに見える）
+    var tokenRefresh: Step
+    /// わが家の文書を読めるか（メンバーなら読める）
+    var groupRead: Step
+    /// 自分のメンバー文書があるか
+    var memberDocument: Step
+    /// 共有項目を読めるか
+    var itemsRead: Step
+    /// わが家の設定でオンの種類（サーバーの値。ToDo・買い物のうち）
+    var serverKinds: [String]
+
+    static let notAvailable = SharedSyncCheck(isSignedIn: false, tokenRefresh: .notChecked, groupRead: .notChecked, memberDocument: .notChecked, itemsRead: .notChecked, serverKinds: [])
+
+    /// 画面に出す行（例：「サインインの更新：OK」）
+    var lines: [String] {
+        func text(_ step: Step) -> String {
+            switch step {
+            case .ok: return "OK"
+            case .failed(let code): return "失敗（コード \(code)）"
+            case .missing: return "見つかりません"
+            case .notChecked: return "未確認"
+            }
+        }
+        let kinds = serverKinds.compactMap { SharedSpaceKind(rawValue: $0)?.title }
+        return [
+            "サインイン：\(isSignedIn ? "OK" : "していません")",
+            "サインインの更新：\(text(tokenRefresh))",
+            "わが家の読み取り：\(text(groupRead))",
+            "メンバーの登録：\(text(memberDocument))",
+            "共有項目の読み取り：\(text(itemsRead))",
+            "サーバーの共有する種類：\(kinds.isEmpty ? "なし" : kinds.joined(separator: "・"))",
+        ]
     }
 }
 
@@ -171,6 +237,12 @@ protocol SharedItemsBackend: AnyObject {
     func create(groupID: String, id: UUID, fields: [String: SharedItemValue], completion: @escaping (SharedItemsFailure?) -> Void)
     func update(groupID: String, id: UUID, fields: [String: SharedItemValue], completion: @escaping (SharedItemsFailure?) -> Void)
     func delete(groupID: String, id: UUID, completion: @escaping (SharedItemsFailure?) -> Void)
+    /// 共有の状態を確かめる（読み取りだけ。書き込みはしない。2026-10-28 Build 9）
+    func diagnose(groupID: String) async -> SharedSyncCheck
+}
+
+extension SharedItemsBackend {
+    func diagnose(groupID: String) async -> SharedSyncCheck { .notAvailable }
 }
 
 /// LifeStore から共有項目の保存を頼む先
@@ -197,8 +269,12 @@ final class SharedItemsService: HouseholdItemSyncing {
     }
 
     private(set) var status: Status = .off
-    /// 共有の操作がうまくいかなかったときの一言（画面で閉じる）
+    /// 共有の操作がうまくいかなかったときの一言（画面で閉じる。MainTabView が上に出す。2026-10-28 Build 9）
     private(set) var notice: String?
+    /// いちばん最近の失敗の理由（わが家の設定に出す）
+    private(set) var lastFailure: SharedItemsFailure?
+    /// 共有の状態の確認の結果（わが家の設定の「共有の状態を確かめる」）
+    private(set) var diagnosis: SharedSyncCheck?
     /// わが家の設定でオンの種類（ToDo・買い物のうち）
     private(set) var enabledKinds: Set<LifeItemKind> = []
     /// 見張っているわが家（文書の ID。画面・ログには出さない）
@@ -248,6 +324,7 @@ final class SharedItemsService: HouseholdItemSyncing {
         }, onError: { [weak self] failure in
             guard let self, self.groupID == newGroupID else { return }
             self.status = .failed(failure)
+            self.lastFailure = failure
             // 読めなくなった（退出した・わが家が消えた）：共有項目の表示を消す。端末の個人データは消さない
             if failure == .permissionDenied {
                 self.store?.clearHouseholdItems()
@@ -259,6 +336,16 @@ final class SharedItemsService: HouseholdItemSyncing {
         notice = nil
     }
 
+    /// 共有の状態を確かめる（読み取りだけ）
+    @MainActor
+    func runDiagnosis() async {
+        guard let backend, let groupID else {
+            diagnosis = .notAvailable
+            return
+        }
+        diagnosis = await backend.diagnose(groupID: groupID)
+    }
+
     // MARK: HouseholdItemSyncing
 
     func allowsSharing(_ kind: LifeItemKind) -> Bool {
@@ -268,18 +355,24 @@ final class SharedItemsService: HouseholdItemSyncing {
     func createHouseholdItem(_ item: LifeItem, convertingLocal: Bool) {
         guard let backend, let groupID, let fields = SharedItemPayload.createFields(for: item) else {
             store?.householdCreateFailed(item, convertingLocal: convertingLocal)
-            notice = SharedItemsFailure.other.message
+            lastFailure = .other
+            notice = SharedItemsFailure.other.fallbackNotice
             return
         }
         backend.create(groupID: groupID, id: item.id, fields: fields) { [weak self] failure in
             guard let self else { return }
             if let failure {
-                // 断られた：新しく作った項目は「自分だけ」として端末に残す（消さない）。変換なら端末の項目がそのまま残る
+                // 断られた：新しく作った項目は「自分だけ」として端末に残す（消さない）。変換なら端末の項目がそのまま残る。
+                // 画面の上に「共有できなかったため、自分だけに保存しました」を出す（2026-10-28 Build 9。以前は出していなかった）
                 self.store?.householdCreateFailed(item, convertingLocal: convertingLocal)
-                self.notice = failure.message
-            } else if convertingLocal {
-                // サーバーに保存できたので、端末の個人項目を片付ける（ここまでは消さない）
-                self.store?.finishHouseholdConversion(item.id)
+                self.lastFailure = failure
+                self.notice = failure.fallbackNotice
+            } else {
+                // サーバーに保存できた：送信待ちの印を外す。変換なら端末の個人項目を片付ける（ここまでは消さない）
+                self.store?.finishHouseholdCreate(item.id)
+                if convertingLocal {
+                    self.store?.finishHouseholdConversion(item.id)
+                }
             }
         }
     }
@@ -287,14 +380,18 @@ final class SharedItemsService: HouseholdItemSyncing {
     func updateHouseholdItem(_ item: LifeItem) {
         guard let backend, let groupID, let fields = SharedItemPayload.updateFields(for: item) else { return }
         backend.update(groupID: groupID, id: item.id, fields: fields) { [weak self] failure in
-            if let failure { self?.notice = failure.message }
+            guard let failure else { return }
+            self?.lastFailure = failure
+            self?.notice = "共有の変更を保存できませんでした（\(failure.reason)）。"
         }
     }
 
     func deleteHouseholdItem(_ id: LifeItem.ID) {
         guard let backend, let groupID else { return }
         backend.delete(groupID: groupID, id: id) { [weak self] failure in
-            if let failure { self?.notice = failure.message }
+            guard let failure else { return }
+            self?.lastFailure = failure
+            self?.notice = "共有の削除を保存できませんでした（\(failure.reason)）。"
         }
     }
 }

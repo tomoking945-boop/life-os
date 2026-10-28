@@ -36,6 +36,7 @@
 - [わが家の作成・招待・参加](docs/FIREBASE_INVITE_JOIN_MEMBERSHIP.md)
 - [わが家の管理と、共有 ToDo・買い物（Build 7）](docs/SHARED_TODO_SHOPPING_FOUNDATION.md)
 - [共有 ToDo・買い物のプッシュ通知（Build 8）](docs/SHARED_PUSH_NOTIFICATIONS.md)
+- [パートナーの共有 ToDo が消える・届かない不具合の修正（Build 9）](docs/PARTNER_SHARED_ITEM_SYNC_FIX.md)
 
 ## UIプロトタイプの動かし方
 

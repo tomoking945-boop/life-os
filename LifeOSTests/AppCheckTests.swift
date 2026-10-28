@@ -175,7 +175,10 @@ final class NoFirestoreWritesTests: XCTestCase {
         // その窓口が読み書きするのは groups/{groupID}/items だけ（ほかの場所・一括の追加・別のコレクションは使わない）
         let backend = try XCTUnwrap(backendText, "FirestoreSharedItemsBackend.swift が見つからない")
         let collections = Self.matches(of: #"\.collection\("([^"]+)"\)"#, in: backend)
-        XCTAssertEqual(Set(collections), ["groups", "items"], "使うコレクション")
+        // 2026-10-28（Build 9）：共有の状態の確認で、自分のメンバー文書を読む（members は読み取りだけ）
+        XCTAssertEqual(Set(collections), ["groups", "items", "members"], "使うコレクション")
+        XCTAssertEqual(backend.components(separatedBy: ".collection(\"members\")").count - 1, 1, "members は確認の読み取りの1か所だけ")
+        XCTAssertTrue(backend.contains(".collection(\"members\").document(user.uid).getDocument(source: .server)"), "自分のメンバー文書を読むだけ（書かない）")
         XCTAssertFalse(backend.contains(".addDocument("), "文書の ID は項目の UUID（自動の ID で二重に作らない）")
         XCTAssertFalse(backend.contains("collectionGroup"), "グループをまたいで探さない")
         XCTAssertFalse(backend.contains("WriteBatch") || backend.contains(".batch()"), "まとめて送らない（既存データの一括アップロードをしない）")

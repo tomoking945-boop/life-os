@@ -674,3 +674,60 @@ describe('共有の通知の端末（Build 8）', () => {
     await assertFails(getDocs(collectionGroup(as('mallory'), 'devices')));
   });
 });
+
+// MARK: - Build 9（2026-10-28）：オーナー・パートナーの両方が共有 ToDo・買い物を作成・更新できる。docs/PARTNER_SHARED_ITEM_SYNC_FIX.md
+
+describe('Build 9：オーナーとパートナーの共有項目の権限', () => {
+  const item = (uid, kind = 'todo') => ({ ...sharedItem(uid), kind, title: kind === 'todo' ? '書類を出す' : '洗剤を買う' });
+
+  for (const [who, role] of [['alice', 'owner'], ['bob', 'member']]) {
+    it(`${role}（${who}）は、自分を作成者・更新者にした ToDo・買い物を作成・更新できる`, async () => {
+      const db = as(who);
+      for (const kind of ['todo', 'shopping']) {
+        const path = `groups/${GROUP}/items/${role}-${kind}`;
+        await assertSucceeds(setDoc(doc(db, path), item(who, kind)));
+        await assertSucceeds(updateDoc(doc(db, path), { title: `${kind}（変更）`, updatedBy: who, updatedAt: serverTimestamp() }));
+        await assertSucceeds(updateDoc(doc(db, path), { isCompleted: true, updatedBy: who, updatedAt: serverTimestamp() }));
+      }
+    });
+
+    it(`${role}（${who}）は、相手が作った共有項目を更新できる（更新者は自分）`, async () => {
+      const other = who === 'alice' ? 'bob' : 'alice';
+      const path = `groups/${GROUP}/items/by-${other}`;
+      await assertSucceeds(setDoc(doc(as(other), path), item(other, 'shopping')));
+      await assertSucceeds(updateDoc(doc(as(who), path), { title: '低脂肪牛乳を買う', updatedBy: who, updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(doc(as(who), path), { title: 'x', updatedBy: other, updatedAt: serverTimestamp() }), '更新者を相手にできない');
+    });
+
+    it(`${role}（${who}）は、作成者・更新者を別人の UID にできない`, async () => {
+      const db = as(who);
+      const other = who === 'alice' ? 'bob' : 'alice';
+      await assertFails(setDoc(doc(db, `groups/${GROUP}/items/${role}-spoof-1`), { ...item(who), createdBy: other }));
+      await assertFails(setDoc(doc(db, `groups/${GROUP}/items/${role}-spoof-2`), { ...item(who), updatedBy: other }));
+      await assertFails(setDoc(doc(db, `groups/${GROUP}/items/${role}-spoof-3`), item('mallory')));
+    });
+  }
+
+  it('メンバーでない人・サインインしていない人は作成・更新できない', async () => {
+    await assertFails(setDoc(doc(as('mallory'), `groups/${GROUP}/items/m-1`), item('mallory')));
+    await assertFails(updateDoc(doc(as('mallory'), `groups/${GROUP}/items/item-1`), { title: 'x', updatedBy: 'mallory', updatedAt: serverTimestamp() }));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(anon, `groups/${GROUP}/items/anon-9`), item('anon')));
+  });
+
+  it('通知の端末を登録したあとも、共有項目の権限は変わらない（パートナーは作成でき、メンバーでない人はできない）', async () => {
+    const device = { fcmToken: 'fcm-token-bob', platform: 'ios', notificationsEnabled: true, sharedUpdatesEnabled: true, showsPreview: true, updatedAt: serverTimestamp() };
+    await assertSucceeds(setDoc(doc(as('bob'), 'users/bob/devices/install-bob'), device));
+    await assertSucceeds(setDoc(doc(as('alice'), 'users/alice/devices/install-alice'), { ...device, fcmToken: 'fcm-token-alice' }));
+    await assertSucceeds(setDoc(doc(as('bob'), `groups/${GROUP}/items/after-device`), item('bob', 'shopping')));
+    await assertSucceeds(getDocs(collection(as('alice'), `groups/${GROUP}/items`)));
+    await assertFails(setDoc(doc(as('mallory'), `groups/${GROUP}/items/after-device-m`), item('mallory')));
+  });
+
+  it('断られた書き込みは保存されない（通知の処理は動かない）', async () => {
+    await assertFails(setDoc(doc(as('mallory'), `groups/${GROUP}/items/rejected-1`), item('mallory')));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      assert.equal((await getDoc(doc(context.firestore(), `groups/${GROUP}/items/rejected-1`))).exists(), false);
+    });
+  });
+});

@@ -13,6 +13,8 @@ final class FakeSharedServer {
     var enabledKinds: Set<String> = ["todo", "shopping"]
     /// 権限が無い（退出したあとなど）
     var deniesEverything = false
+    /// わが家のメンバー（nil なら確かめない）。Security Rules と同じく、作成者・更新者がメンバーでなければ断る（2026-10-28 Build 9）
+    var memberUIDs: Set<String>?
     fileprivate var clients: [WeakClient] = []
 
     fileprivate struct WeakClient {
@@ -22,9 +24,12 @@ final class FakeSharedServer {
     var count: Int { documents.count }
 
     func title(of id: UUID) -> String? { documents[id]?["title"] as? String }
+    func createdBy(of id: UUID) -> String? { documents[id]?["createdBy"] as? String }
+    func updatedBy(of id: UUID) -> String? { documents[id]?["updatedBy"] as? String }
 
     fileprivate func create(id: UUID, data: [String: Any]) -> SharedItemsFailure? {
         if deniesEverything { return .permissionDenied }
+        if let memberUIDs, !memberUIDs.contains((data["createdBy"] as? String) ?? "") { return .permissionDenied }
         // 同じ ID がすでにある（作成日時を変える上書きは Rules が断る）・オフの種類・ToDo と買い物以外は断る
         guard documents[id] == nil,
               let kind = data["kind"] as? String, ["todo", "shopping"].contains(kind), enabledKinds.contains(kind),
@@ -39,6 +44,7 @@ final class FakeSharedServer {
 
     fileprivate func update(id: UUID, data: [String: Any]) -> SharedItemsFailure? {
         if deniesEverything { return .permissionDenied }
+        if let memberUIDs, !memberUIDs.contains((data["updatedBy"] as? String) ?? "") { return .permissionDenied }
         guard var current = documents[id] else { return .other }
         for (key, value) in data { current[key] = value }
         documents[id] = current
@@ -154,6 +160,16 @@ final class FakeSharedItemsBackend: SharedItemsBackend {
 
     func failListening(_ failure: SharedItemsFailure) {
         onError?(failure)
+    }
+
+    /// サーバーから空の一覧が届いた（最初の一覧・一時的な空の一覧の代わり。2026-10-28 Build 9）
+    func emitEmptySnapshot() {
+        onChange?([])
+    }
+
+    /// サーバーの文書の作成者（テストで、操作した本人の UID が入るかを確かめる）
+    func createdBy(_ id: UUID) -> String? {
+        server.createdBy(of: id)
     }
 
     private func resolve(_ fields: [String: SharedItemValue]) -> [String: Any] {
@@ -577,5 +593,189 @@ final class SharedTodoShoppingSourceTests: XCTestCase {
             }
         }
         try XCTSkipIf(checked == 0, "アプリのソースを読めない環境のため、確認を省きます")
+    }
+}
+
+
+// MARK: - Build 9（2026-10-28）：パートナーの共有項目が消える・届かない不具合の修正。docs/PARTNER_SHARED_ITEM_SYNC_FIX.md
+
+final class PartnerSharedItemSyncTests: XCTestCase {
+    /// オーナーとパートナーは同じ処理で保存する。両方向で ToDo・買い物の追加・名前の変更が届き、作成者・更新者は操作した本人
+    func testOwnerAndMemberSyncBothDirections() throws {
+        let server = FakeSharedServer()
+        server.memberUIDs = ["owner-uid", "member-uid"]
+        let owner = Device(server: server, uid: "owner-uid")
+        let member = Device(server: server, uid: "member-uid")
+
+        // パートナー → オーナー（ToDo と買い物）
+        member.store.add([todo("書類を出す"), shopping("洗剤を買う")], destination: .household)
+        XCTAssertEqual(Set(owner.store.householdItems.map(\.title)), ["書類を出す", "洗剤を買う"])
+        XCTAssertEqual(Set(member.store.householdItems.map(\.title)), ["書類を出す", "洗剤を買う"], "保存できたので、パートナーの画面にも残る")
+        XCTAssertTrue(member.store.items.isEmpty, "自分だけには移らない")
+        XCTAssertNil(member.service.notice)
+        let memberItem = try XCTUnwrap(member.store.householdItems.first { $0.title == "書類を出す" })
+        XCTAssertEqual(member.backend.createdBy(memberItem.id), "member-uid", "作成者はパートナー本人（オーナーの UID を使わない）")
+
+        // オーナー → パートナー
+        owner.store.add([shopping("牛乳を買う")], destination: .household)
+        XCTAssertTrue(member.store.householdItems.contains { $0.title == "牛乳を買う" })
+        let ownerItem = try XCTUnwrap(owner.store.householdItems.first { $0.title == "牛乳を買う" })
+        XCTAssertEqual(owner.backend.createdBy(ownerItem.id), "owner-uid")
+
+        // 名前の変更も両方向。更新者は操作した本人
+        member.store.rename(ownerItem.id, to: "低脂肪牛乳を買う")
+        XCTAssertTrue(owner.store.householdItems.contains { $0.title == "低脂肪牛乳を買う" })
+        XCTAssertEqual(server.updatedBy(of: ownerItem.id), "member-uid")
+        owner.store.rename(memberItem.id, to: "書類を出す（市役所）")
+        XCTAssertTrue(member.store.householdItems.contains { $0.title == "書類を出す（市役所）" })
+        XCTAssertEqual(server.updatedBy(of: memberItem.id), "owner-uid")
+        XCTAssertEqual(server.createdBy(of: memberItem.id), "member-uid", "作成者は変わらない")
+    }
+
+    /// 共有の保存が断られた：項目を消さず「自分だけ」に残し、「共有できなかったため、自分だけに保存しました」を出す。相手には届かない
+    func testRejectedCreateKeepsItemAsPersonalWithNotice() throws {
+        let server = FakeSharedServer()
+        server.memberUIDs = ["owner-uid"]   // パートナーがメンバーとして認められない状態（実機の再現）
+        let owner = Device(server: server, uid: "owner-uid")
+        let member = Device(server: server, uid: "member-uid")
+
+        member.store.add([todo("書類を出す")], destination: .household)
+        let kept = try XCTUnwrap(member.store.items.first { $0.title == "書類を出す" }, "消さない")
+        XCTAssertEqual(kept.ownership, .personal, "自分だけの項目として残す")
+        XCTAssertFalse(member.store.isHouseholdItem(kept.id))
+        XCTAssertEqual(member.service.notice, "共有できなかったため、自分だけに保存しました（権限がありません）。")
+        XCTAssertEqual(member.service.lastFailure, .permissionDenied)
+        XCTAssertEqual(server.count, 0, "保存されていないので、通知の処理も動かない")
+        XCTAssertTrue(owner.store.householdItems.isEmpty)
+        XCTAssertEqual(member.store.items.filter { $0.title == "書類を出す" }.count, 1, "重複しない")
+
+        // 買い物も同じ
+        member.store.add([shopping("洗剤を買う")], destination: .household)
+        XCTAssertTrue(member.store.items.contains { $0.title == "洗剤を買う" && $0.ownership == .personal })
+
+        // あとから空の一覧が届いても、退避した項目は消えない
+        member.backend.emitEmptySnapshot()
+        XCTAssertEqual(member.store.items.count, 2)
+    }
+
+    /// 結果が届く前に空の一覧（最初の一覧・一時的な空）が届いても、送信待ちの共有項目を画面から消さない
+    func testEmptySnapshotDoesNotDropPendingCreate() throws {
+        let server = FakeSharedServer()
+        let member = Device(server: server, uid: "member-uid")
+        member.backend.isOnline = false
+        member.store.add([todo("書類を出す")], destination: .household)
+        let pending = try XCTUnwrap(member.store.householdItems.first)
+
+        member.backend.emitEmptySnapshot()
+        XCTAssertTrue(member.store.isHouseholdItem(pending.id), "空の一覧でも消さない")
+        XCTAssertEqual(member.store.visibleItems.filter { $0.id == pending.id }.count, 1)
+
+        member.backend.goOnline()
+        XCTAssertEqual(server.count, 1)
+        member.backend.emitEmptySnapshot()
+        // 保存が確かめられたあとは、サーバーの一覧に従う（ここでは空の一覧の直後でも、次の一覧で戻る）
+        member.backend.goOnline()
+        XCTAssertEqual(member.store.householdItems.map(\.id), [pending.id])
+    }
+
+    /// 断られて「自分だけ」に退避した項目を、あとで共有し直しても重複しない
+    func testRetryAfterFailureDoesNotDuplicate() throws {
+        let server = FakeSharedServer()
+        server.memberUIDs = ["owner-uid"]
+        let owner = Device(server: server, uid: "owner-uid")
+        let member = Device(server: server, uid: "member-uid")
+        member.store.add([todo("書類を出す")], destination: .household)
+        let kept = try XCTUnwrap(member.store.items.first)
+
+        // 原因が直った（パートナーがメンバーとして認められた）あと、編集で「わが家で共有」に戻す
+        server.memberUIDs = ["owner-uid", "member-uid"]
+        member.service.dismissNotice()
+        XCTAssertTrue(member.store.convertToHousehold(kept.id))
+        XCTAssertFalse(member.store.items.contains { $0.id == kept.id }, "保存できたので端末の項目を片付けた")
+        XCTAssertEqual(member.store.visibleItems.filter { $0.title == "書類を出す" }.count, 1)
+        XCTAssertEqual(owner.store.householdItems.filter { $0.title == "書類を出す" }.count, 1)
+        XCTAssertEqual(server.count, 1)
+        XCTAssertFalse(member.store.convertToHousehold(kept.id), "2回目は送らない")
+        XCTAssertNil(member.service.notice)
+    }
+
+    /// 理由ごとのお知らせ（UID・エラーの文を出さない）
+    func testFailureNotices() {
+        XCTAssertEqual(SharedItemsFailure.permissionDenied.fallbackNotice, "共有できなかったため、自分だけに保存しました（権限がありません）。")
+        XCTAssertEqual(SharedItemsFailure.notSignedIn.fallbackNotice, "共有できなかったため、自分だけに保存しました（サインインの確認ができません）。")
+        XCTAssertEqual(SharedItemsFailure.unavailable.fallbackNotice, "共有できなかったため、自分だけに保存しました（通信できません）。")
+        for failure in [SharedItemsFailure.permissionDenied, .notSignedIn, .unavailable, .other] {
+            for word in ["uid", "UID", "token", "Firebase", "Error"] {
+                XCTAssertFalse(failure.fallbackNotice.contains(word), "\(failure)：\(word)")
+            }
+        }
+    }
+
+    /// 共有の状態の確認：結果を日本語の行で出す（番号だけ。UID は出さない）。接続していなければ「未確認」
+    @MainActor
+    func testDiagnosisLines() async {
+        let check = SharedSyncCheck(isSignedIn: true, tokenRefresh: .ok, groupRead: .ok, memberDocument: .missing, itemsRead: .failed(code: 7), serverKinds: ["todo", "shopping"])
+        XCTAssertEqual(check.lines, [
+            "サインイン：OK",
+            "サインインの更新：OK",
+            "わが家の読み取り：OK",
+            "メンバーの登録：見つかりません",
+            "共有項目の読み取り：失敗（コード 7）",
+            "サーバーの共有する種類：ToDo・買い物",
+        ])
+        let service = SharedItemsService(backend: nil)
+        await service.runDiagnosis()
+        XCTAssertEqual(service.diagnosis, .notAvailable)
+    }
+
+    /// 画面にお知らせを出す場所がある（以前は、お知らせを作っても出していなかった）
+    func testNoticeIsShownOnScreen() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        guard let tab = try? String(contentsOf: root.appendingPathComponent("LifeOS/App/MainTabView.swift"), encoding: .utf8) else {
+            throw XCTSkip("ソースを読めない環境のため、確認を省きます")
+        }
+        XCTAssertTrue(tab.contains("if let notice = sharedItems.notice"))
+        XCTAssertTrue(tab.contains("SharedSyncNoticeBanner(message: notice)"))
+    }
+}
+
+/// 通知の端末の登録は、それぞれの人の UID の下だけ（Firestore の窓口がサインインの情報から場所を決める。偽物で同じ動きを確かめる）
+final class PushDeviceOwnershipTests: XCTestCase {
+    /// サインインしている人の UID の下に書く偽物（Firestore の窓口と同じ決まり）
+    final class UIDScopedRegistry: PushDeviceRegistry {
+        let currentUID: () -> String?
+        private(set) var documents: [String: [String: PushDeviceRecord]] = [:]
+
+        init(currentUID: @escaping () -> String?) { self.currentUID = currentUID }
+
+        func save(deviceID: String, record: PushDeviceRecord) async throws {
+            guard let uid = currentUID() else { throw SharedItemsFailure.notSignedIn }
+            documents[uid, default: [:]][deviceID] = record
+        }
+
+        func remove(deviceID: String) async throws {
+            guard let uid = currentUID() else { throw SharedItemsFailure.notSignedIn }
+            documents[uid]?[deviceID] = nil
+        }
+    }
+
+    @MainActor
+    func testEachUserRegistersUnderOwnUID() async {
+        let ownerRegistry = UIDScopedRegistry { "owner-uid" }
+        let memberRegistry = UIDScopedRegistry { "member-uid" }
+        for (registry, token) in [(ownerRegistry, "tokenowner"), (memberRegistry, "tokenmember")] {
+            let permission = FakePushPermission()
+            permission.current = .authorized
+            let tokens = FakePushTokens()
+            tokens.token = token
+            let service = SharedPushService(preferenceStore: FakePushPreferenceStore(), permission: permission, tokens: tokens, registry: registry)
+            await service.updateContext(isSignedIn: true, isJoined: true)
+            await service.setReceives(true)
+            XCTAssertEqual(service.status, .registered)
+        }
+        XCTAssertEqual(Array(ownerRegistry.documents.keys), ["owner-uid"])
+        XCTAssertEqual(Array(memberRegistry.documents.keys), ["member-uid"])
+        XCTAssertEqual(ownerRegistry.documents["owner-uid"]?.values.first?.token, "tokenowner")
+        XCTAssertEqual(memberRegistry.documents["member-uid"]?.values.first?.token, "tokenmember")
     }
 }

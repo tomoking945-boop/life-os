@@ -44,6 +44,9 @@ final class LifeStore {
     private(set) var householdItems: [LifeItem] = []
     /// 共有項目の保存を頼む先（SharedItemsService）。無ければ「わが家で共有」は選べない
     @ObservationIgnored weak var householdSync: HouseholdItemSyncing?
+    /// 共有の保存の結果がまだ届いていない作成（2026-10-28 Build 9）。
+    /// Firestore から空・古い一覧が届いても、結果が届くまでは画面から消さない
+    @ObservationIgnored private var pendingHouseholdCreates: [LifeItem.ID: LifeItem] = [:]
 
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
@@ -385,6 +388,7 @@ final class LifeStore {
             if let sync = householdSync, canShareInHousehold(item.kind), HouseholdItemPolicy.canShare(item) {
                 let shared = Self.householdCopy(of: item)
                 householdItems.append(shared)
+                pendingHouseholdCreates[shared.id] = shared
                 sync.createHouseholdItem(shared, convertingLocal: false)
                 sharedCount += 1
             } else {
@@ -408,6 +412,7 @@ final class LifeStore {
               let sync = householdSync else { return false }
         let shared = Self.householdCopy(of: item)
         householdItems.append(shared)
+        pendingHouseholdCreates[shared.id] = shared
         sync.createHouseholdItem(shared, convertingLocal: true)
         return true
     }
@@ -415,7 +420,13 @@ final class LifeStore {
     /// Firestore から届いた一覧で、共有項目を入れ替える（自分の変更も相手の変更も、ここに1件ずつだけ）。
     /// サーバーで保存が確かめられた項目と同じ ID の端末の ToDo・買い物（共有へ変換したもの）は、ここで片付ける
     func applyHouseholdSnapshot(_ snapshots: [SharedItemSnapshot]) {
-        householdItems = snapshots.map(\.item)
+        var received = snapshots.map(\.item)
+        // 保存の結果がまだ届いていない自分の作成は、一覧に無くても残す（最初の・一時的な空の一覧で消さない。2026-10-28 Build 9）
+        let receivedIDs = Set(received.map(\.id))
+        for (id, item) in pendingHouseholdCreates where !receivedIDs.contains(id) {
+            received.append(item)
+        }
+        householdItems = received
         let confirmed = Set(snapshots.filter(\.isConfirmed).map(\.item.id))
         removeConvertedLocalItems(confirmed)
     }
@@ -428,6 +439,7 @@ final class LifeStore {
     /// 共有の保存が断られたとき（SharedItemsService から）。
     /// 新しく作った項目は「自分だけ」として端末に残す（消さない）。変換なら端末の項目がそのまま残っている
     func householdCreateFailed(_ item: LifeItem, convertingLocal: Bool) {
+        pendingHouseholdCreates[item.id] = nil
         householdItems.removeAll { $0.id == item.id }
         guard !convertingLocal, !items.contains(where: { $0.id == item.id }) else { return }
         items.append(Self.personalCopy(item))
@@ -436,8 +448,15 @@ final class LifeStore {
 
     /// 共有項目の表示を消す（退出・わが家の削除・サインアウトのとき）。端末の個人データは消さない
     func clearHouseholdItems() {
+        // 送信待ちの作成の印も外す（結果が届けば、断られたものは householdCreateFailed で自分だけに残る）
+        pendingHouseholdCreates = [:]
         guard !householdItems.isEmpty else { return }
         householdItems = []
+    }
+
+    /// 共有の作成がサーバーで受け付けられたとき（SharedItemsService から）：送信待ちの印を外す
+    func finishHouseholdCreate(_ id: LifeItem.ID) {
+        pendingHouseholdCreates[id] = nil
     }
 
     private func removeConvertedLocalItems(_ ids: Set<LifeItem.ID>) {
@@ -458,6 +477,7 @@ final class LifeStore {
     }
 
     private func deleteHouseholdItem(_ id: LifeItem.ID) {
+        pendingHouseholdCreates[id] = nil
         householdItems.removeAll { $0.id == id }
         householdSync?.deleteHouseholdItem(id)
     }
