@@ -47,6 +47,10 @@ final class LifeStore {
     /// 共有の保存の結果がまだ届いていない作成（2026-10-28 Build 9）。
     /// Firestore から空・古い一覧が届いても、結果が届くまでは画面から消さない
     @ObservationIgnored private var pendingHouseholdCreates: [LifeItem.ID: LifeItem] = [:]
+    /// 送信待ちの作成の数（確認用。2026-10-28 Build 10）
+    var pendingHouseholdCreateCount: Int { pendingHouseholdCreates.count }
+    /// 共有項目の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
+    @ObservationIgnored private(set) var householdUpdateCount = 0
 
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
@@ -295,6 +299,19 @@ final class LifeStore {
             }
     }
 
+    /// やることの「今日」（2026-10-28 Build 10。docs/BUILD_10_PERFORMANCE_AND_TODO_CONSISTENCY.md）。
+    /// 今日画面と同じ正本（visibleItems：端末の項目＋わが家の共有項目＋送信待ち。同じ ID は1回だけ）から絞る：
+    /// - その日に表示する項目（今日の流れと同じ日付の決まり：「あとで」で回した先の日＝displayDate）
+    /// - それより前に残っている未完了の項目（今日画面の「昨日残ったもの」と同じ。やることから消えないように）
+    /// - 習慣・予定・「もうやらない」は出さない。完了は「完了」の切り替えで出す
+    func taskItems(dueOn day: Date, scope: ScopeFilter) -> [LifeItem] {
+        let start = LifeCalendar.startOfDay(day)
+        return visibleItems.filter { item in
+            item.isTask && !item.isHabit && !item.isDropped && scope.includes(item.ownership)
+                && (LifeCalendar.isSameDay(item.displayDate, day) || (!item.isCompleted && item.displayDate < start))
+        }
+    }
+
     /// 未完了救済：指定日より前に残っている未完了のタスク（習慣は除く）
     func leftovers(before day: Date, scope: ScopeFilter) -> [LifeItem] {
         let start = LifeCalendar.startOfDay(day)
@@ -423,10 +440,15 @@ final class LifeStore {
         var received = snapshots.map(\.item)
         // 保存の結果がまだ届いていない自分の作成は、一覧に無くても残す（最初の・一時的な空の一覧で消さない。2026-10-28 Build 9）
         let receivedIDs = Set(received.map(\.id))
-        for (id, item) in pendingHouseholdCreates where !receivedIDs.contains(id) {
+        // 並びを毎回同じにする（辞書の順番で並びが変わり、同じ内容でも描き直さないように）
+        for item in pendingHouseholdCreates.values.sorted(by: { $0.id.uuidString < $1.id.uuidString }) where !receivedIDs.contains(item.id) {
             received.append(item)
         }
-        householdItems = received
+        // 同じ内容なら入れ替えない（入れ替えると、今日・やること・買い物・カレンダーが全部描き直されるため。2026-10-28 Build 10）
+        if received != householdItems {
+            householdItems = received
+            householdUpdateCount += 1
+        }
         let confirmed = Set(snapshots.filter(\.isConfirmed).map(\.item.id))
         removeConvertedLocalItems(confirmed)
     }

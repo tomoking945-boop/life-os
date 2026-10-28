@@ -36,7 +36,9 @@ enum CompletionFilter: String, CaseIterable, Hashable {
 final class TasksViewModel {
     private let store: LifeStore
     private let appState: AppState
-    private let now: Date
+    /// 基準の時刻。2026-10-28 Build 10：画面を開いたとき・アプリに戻ったときに新しくする
+    /// （以前は作ったときの時刻のままで、日付が変わると今日画面と「今日」がずれた）
+    private(set) var now: Date
 
     var segment: TaskSegment = .today
     var completion: CompletionFilter = .incomplete
@@ -92,12 +94,15 @@ final class TasksViewModel {
     var tasks: [LifeItem] {
         let today = LifeCalendar.startOfDay(now)
         let scope = appState.effectiveScope
-        return store.visibleItems
-            .filter { $0.isTask && !$0.isHabit && !$0.isDropped && scope.includes($0.ownership) }
+        // 「今日」は今日画面と同じ決まり（今日の項目＋残っている未完了）。LifeStore.taskItems(dueOn:) を使う
+        let base = segment == .today
+            ? store.taskItems(dueOn: now, scope: scope)
+            : store.visibleItems.filter { $0.isTask && !$0.isHabit && !$0.isDropped && scope.includes($0.ownership) }
+        return base
             .filter { item in
                 switch segment {
                 case .today:
-                    return LifeCalendar.isSameDay(item.displayDate, today)
+                    return true
                 case .upcoming:
                     return LifeCalendar.startOfDay(item.displayDate) > today
                 case .shopping:
@@ -154,6 +159,12 @@ final class TasksViewModel {
 
     func postpone(_ item: LifeItem, to option: PostponeOption) {
         store.reschedule(item.id, to: option.date(from: now))
+    }
+
+    /// 基準の時刻を新しくする（画面を開いたとき・アプリに戻ったとき）
+    func refreshNow(_ now: Date = LifeCalendar.now) {
+        // 日付だけを使うので、日付が変わったときだけ書き込む（同じ日なら描き直さない）
+        if !LifeCalendar.isSameDay(self.now, now) { self.now = now }
     }
 
     func toggle(_ item: LifeItem) {

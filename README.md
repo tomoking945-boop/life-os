@@ -37,6 +37,7 @@
 - [わが家の管理と、共有 ToDo・買い物（Build 7）](docs/SHARED_TODO_SHOPPING_FOUNDATION.md)
 - [共有 ToDo・買い物のプッシュ通知（Build 8）](docs/SHARED_PUSH_NOTIFICATIONS.md)
 - [パートナーの共有 ToDo が消える・届かない不具合の修正（Build 9）](docs/PARTNER_SHARED_ITEM_SYNC_FIX.md)
+- [使っているうちに重くなる不具合と、「今日」と「やること」の食い違いの修正（Build 10）](docs/BUILD_10_PERFORMANCE_AND_TODO_CONSISTENCY.md)
 
 ## UIプロトタイプの動かし方
 

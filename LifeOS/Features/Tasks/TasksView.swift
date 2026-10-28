@@ -5,6 +5,7 @@ struct TasksView: View {
     @State private var viewModel: TasksViewModel
     @State private var shoppingViewModel: ShoppingViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     init(store: LifeStore, appState: AppState) {
         _viewModel = State(initialValue: TasksViewModel(store: store, appState: appState))
@@ -76,7 +77,17 @@ struct TasksView: View {
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
         // 共有の通知をタップして開いたとき（2026-10-28 Build 8）
-        .onAppear { viewModel.applyRequestedSegment() }
+        .onAppear {
+            // 日付が変わっていても、今日画面と同じ「今日」で出す（2026-10-28 Build 10）
+            viewModel.refreshNow()
+            shoppingViewModel.refreshNow()
+            viewModel.applyRequestedSegment()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            viewModel.refreshNow()
+            shoppingViewModel.refreshNow()
+        }
         .onChange(of: viewModel.requestedSegment) { viewModel.applyRequestedSegment() }
         .sheet(item: $viewModel.editingItem) { item in
             LifeItemEditSheet(item: item, store: viewModel.storeForEditing)

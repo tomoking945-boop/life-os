@@ -30,9 +30,13 @@ final class FakePushPermission: PushPermissionProviding {
         return grants
     }
 
+    /// iOS の動きの代わり：APNs への登録を頼むと、すぐに APNs のトークンが届く（2026-10-28 Build 10）
+    var onRegister: (() -> Void)?
+
     @MainActor
     func registerForRemoteNotifications() {
         registerCount += 1
+        onRegister?()
     }
 }
 
@@ -44,9 +48,17 @@ final class FakePushTokens: PushTokenProviding {
     private(set) var deleteCount = 0
 
     func setAutoInit(_ enabled: Bool) { autoInit = enabled }
-    func setAPNsToken(_ token: Data) { apnsToken = token }
+    /// APNs のトークンが届いたら使えるようになる通知用のトークン（本物の Firebase Messaging と同じ順番。2026-10-28 Build 10）
+    var tokenAfterAPNs: String?
+    private(set) var tokenRequestCount = 0
+
+    func setAPNsToken(_ token: Data) {
+        apnsToken = token
+        if self.token == nil, let tokenAfterAPNs { self.token = tokenAfterAPNs }
+    }
 
     func currentToken() async throws -> String {
+        tokenRequestCount += 1
         guard let token else { throw SharedItemsFailure.other }
         return token
     }
@@ -66,8 +78,12 @@ final class FakeDeviceRegistry: PushDeviceRegistry {
     /// 削除が返ってこない（通信できない）
     var hangsRemove = false
 
+    /// 保存に時間がかかる（サーバーの返事が遅い。2026-10-28 Build 10）
+    var saveDelayNanoseconds: UInt64 = 0
+
     func save(deviceID: String, record: PushDeviceRecord) async throws {
         saveCount += 1
+        if saveDelayNanoseconds > 0 { try await Task.sleep(nanoseconds: saveDelayNanoseconds) }
         if failsSave { throw SharedItemsFailure.other }
         documents[deviceID] = record
     }

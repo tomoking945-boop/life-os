@@ -284,6 +284,10 @@ final class SharedItemsService: HouseholdItemSyncing {
     @ObservationIgnored private let backend: SharedItemsBackend?
     @ObservationIgnored private weak var store: LifeStore?
     @ObservationIgnored private var observation: RepositoryObservation?
+    /// 確認用の回数（2026-10-28 Build 10）：見張りを始めた回数。見張りは常に最大1つ（activeListenerCount）
+    @ObservationIgnored private(set) var listenStartCount = 0
+    /// いま動いている見張りの数（0 か 1）
+    var activeListenerCount: Int { observation == nil ? 0 : 1 }
     /// 見張りの中の「わが家に参加しているか」（画面の更新のため、見える値として持つ）
     private(set) var isJoined = false
 
@@ -302,10 +306,13 @@ final class SharedItemsService: HouseholdItemSyncing {
 
     /// わが家の情報が変わったとき（参加・退出・削除・サインアウト・設定の変更）
     func apply(household: HouseholdSummary?) {
+        // 同じ値なら書き込まない（書くたびに、読んでいる画面が描き直されるため。2026-10-28 Build 10）
         let kinds = (household?.sharedKinds ?? []).filter(\.isSyncSupported)
-        enabledKinds = Set(kinds.compactMap { LifeItemKind(rawValue: $0.rawValue) })
+        let newKinds = Set(kinds.compactMap { LifeItemKind(rawValue: $0.rawValue) })
+        if enabledKinds != newKinds { enabledKinds = newKinds }
         let newGroupID = backend == nil ? nil : household?.groupID
-        isJoined = newGroupID != nil
+        if isJoined != (newGroupID != nil) { isJoined = newGroupID != nil }
+        // 同じわが家なら、見張りを作り直さない（何度呼ばれても見張りは1つ）
         guard newGroupID != groupID else { return }
 
         // わが家が変わった・抜けた：前の見張りをやめ、共有項目の表示だけを消す（端末の個人データは消さない）
@@ -318,9 +325,10 @@ final class SharedItemsService: HouseholdItemSyncing {
             return
         }
         status = .connecting
+        listenStartCount += 1
         observation = backend.listen(groupID: newGroupID, onChange: { [weak self] snapshots in
             guard let self, self.groupID == newGroupID else { return }
-            self.status = .live
+            if self.status != .live { self.status = .live }
             self.store?.applyHouseholdSnapshot(snapshots)
         }, onError: { [weak self] failure in
             guard let self, self.groupID == newGroupID else { return }

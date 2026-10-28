@@ -175,6 +175,23 @@ final class SharedPushService {
     /// サインアウトのときに、端末の文書を消すのを待つ時間（秒）。これを過ぎてもサインアウトは続ける
     @ObservationIgnored var signOutTimeout: TimeInterval = 3
 
+    // MARK: 登録の重複を防ぐ印（2026-10-28 Build 10。docs/BUILD_10_PERFORMANCE_AND_TODO_CONSISTENCY.md）
+    // Build 8・9 では、登録の中で APNs への登録を毎回頼み、その返事（apnsTokenDidArrive）からまた登録を始めていたため、
+    // 登録 → APNs → 登録 … が止まらず、Firestore への端末の書き込みと APNs の登録が増え続けることがあった
+
+    /// 登録の処理が動いているか（同時に2つ動かさない）
+    @ObservationIgnored private var isRegistrationInFlight = false
+    /// この起動で APNs への登録を頼んだか（1回の起動で1回だけ頼む）
+    @ObservationIgnored private var hasRequestedAPNs = false
+    /// 通知用のトークンが APNs のトークン待ちで取れなかったか（APNs のトークンが届いたときだけ、もう一度試す）
+    @ObservationIgnored private var isWaitingForAPNsToken = false
+    /// 最後に保存した端末の文書の内容（同じ内容なら、もう一度書かない）
+    @ObservationIgnored private var lastSavedRecord: PushDeviceRecord?
+    /// 確認用の回数（テストで、増え続けないことを確かめる。数だけで、トークン・UID は持たない）
+    @ObservationIgnored private(set) var registrationStartCount = 0
+    @ObservationIgnored private(set) var apnsRequestCount = 0
+    @ObservationIgnored private(set) var deviceSaveCount = 0
+
     /// - Parameters: permission・tokens・registry が無ければ、Firebase に接続していない
     init(
         preferenceStore: SharedPushPreferenceStore,
@@ -212,7 +229,9 @@ final class SharedPushService {
     @MainActor
     func refreshAuthorization() async {
         guard let permission else { return }
-        authorization = await permission.authorization()
+        let current = await permission.authorization()
+        // 同じなら書き込まない（画面を開くたびに描き直さない。2026-10-28 Build 10）
+        if authorization != current { authorization = current }
         if preferences.receives, authorization == .denied {
             status = .denied
         }
@@ -260,7 +279,10 @@ final class SharedPushService {
         guard preferences.receives else { return }
         preferences.showsTitle = isOn
         preferenceStore.save(preferences)
-        if hasRegistration || status == .registered {
+        // すでに保存したトークンで、項目名の表示だけを書き直す（APNs・トークンの取り直しはしない）
+        if let token = lastSavedRecord?.token {
+            await saveDevice(token: token)
+        } else if hasRegistration || status == .registered {
             await register()
         }
     }
@@ -291,7 +313,8 @@ final class SharedPushService {
             status = authorization == .denied ? .denied : .off
             return
         }
-        if status != .registered && status != .registering {
+        // 登録済み・登録中なら何もしない（画面を開くたび・アプリに戻るたびに登録し直さない）
+        if status != .registered && !isRegistrationInFlight {
             await register()
         }
     }
@@ -305,6 +328,8 @@ final class SharedPushService {
             try await registry.remove(deviceID: deviceID)
         }
         hasRegistration = false
+        lastSavedRecord = nil
+        isWaitingForAPNsToken = false
         if let tokens {
             tokens.setAutoInit(false)
             _ = await Self.run(timeout: signOutTimeout) { await tokens.deleteToken() }
@@ -315,11 +340,13 @@ final class SharedPushService {
 
     // MARK: - APNs・Firebase Messaging から
 
-    /// APNs のトークンが届いた（AppDelegate から）
+    /// APNs のトークンが届いた（AppDelegate から）。
+    /// トークンを Firebase Messaging へ渡すだけ。登録の続きは、APNs のトークン待ちで止まっていたときだけ1回行う
+    /// （ここから APNs への登録を頼み直さない。Build 8・9 の「登録 → APNs → 登録 …」の繰り返しを止める）
     func apnsTokenDidArrive(_ token: Data) {
         tokens?.setAPNsToken(token)
         Task { @MainActor in
-            guard self.isEligible, self.status != .registered else { return }
+            guard self.isWaitingForAPNsToken, self.isEligible, !self.isRegistrationInFlight else { return }
             await self.register()
         }
     }
@@ -334,14 +361,8 @@ final class SharedPushService {
     /// 通知用のトークンが新しくなった：受け取る設定で、条件を満たすときだけ上書きする
     @MainActor
     func tokenDidRefresh(_ token: String) async {
-        guard isEligible, let registry, !token.isEmpty else { return }
-        do {
-            try await registry.save(deviceID: preferences.deviceID, record: PushDeviceRecord(token: token, showsPreview: preferences.showsTitle))
-            hasRegistration = true
-            status = .registered
-        } catch {
-            status = .failed
-        }
+        guard isEligible, !token.isEmpty else { return }
+        await saveDevice(token: token)
     }
 
     // MARK: - 内部
@@ -350,22 +371,45 @@ final class SharedPushService {
         isAvailable && isSignedIn && isJoined && preferences.receives && authorization == .authorized
     }
 
+    /// 登録（同時に1つだけ）。APNs への登録はこの起動で1回だけ頼み、トークンが取れたら端末の文書を保存する
     @MainActor
     private func register() async {
-        guard let permission, let tokens, let registry, isSignedIn, isJoined, preferences.receives else { return }
-        status = .registering
+        guard let permission, let tokens, isSignedIn, isJoined, preferences.receives, !isRegistrationInFlight else { return }
+        isRegistrationInFlight = true
+        defer { isRegistrationInFlight = false }
+        registrationStartCount += 1
+        if status != .registered { status = .registering }
         tokens.setAutoInit(true)
-        permission.registerForRemoteNotifications()
+        if !hasRequestedAPNs {
+            hasRequestedAPNs = true
+            apnsRequestCount += 1
+            permission.registerForRemoteNotifications()
+        }
         let token: String
         do {
             token = try await tokens.currentToken()
         } catch {
-            // APNs のトークンがまだ届いていない：届いたとき（apnsTokenDidArrive）にもう一度試す
-            status = .registering
+            // APNs のトークンがまだ届いていない：届いたとき（apnsTokenDidArrive）に1回だけもう一度試す
+            isWaitingForAPNsToken = true
             return
         }
+        isWaitingForAPNsToken = false
+        await saveDevice(token: token)
+    }
+
+    /// 端末の文書を保存する（同じ内容なら書かない。失敗しても自動で繰り返さない。次にアプリに戻ったときに1回だけ試す）
+    @MainActor
+    private func saveDevice(token: String) async {
+        guard let registry else { return }
+        let record = PushDeviceRecord(token: token, showsPreview: preferences.showsTitle)
+        if hasRegistration, record == lastSavedRecord {
+            if status != .registered { status = .registered }
+            return
+        }
+        deviceSaveCount += 1
         do {
-            try await registry.save(deviceID: preferences.deviceID, record: PushDeviceRecord(token: token, showsPreview: preferences.showsTitle))
+            try await registry.save(deviceID: preferences.deviceID, record: record)
+            lastSavedRecord = record
             hasRegistration = true
             status = .registered
         } catch {
@@ -382,6 +426,8 @@ final class SharedPushService {
             }
         }
         hasRegistration = false
+        lastSavedRecord = nil
+        isWaitingForAPNsToken = false
         if let tokens {
             tokens.setAutoInit(false)
             if deleteToken {

@@ -14,7 +14,8 @@ struct ShoppingAisleGroup: Identifiable, Hashable {
 final class ShoppingViewModel {
     private let store: LifeStore
     private let appState: AppState
-    private let now: Date
+    /// 基準の時刻（2026-10-28 Build 10：画面を開いたとき・アプリに戻ったときに新しくする）
+    private(set) var now: Date
 
     /// 店内で見やすい大きなチェック表示
     var isStoreMode = false
@@ -82,6 +83,11 @@ final class ShoppingViewModel {
     /// 編集画面
     var editingItem: LifeItem?
     var storeForEditing: LifeStore { store }
+
+    func refreshNow(_ now: Date = LifeCalendar.now) {
+        // 日付だけを使うので、日付が変わったときだけ書き込む
+        if !LifeCalendar.isSameDay(self.now, now) { self.now = now }
+    }
 
     func categoryText(for item: LifeItem) -> String {
         ShoppingCategorizer.categories(for: item.title).map(\.label).joined(separator: " / ")

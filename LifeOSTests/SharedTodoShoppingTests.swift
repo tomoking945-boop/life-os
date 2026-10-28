@@ -92,7 +92,16 @@ final class FakeSharedItemsBackend: SharedItemsBackend {
 
     var totalCalls: Int { sentCreates.count + sentUpdates.count + sentDeletes.count }
 
+    /// 見張りの回数（2026-10-28 Build 10）：始めた回数・いま動いている数・解除した回数
+    private(set) var listenStartCount = 0
+    private(set) var activeListenerCount = 0
+    private(set) var removedListenerCount = 0
+    private(set) var listenedGroupIDs: [String] = []
+
     func listen(groupID: String, onChange: @escaping ([SharedItemSnapshot]) -> Void, onError: @escaping (SharedItemsFailure) -> Void) -> RepositoryObservation {
+        listenStartCount += 1
+        activeListenerCount += 1
+        listenedGroupIDs.append(groupID)
         self.onChange = onChange
         self.onError = onError
         server.clients.append(.init(backend: self))
@@ -104,6 +113,8 @@ final class FakeSharedItemsBackend: SharedItemsBackend {
         return RepositoryObservation { [weak self] in
             self?.onChange = nil
             self?.onError = nil
+            self?.activeListenerCount -= 1
+            self?.removedListenerCount += 1
         }
     }
 
@@ -160,6 +171,11 @@ final class FakeSharedItemsBackend: SharedItemsBackend {
 
     func failListening(_ failure: SharedItemsFailure) {
         onError?(failure)
+    }
+
+    /// いまのサーバーの一覧を、もう一度そのまま届ける（同じ一覧のくり返し。2026-10-28 Build 10）
+    func emitCurrent() {
+        emit()
     }
 
     /// サーバーから空の一覧が届いた（最初の一覧・一時的な空の一覧の代わり。2026-10-28 Build 9）
