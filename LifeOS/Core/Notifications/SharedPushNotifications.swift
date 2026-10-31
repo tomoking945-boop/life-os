@@ -212,6 +212,8 @@ final class SharedPushService {
     /// 確認用：いま動いている保存の数と、その最大
     @ObservationIgnored private(set) var concurrentSaveCount = 0
     @ObservationIgnored private(set) var maxConcurrentSaveCount = 0
+    /// いまの世代の保存が動いているか（古い世代の保存は数えない。サインインし直したときは登録を頼めるように）
+    private var isSavingInCurrentGeneration: Bool { inFlightRecord != nil && inFlightGeneration == contextGeneration }
     /// 確認用：保留している保存の数（0 か 1）
     var pendingSaveCount: Int { pendingRecord == nil ? 0 : 1 }
 
@@ -340,8 +342,9 @@ final class SharedPushService {
             status = authorization == .denied ? .denied : .off
             return
         }
-        // 登録済み・登録中なら何もしない（画面を開くたび・アプリに戻るたびに登録し直さない）
-        if status != .registered && !isRegistrationInFlight {
+        // 登録済み・登録中・端末の文書を保存中なら何もしない（画面を開くたび・アプリに戻るたびに登録し直さない。
+        // 保存中は、トークンの取り直しもしない。2026-10-31）
+        if status != .registered && !isRegistrationInFlight && !isSavingInCurrentGeneration {
             await register()
         }
     }

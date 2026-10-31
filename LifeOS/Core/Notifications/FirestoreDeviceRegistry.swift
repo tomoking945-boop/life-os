@@ -25,11 +25,14 @@ final class FirestoreDeviceRegistry: PushDeviceRegistry {
             "showsPreview": record.showsPreview,
             "updatedAt": FieldValue.serverTimestamp(),
         ]
+        // 端末の中の Firestore の片付け（FirestoreLocalCacheRepair）が終わるまで待つ（2026-10-31）
+        await FirestoreAccessGate.shared.waitUntilOpen()
         // 同じ端末 ID の文書をまるごと上書きする（トークンが新しくなっても1つのまま）
         try await device(deviceID).setData(data)
     }
 
     func remove(deviceID: String) async throws {
+        await FirestoreAccessGate.shared.waitUntilOpen()
         try await device(deviceID).delete()
     }
 }

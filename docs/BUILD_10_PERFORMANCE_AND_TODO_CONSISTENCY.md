@@ -2,6 +2,7 @@
 
 2026-10-28。ブランチ `fix-build9-performance-and-todo-consistency`（main の `ba6bd4c` から）。main にはまだ入れていません。
 2026-10-29：Instruments の記録で見つかった「端末の文書の保存の嵐」（原因4）の修正を、同じブランチの `c93ee9f` のあとに追加しました。Build は 10 のままです（まだ TestFlight へ公開していないため）。
+2026-10-31：`4a3f712` のあとの Instruments（48秒）で、まだ負荷が残っていたため、記録を開いて原因を特定し（原因5）、修正を追加しました。
 Firebase（Functions・Firestore のルール・索引・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer の変更はしていません。
 
 ## 起きていたこと（池上さんの報告）
@@ -66,7 +67,73 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
   3. そのため、待っているあいだに届いた呼び出しは、同じトークンでもすべて「まだ保存していない」と判断し、新しい保存を始めていた。返事が遅いほど積み重なる
 - `c93ee9f` の修正（原因1）は `register()` を同時に1つにしたが、`tokenDidRefresh()` からの保存は通らない道だったので残っていた。テストの偽物は保存がすぐ終わるため、この状態を作れていなかった
 
+### 原因5（2026-10-31 追加）：端末の中の Firestore に、送信待ちの書き込みが約48万件残っていた
+
+**Instruments の記録（`4a3f712` の Build 10、iPhone 16、48.446秒、Allocations）で確かめた数**
+
+| 項目 | Persistent Bytes | # Persistent | # Transient | Total Bytes | # Total |
+| --- | --- | --- | --- | --- | --- |
+| All Heap & Anonymous VM | 1.31 GiB | 18,965,488 | 34,575,754 | 4.82 GiB | 53,541,242 |
+| `firebase::firestore::model::SetMutation::Rep` | 88.43 MiB | 482,973 | 3 | 88.44 MiB | 482,976 |
+| `firebase::firestore::model::ServerTimestampTransform::Rep` | 14.74 MiB | 482,973 | 0 | 14.74 MiB | 482,973 |
+| `firebase::firestore::model::ResourcePath` | 467.59 MiB | 10,214,569 | 11,026,261 | 972.33 MiB | 21,240,830 |
+
+- Persistent が多い順（上位10）：`ResourcePath`（467.59 MiB）、`FixedArray<pair…>`（247.48 MiB）、Malloc 320 Bytes（147.83 MiB）、`SetMutation::Rep`（88.43 MiB）、Malloc 160 Bytes（73.91 MiB）、Malloc 32 Bytes（59.94 MiB）、Malloc 48 Bytes（44.84 MiB）、Malloc 96 Bytes（44.40 MiB）、Malloc 16 Bytes（37.12 MiB）、Malloc 36.00 MiB（36.00 MiB）
+- Total Bytes が多い順（上位10）：`ResourcePath`（972.33 MiB）、Malloc 160 Bytes（512.55 MiB）、`FixedArray<pair…>`（494.96 MiB）、Malloc 320 Bytes（420.73 MiB）、Malloc 5.00 KiB（310.72 MiB）、Malloc 48 Bytes（248.88 MiB）、Malloc 448 Bytes（210.01 MiB）、Malloc 224 Bytes（209.95 MiB）、Malloc 32 Bytes（196.64 MiB）、Malloc 192 Bytes（164.43 MiB）
+- 時間とともに増え続けていたもの：グラフ（All Heap & Anonymous VM）は約4秒から記録の終わりまで右肩上がり。残っているメモリのほとんど（1.29 GB、96%）が下の1つの流れから
+
+**Call Tree（残っているメモリの96%）**
+
+```
+firebase::firestore::remote::Stream::OnStreamRead
+ └ WriteStream::NotifyStreamResponse
+   └ RemoteStore::OnWriteStreamMutationResult
+     └ core::SyncEngine::HandleSuccessfulWrite
+       └ local::LocalStore::AcknowledgeBatch
+         └ local::LevelDbPersistence::RunInternal
+           └ local::LocalDocumentsView::RecalculateAndSaveOverlays
+             ├ local::LevelDbMutationQueue::AllMutationBatchesAffecting…   ← SetMutation 482,962件はここで作られる
+             └ immutable::SortedSet<DocumentKey> … DocumentKey::DocumentKey ← ResourcePath
+```
+
+- `SetMutation` は、アプリが新しく書き込んだもの（`setData`）ではなく、**端末の中の Firestore（LevelDB）に残っていた送信待ちを読み出したもの**だった
+- サーバーから「1件保存できた」という返事が届くたびに、Firestore は同じ文書の送信待ちを**全部**（約48万件）読み直して、表示用の内容を計算し直す。返事が届くたびに約1.3GB 使う
+- 送信待ちの数は、前の記録（Run 2：482,975件）と今回（482,973件）でほとんど同じ。**新しく増えているのではなく、前から残っている山を、起動のたびに少しずつ（2件ずつ）しか減らせていない**
+- アプリ側の関数は、この流れには出てこない。`FirestoreDeviceRegistry` が関わるメモリは 3.42 KB（44件）、`SharedPushService` は 9.20 KB、`LifeStore` は 98.47 KB だけ。`SharedPushService.performSaves(startingWith:)` が記録にあり、**実機のアプリは `4a3f712` を含んでいる**
+- 1つの文書に対する約48万件の、サーバーの時刻つきの保存は、Build 8〜9 の通知の登録のくり返し（原因1）で出た「端末の文書の保存」と合う（共有の ToDo・買い物は、1件ごとに別の文書）
+- 送信待ちは出した順番にしか送られないため、この山のうしろにある共有の ToDo・買い物の書き込みも、サーバーに届かない
+
+**監査の結果（コード）**
+
+| 確かめたこと | 結果 |
+| --- | --- |
+| `FirestoreDeviceRegistry.save` を呼ぶ経路 | `SharedPushService.performSaves` の1か所だけ（`register`・`tokenDidRefresh`・`setShowsTitle` はすべて `saveDevice` → `performSaves` を通る） |
+| `tokenDidRefresh`・APNs・FCM トークン | APNs はトークンを渡すだけで、待っていたときだけ1回登録。FCM トークンの更新は、同じ内容なら書かない |
+| scenePhase・onAppear・task・通知の設定画面 | `updateContext` は登録済み・登録中なら何もしない。今回、**保存中もトークンの取り直しをしない**ように足した |
+| `SharedPushService` がいくつ作られるか | アプリでは `SharedPushService.live` の1つだけ |
+| 同じ内容の比べ方 | `PushDeviceRecord` はトークンと項目名の表示だけ。日時は含まない（`updatedAt` はサーバーの時刻で、比べる値に入らない） |
+| 保存中の再入・保存のあとの循環 | 保存は常に1件、保留は1件、違うときだけ1回追加（原因4の修正）。Call Tree にも新しい嵐は出ていない |
+| 見張りと画面の状態の循環・同じ一覧での書き戻し | 受け取った一覧で書き込むことは無い（原因2のテストで確認）。Call Tree にも出ていない |
+
 ## 変更内容
+
+### 端末の中の Firestore の片付け（原因5。2026-10-31 追加）
+
+Firestore には「送信待ちの一部だけを消す」方法が無いため、**この端末の中の Firestore の保存（キャッシュ）を、1回だけ消します**（`LifeOS/Core/Sharing/FirestoreLocalCacheRepair.swift`）。サーバーのデータ・ルール・Functions・Hosting は変えません。共有項目は、サーバーから読み直されます。
+
+1. 起動したとき（Firebase の設定のすぐあと、画面が Firestore を使い始める前）に、まだ片付けていなければ、Firestore を使えない状態にする（`FirestoreAccessGate`）。共有項目の見張り・作成・変更・削除・確認、通知の端末の文書の保存・削除は、片付けが終わるまで待つ
+2. 送り直しを止める（`disableNetwork`。サーバーの返事による読み直しを始めさせない）
+3. 端末の中だけを読み（`getDocuments(source: .cache)`。サーバーには聞かない・書かない）、**一度もサーバーに届いていない共有の ToDo・買い物の新規作成**を、「自分だけ」の項目として端末に保存する（同じ ID がすでにあれば足さない）
+4. Firestore を止め（`terminate`）、端末の中の Firestore の保存を消す（`clearPersistence`）
+5. 片付けた印（版の番号）を端末に保存し、Firestore を使える状態に戻す。次の起動からは何もしない
+- どこかで失敗したら、消さずに（または消せずに）使える状態に戻し、次の起動でもう一度試す。端末の中を読めないときは消さない
+- 待つ時間は1つの手順につき15秒まで（通信はしない）
+- 失われるもの：サーバーにある共有項目への、まだ届いていない変更（完了・名前の変更・削除など）。これらは、山のうしろで止まっていて相手にも届いていなかったもので、サーバーの内容に戻る
+- 通知の端末の文書は、片付けのあとに通常の登録で1回だけ保存し直す
+
+### 通知の登録（2026-10-31 追加）
+
+- 端末の文書を保存しているあいだは、画面の表示・アプリに戻るたびの `updateContext` で、登録やトークンの取り直しを始めない（いまの世代の保存中だけ。サインインし直したときは、これまでどおり登録を頼める）
 
 ### 端末の文書の保存（原因4。2026-10-29 追加）
 
@@ -128,6 +195,7 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 - 送信待ち・失敗の退避の決まりは Build 9 のまま（消さない・自分だけに残す・理由を出す・2つ作らない・あとで共有し直せる）
 - 通知の登録は、書き込む回数を減らしただけ。端末の文書の形は同じ
 - 端末の文書の保存を1件ずつにしても、最後に頼まれた内容（最新のトークン・設定）は必ず1回保存する（保留の1件で覚えておく）
+- 端末の中の Firestore を消す前に、一度もサーバーに届いていない共有の新規作成を「自分だけ」の項目として `life-store.json` に保存する（消すのは、そのあと）。サーバーの共有項目は消さない
 
 ## 既存の機能への影響
 
@@ -135,10 +203,11 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 - 「やること・今日」に、今日より前に残っている未完了の項目も出るようになった（今日画面の「昨日残ったもの」と同じ項目）
 - 通知の登録：失敗したとき、すぐにはやり直さず、次にアプリに戻ったときに1回だけ試す
 - 端末の文書の保存：保存中に頼まれた新しい内容は、いまの保存が終わってから保存する（すぐには書かない。数秒遅れることがある）
+- Build 10 を入れて最初の起動だけ、端末の中の Firestore を片付ける。そのあいだ（ふつうは数秒）、共有項目の表示が少し遅れる。サーバーに届いていなかった共有の新規作成は「自分」に出る（必要なら共有し直す）
 
 ## Firebase の再公開
 
-**不要**。Firestore のルール・Functions・索引・Hosting・データの形は変えていません（ルールや Functions の問題は見つかっていません）。
+**不要**。Firestore のルール・Functions・索引・Hosting・データの形は変えていません（ルールや Functions の問題は見つかっていません）。原因5の片付けは、端末の中の控えだけを消します。
 
 ## テスト
 
@@ -186,6 +255,20 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 
 既存のテスト（`SharedPushNotificationTests.swift`・`Build10StabilityTests.swift` など）は変えていません（削除・スキップ・必ず成功する形にはしていません）。
 
+### 追加したテスト（2026-10-31。`LifeOSTests/FirestoreCacheRepairTests.swift`。9件）
+
+| 確かめること | テスト |
+| --- | --- |
+| 「止める → 読む → 自分だけに残す → 止める → 消す」の順で1回だけ。残すのは一度も届いていない新規作成だけ。2回目は何もしない | `testRepairRunsOnceInOrderAndKeepsUnsentCreates` |
+| 端末の中を読めないときは消さない（次の起動でもう一度） | `testReadFailureDoesNotClear` |
+| 送り直しを止められないときも消さない | `testPrepareFailureDoesNotClear` |
+| 消せなかったら次の起動でもう一度。残した項目は2つにならない | `testClearFailureRetriesWithoutDuplicates` |
+| 残した項目は「自分だけ」になり、共有の一覧には入らない | `testRescuedItemsBecomePersonal` |
+| 片付けが終わるまで Firestore の処理は待ち、終われば頼まれた順に1回ずつ動く | `testGateHoldsFirestoreWorkUntilOpen` |
+| 起動時、片付けが要るならその場で閉じる。片付け済みなら閉じない | `testStartClosesGateImmediately` |
+| 片付けはサーバーに書き込まない。Firestore を使う2か所（共有項目・通知の端末）は片付けを待つ | `testRepairSourceDoesNotWriteAndAccessIsGated` |
+| 保存中に画面の表示・アプリに戻るが100回来ても、登録・トークンの取り直しを始めない | `testContextChangesWhileSavingDoNotRestartRegistration` |
+
 ### 結果
 
 | テスト | 件数 | この作業環境 | 結果 |
@@ -194,16 +277,16 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
 | Rules Emulator | 70 | 実行できなかった（変更なし） | 未実行 |
 | Functions Emulator | 43 | 実行できなかった（変更なし） | 未実行 |
 | アカウント削除 | 20 | 実行できなかった（変更なし） | 未実行 |
-| Swift（Xcode） | **415**（385＋16＋14） | 実行できなかった（Xcode が無い） | **未実行・未確認**（全 Swift ファイルの簡易の字句チェックだけ実行。問題なし） |
-| Release ビルド | — | 実行できなかった | **未確認** |
-| Instruments（Allocations・Leaks・Time Profiler） | — | 実行できなかった（Xcode が無い） | **未確認**（原因4の修正のあとの記録は、まだ無い） |
+| Swift（Xcode） | **424**（385＋16＋14＋9） | 実行できなかった（Xcode が無い） | **未実行・未確認**（全 Swift ファイルの簡易の字句チェックだけ実行。問題なし。`4a3f712` の 415件は池上さんの Mac で成功） |
+| Release ビルド | — | 実行できなかった | **未確認**（`4a3f712` は池上さんの Mac で成功） |
+| Instruments（Allocations） | — | `4a3f712` の記録（48秒）を開いて読んだ | 原因5を特定。**原因5の修正のあとの記録は、まだ無い** |
 
 サーバーの単体テストは、2026-10-29（原因4の修正のあと）にも実行し、74件成功・失敗0・スキップ0でした。サーバー側（ルール・Functions）は変えていません。
 
 ## Mac での確認（池上さん）
 
 1. `firebase/functions` で `npm test`（目安：単体 74・Rules 70・Functions 43・アカウント削除 20）
-2. Xcode で ⌘U（**415件の予定**・失敗0件）、Release ビルド
+2. Xcode で ⌘U（**424件の予定**・失敗0件）、Release ビルド
 3. 負荷の確認（Instruments。実機がおすすめ。共有の通知をオンにした状態で）
    1. Xcode のメニュー Product → Profile（⌘I）→「Allocations」を選ぶ
    2. 記録を始め、10分間、今日 → やること → 買い物 → プロフィール → わが家の設定 を行き来する。あいだに、2台の両方から共有の ToDo・買い物を追加・名前の変更をする
@@ -221,6 +304,19 @@ Firebase（Functions・Firestore のルール・索引・Hosting）への公開�
       - `ResourcePath` … 前（約313万件）のように増え続けないこと
    5. グラフ（All Heap & Anonymous VM）が、操作をやめると平らになること。Persistent のメモリが 803 MiB のように右肩上がりにならないこと
    6. 記録のスクリーンショット（数のところだけ）を残してください。トークン・UID・メールアドレスが写る画面（通知の設定の詳しい情報など）は写さないでください
+
+5. 原因5の修正のあとの確認（実機で、Allocations を30〜60秒）
+   1. この commit の Build 10 を実機に入れる（アプリは消さずに上書き。消すと、片付けの前の状態を確かめられない）
+   2. Product → Profile（⌘I）→「Allocations」で記録を始める。**最初の起動で片付けが動く**（数秒）
+   3. 30〜60秒、今日 → やること → 買い物 → プロフィール → わが家の設定 → 通知の設定 を行き来し、いったんホーム画面へ戻ってまた開く
+   4. 確かめること
+      - グラフ（All Heap & Anonymous VM）が、最初の数秒のあと平らになる（右肩上がりにならない）
+      - `SetMutation`・`ServerTimestampTransform` の # Persistent・# Total が数件〜数十件で止まる
+      - `ResourcePath` が数百万件にならない
+      - `LocalStore::AcknowledgeBatch` → `RecalculateAndSaveOverlays` が Call Tree の上位に出ない
+      - 記録の大きさ（保存した `.trace`）が数GBにならない
+   5. もう一度アプリを閉じて開き、同じ記録をする（2回目の起動では片付けは動かない。同じく平らなこと）
+   6. 「自分」に、前に共有しようとして届いていなかった ToDo・買い物が出ていたら、必要なものを共有し直す
 
 ## 2台の iPhone での確認（A：オーナー、B：パートナー）
 

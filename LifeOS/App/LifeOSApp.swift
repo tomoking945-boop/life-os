@@ -21,7 +21,17 @@ struct LifeOSApp: App {
         #endif
         let state = AppState.persistent()
         _appState = State(initialValue: state)
-        _store = State(initialValue: LifeStore.persistent(startEmptyIfNoSavedData: !state.hasCompletedOnboarding))
+        let lifeStore = LifeStore.persistent(startEmptyIfNoSavedData: !state.hasCompletedOnboarding)
+        _store = State(initialValue: lifeStore)
+        // 端末の中の Firestore に残った送信待ちの山（Build 8〜9 の通知の登録のくり返し）を1回だけ片付ける（2026-10-31 Build 10）。
+        // 片付けが終わるまで、共有項目・通知の端末の文書は Firestore を使わない。まだ届いていない共有の新規作成は「自分だけ」に残す
+        #if canImport(FirebaseCore) && canImport(FirebaseAppCheck) && canImport(FirebaseFirestore)
+        if FirebaseBootstrap.result == .configured {
+            FirestoreLocalCacheRepair.start(steps: LiveFirestoreCacheRepairSteps()) { unsent in
+                _ = lifeStore.recoverUnsentHouseholdItems(unsent)
+            }
+        }
+        #endif
         LifeAppearance.configure()
         // 保証書管理（2026-10-13）：前回の書き出しで残った一時ファイルを消す
         WarrantyExporter.clearTemporaryFiles()

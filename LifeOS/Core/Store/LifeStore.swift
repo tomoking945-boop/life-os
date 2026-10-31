@@ -476,6 +476,21 @@ final class LifeStore {
         householdItems = []
     }
 
+    /// 端末の中の Firestore を片付ける前に（FirestoreLocalCacheRepair。2026-10-31 Build 10）：
+    /// 一度もサーバーに届いていなかった共有の ToDo・買い物の新規作成を、「自分だけ」の項目として端末に残す（消さない）。
+    /// 同じ ID の項目がすでに端末にあれば足さない（2つ作らない）。
+    /// - Returns: 足した件数
+    @discardableResult
+    func recoverUnsentHouseholdItems(_ unsent: [LifeItem]) -> Int {
+        var added = 0
+        for item in unsent where HouseholdItemPolicy.kinds.contains(item.kind) && !items.contains(where: { $0.id == item.id }) {
+            items.append(Self.personalCopy(item))
+            added += 1
+        }
+        if added > 0 { save() }
+        return added
+    }
+
     /// 共有の作成がサーバーで受け付けられたとき（SharedItemsService から）：送信待ちの印を外す
     func finishHouseholdCreate(_ id: LifeItem.ID) {
         pendingHouseholdCreates[id] = nil

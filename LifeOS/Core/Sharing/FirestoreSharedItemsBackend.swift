@@ -19,8 +19,18 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
     }
 
     func listen(groupID: String, onChange: @escaping ([SharedItemSnapshot]) -> Void, onError: @escaping (SharedItemsFailure) -> Void) -> RepositoryObservation {
+        // 端末の中の Firestore の片付け（FirestoreLocalCacheRepair）が終わってから見張りを始める（2026-10-31）
+        let holder = ListenerHolder()
+        FirestoreAccessGate.shared.whenOpen { [weak self] in
+            guard let self else { return }
+            holder.attach { self.startListening(groupID: groupID, onChange: onChange, onError: onError) }
+        }
+        return RepositoryObservation { holder.cancel() }
+    }
+
+    private func startListening(groupID: String, onChange: @escaping ([SharedItemSnapshot]) -> Void, onError: @escaping (SharedItemsFailure) -> Void) -> ListenerRegistration {
         // includeMetadataChanges：送信待ち → サーバーで確かめられた、の変化も受け取る（共有への変換の片付けに使う）
-        let registration = items(groupID).addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+        items(groupID).addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
             if let error {
                 onError(Self.failure(from: error))
                 return
@@ -34,7 +44,6 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
             }
             onChange(result)
         }
-        return RepositoryObservation { registration.remove() }
     }
 
     func create(groupID: String, id: UUID, fields: [String: SharedItemValue], completion: @escaping (SharedItemsFailure?) -> Void) {
@@ -42,8 +51,11 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
             completion(.notSignedIn)
             return
         }
-        items(groupID).document(id.uuidString).setData(data) { error in
-            completion(error.map(Self.failure(from:)))
+        FirestoreAccessGate.shared.whenOpen { [weak self] in
+            guard let self else { return }
+            self.items(groupID).document(id.uuidString).setData(data) { error in
+                completion(error.map(Self.failure(from:)))
+            }
         }
     }
 
@@ -52,14 +64,20 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
             completion(.notSignedIn)
             return
         }
-        items(groupID).document(id.uuidString).updateData(data) { error in
-            completion(error.map(Self.failure(from:)))
+        FirestoreAccessGate.shared.whenOpen { [weak self] in
+            guard let self else { return }
+            self.items(groupID).document(id.uuidString).updateData(data) { error in
+                completion(error.map(Self.failure(from:)))
+            }
         }
     }
 
     func delete(groupID: String, id: UUID, completion: @escaping (SharedItemsFailure?) -> Void) {
-        items(groupID).document(id.uuidString).delete { error in
-            completion(error.map(Self.failure(from:)))
+        FirestoreAccessGate.shared.whenOpen { [weak self] in
+            guard let self else { return }
+            self.items(groupID).document(id.uuidString).delete { error in
+                completion(error.map(Self.failure(from:)))
+            }
         }
     }
 
@@ -112,6 +130,7 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
     /// サインイン・サインインの更新・わが家の文書・自分のメンバー文書・共有項目の読み取りを、サーバーに直接たずねる。
     /// 書き込みはしない。結果は決まった番号だけ（エラーの文・UID・トークンは出さない・保存しない）
     func diagnose(groupID: String) async -> SharedSyncCheck {
+        await FirestoreAccessGate.shared.waitUntilOpen()
         var check = SharedSyncCheck.notAvailable
         guard let user = Auth.auth().currentUser else { return check }
         check.isSignedIn = true
@@ -143,6 +162,29 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
             check.itemsRead = .failed(code: (error as NSError).code)
         }
         return check
+    }
+}
+
+/// 見張りの登録を持つ（片付けを待つあいだに解除されたら、始めない）
+private final class ListenerHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var registration: ListenerRegistration?
+    private var isCancelled = false
+
+    func attach(_ start: () -> ListenerRegistration) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isCancelled, registration == nil else { return }
+        registration = start()
+    }
+
+    func cancel() {
+        lock.lock()
+        let current = registration
+        registration = nil
+        isCancelled = true
+        lock.unlock()
+        current?.remove()
     }
 }
 #endif
