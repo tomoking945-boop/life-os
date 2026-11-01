@@ -125,6 +125,14 @@ Build 12 は、安定化（Build 10・11）の上に作っています。
 | Swift（Xcode） | **441**（424＋17） | 実行できなかった（Xcode が無い） | **未実行・未確認**（全 Swift ファイルの簡易の字句チェックだけ実行。問題なし） |
 | Release ビルド | — | 実行できなかった | **未確認** |
 
+### Mac での1回目の結果（2026-11-01 12:05、池上さん）
+
+- ビルド：成功（警告3件。中身は未報告）
+- テスト：**1件失敗** `AppCheckTests.testAppSourceDoesNotUseFirestore`
+  - 原因：Build 10 の `c0abc92` で足した `FirestoreLocalCacheRepair.swift`（端末の中の Firestore の片付け）が、「Firestore を使ってよいファイル」の一覧に入っていなかった。`c0abc92` のときに、このテストを直し忘れていた（Build 12 の変更が原因ではない）
+  - 直し方：テストの一覧に片付けのファイルを足し、そのファイルには、ほかの窓口より厳しい確かめを足した（書き込み・サーバーへの問い合わせ・見張り・`collection(`・`document(`・ログを使わない、読むのは `collectionGroup("items")` を端末の中だけで1回、止める・消すの手順があること）。片付けの処理そのものは変えていない
+  - 失敗したテストを消す・飛ばす・必ず成功させる変更はしていない
+
 ## Mac での確認（池上さん）
 
 1. `firebase/functions` で `npm test`（目安：単体 74・Rules 70・Functions 43・アカウント削除 20）

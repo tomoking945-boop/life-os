@@ -138,11 +138,14 @@ final class NoFirestoreWritesTests: XCTestCase {
         var offenders: [String] = []
         var backendText: String?
         var deviceRegistryText: String?
+        var cacheRepairText: String?
         let forbidden = ["import FirebaseFirestore", "Firestore.firestore(", ".setData(", ".addDocument(", ".updateData("]
         // 2026-10-28（Build 7）：Firestore を使ってよいのは、わが家の共有 ToDo・買い物の窓口のファイルだけ
         // 2026-10-28（Build 8）：共有の通知の端末の文書（自分の users/{uid}/devices）の窓口も
         let allowedFile = "FirestoreSharedItemsBackend.swift"
         let deviceRegistryFile = "FirestoreDeviceRegistry.swift"
+        // 2026-10-31（Build 10・11）：端末の中の Firestore の送信待ちの山を1回だけ片付ける処理も（サーバーには書かない。下で確かめる）
+        let cacheRepairFile = "FirestoreLocalCacheRepair.swift"
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             swiftFiles += 1
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -154,12 +157,30 @@ final class NoFirestoreWritesTests: XCTestCase {
                 deviceRegistryText = text
                 continue
             }
+            if url.lastPathComponent == cacheRepairFile {
+                cacheRepairText = text
+                continue
+            }
             for word in forbidden where text.contains(word) {
                 offenders.append("\(url.lastPathComponent): \(word)")
             }
         }
         try XCTSkipIf(swiftFiles == 0, "アプリのソースを読めない環境のため、確認を省きます")
-        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift と FirestoreDeviceRegistry.swift だけ")
+        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift・FirestoreDeviceRegistry.swift・FirestoreLocalCacheRepair.swift だけ")
+
+        // 片付けの処理：サーバーには書かない・聞かない。端末の中の共有項目を読み、止めて、端末の中の保存を消すだけ
+        let repair = try XCTUnwrap(cacheRepairText, "FirestoreLocalCacheRepair.swift が見つからない")
+        for word in [".setData(", ".updateData(", ".addDocument(", ".delete(", "WriteBatch", ".batch()", "runTransaction",
+                     "source: .server", "addSnapshotListener", ".collection(", ".document(",
+                     "print(", "NSLog", "os_log", "Logger(", "localizedDescription"] {
+            XCTAssertFalse(repair.contains(word), "片付けの処理：\(word)")
+        }
+        XCTAssertEqual(Self.matches(of: #"collectionGroup\("([^"]+)"\)"#, in: repair), ["items"], "読むのは共有項目だけ")
+        XCTAssertEqual(repair.components(separatedBy: "getDocuments(").count - 1, 1)
+        XCTAssertTrue(repair.contains("getDocuments(source: .cache)"), "端末の中だけを読む")
+        for step in ["disableNetwork()", "enableNetwork()", "terminate()", "clearPersistence()"] {
+            XCTAssertTrue(repair.contains(step), step)
+        }
 
         // 端末の窓口が読み書きするのは、自分の users/{uid}/devices/{deviceID} だけ。決まった項目だけを書く
         let registry = try XCTUnwrap(deviceRegistryText, "FirestoreDeviceRegistry.swift が見つからない")
