@@ -36,14 +36,19 @@ enum LocalStorage {
         return try? JSONDecoder().decode(type, from: data)
     }
 
-    static func save<Value: Encodable>(_ value: Value, to name: String) {
-        guard let directory, let url = fileURL(name) else { return }
+    /// 保存する。
+    /// - Returns: 保存できたら true（Build 17：予定の保存先を「自分だけ」に変えるとき、端末に保存できたかを確かめてから共有の予定を消すため）
+    @discardableResult
+    static func save<Value: Encodable>(_ value: Value, to name: String) -> Bool {
+        guard let directory, let url = fileURL(name) else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(value)
             try data.write(to: url, options: .atomic)
+            return true
         } catch {
             // 保存に失敗しても画面上のデータはそのまま使えるため、処理は続ける。
+            return false
         }
     }
 }

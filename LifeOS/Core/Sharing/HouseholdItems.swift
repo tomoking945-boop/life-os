@@ -271,8 +271,29 @@ enum EventSharingBlock: Equatable {
     }
 }
 
+/// 予定の編集の保存の結果（Build 17。保存先の変更を含む）
+enum EventSaveOutcome: Equatable {
+    /// 保存先は変えず、内容を保存した
+    case saved
+    /// 自分だけ → わが家で共有：同じ UUID で Firestore への作成を始めた（確かめられるまで端末の予定は消さない）
+    case sharingStarted
+    /// わが家で共有 → 自分だけ：端末へ保存し、共有の予定の削除を始めた
+    case madePersonal
+    /// 保存先を変えられなかった（理由）。共有の予定・端末の予定は消していない
+    case failed(String)
+
+    static let notSavedMessage = "予定が見つからないため、保存できませんでした。"
+    static let notJoinedMessage = "わが家に参加していないため、自分だけの予定に変更できませんでした。共有のまま残しています。"
+    static let deviceSaveFailedMessage = "この iPhone に保存できなかったため、共有のまま残しました。"
+    static let conversionInProgressMessage = "前に「自分だけ」へ変更した予定の片付けがまだ終わっていません。しばらくしてから、もう一度お試しください。"
+}
+
 /// LifeStore から共有項目の保存を頼む先
 protocol HouseholdItemSyncing: AnyObject {
+    /// すでにある共有項目を消せるか（わが家に参加していれば。種類の設定は見ない。Build 17）
+    var canDeleteHouseholdItems: Bool { get }
+    /// 共有の予定を「自分だけ」に変えるため、共有項目を1回消す。結果は LifeStore へ返す（Build 17）
+    func deleteHouseholdItemForPersonalConversion(_ id: LifeItem.ID)
     /// 予定を新しく「わが家で共有」にできない理由（できるなら nil。Build 14）
     var eventSharingBlock: EventSharingBlock? { get }
     /// その種類で「わが家で共有」を選べるか（わが家に参加していて、設定でオン）
@@ -436,6 +457,33 @@ final class SharedItemsService: HouseholdItemSyncing {
             self?.lastFailure = failure
             self?.notice = "共有の変更を保存できませんでした（\(failure.reason)）。"
         }
+    }
+
+    var canDeleteHouseholdItems: Bool {
+        backend != nil && isJoined && groupID != nil
+    }
+
+    /// 共有の予定を「自分だけ」に変える（Build 17）：端末へ保存したあとで呼ばれる。
+    /// 消せたら LifeStore の印を外す。消せなかったら理由を出す（端末の自分だけの予定は残る。次の起動で1回だけ、もう一度消す）
+    func deleteHouseholdItemForPersonalConversion(_ id: LifeItem.ID) {
+        guard let backend, let groupID else {
+            lastFailure = .other
+            notice = Self.personalConversionNotice(SharedItemsFailure.other)
+            return
+        }
+        backend.delete(groupID: groupID, id: id) { [weak self] failure in
+            guard let self else { return }
+            if let failure {
+                self.lastFailure = failure
+                self.notice = Self.personalConversionNotice(failure)
+            } else {
+                self.store?.finishPersonalConversion(id)
+            }
+        }
+    }
+
+    static func personalConversionNotice(_ failure: SharedItemsFailure) -> String {
+        "自分だけの予定に変更しました。パートナーのカレンダーからは、まだ消せていません（\(failure.reason)）。次に開いたときに、もう一度消します。"
     }
 
     func deleteHouseholdItem(_ id: LifeItem.ID) {
