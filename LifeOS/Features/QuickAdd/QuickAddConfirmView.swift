@@ -38,6 +38,9 @@ struct QuickAddConfirmView: View {
                         }
                         VStack(alignment: .leading, spacing: 0) {
                             candidateRow(candidate)
+                            if viewModel.canChooseDate(candidate) {
+                                dateRow(candidate)
+                            }
                             if viewModel.canChooseSoftTime(candidate.item) {
                                 softTimeMenu(candidate)
                             }
@@ -62,6 +65,32 @@ struct QuickAddConfirmView: View {
             .padding(.vertical, LifeSpacing.sm)
             .background(LifeColors.background)
         }
+    }
+
+    /// 日付（Build 12）：予定と、日付を確かめる必要のある項目。翌月・翌年など、先の日付も選べる（上限は付けない）
+    private func dateRow(_ candidate: QuickAddCandidate) -> some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+            if let note = candidate.dateNote {
+                Label("日付を選んでください（\(note)）", systemImage: "exclamationmark.circle")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.accent)
+            }
+            DatePicker(
+                "日付",
+                selection: Binding(
+                    get: { candidate.item.date },
+                    set: { viewModel.setDate($0, for: candidate.id) }
+                ),
+                displayedComponents: .date
+            )
+            .font(LifeTypography.footnote)
+            .foregroundStyle(LifeColors.text)
+            .environment(\.locale, Locale(identifier: "ja_JP"))
+            .environment(\.calendar, LifeCalendar.calendar)
+            .accessibilityLabel("\(candidate.item.title)の日付")
+        }
+        .padding(.leading, LifeSpacing.xl)
+        .frame(minHeight: LifeSpacing.minTapTarget)
     }
 
     /// 「いつごろ」：帰宅時・夜・余力があれば・今週中を選ぶ（「入力をもっと賢く」2026-10-07）

@@ -87,8 +87,9 @@ enum LifeInterpreter {
         (["Netflix", "サブスク", "Spotify"], .subscription)
     ]
 
-    /// 空のときは nil
-    static func understand(_ text: String) -> LifeUnderstanding? {
+    /// 空のときは nil。
+    /// - Parameter now: 渡したときだけ、文の中の日付（「12月25日」「来月15日」）も読む（なんでも追加。Build 12）
+    static func understand(_ text: String, now: Date? = nil) -> LifeUnderstanding? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -98,7 +99,7 @@ enum LifeInterpreter {
                 outcome: .expense(title: expense.title, amount: expense.amount, category: expense.category)
             )
         }
-        return LifeUnderstanding(text: trimmed, outcome: .items(InboxClassifier.suggestions(for: trimmed)))
+        return LifeUnderstanding(text: trimmed, outcome: .items(InboxClassifier.suggestions(for: trimmed, now: now)))
     }
 
     static func expense(in text: String) -> (title: String, amount: Int, category: ExpenseCategory)? {

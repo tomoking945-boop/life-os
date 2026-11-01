@@ -33,6 +33,9 @@ enum QuickAddType: String, CaseIterable, Identifiable, Hashable {
 struct QuickAddCandidate: Identifiable, Hashable {
     var item: LifeItem
     var isSelected: Bool
+    /// 文の中の日付が存在しなかったときの説明（「2027年2月30日はありません」）。
+    /// あるあいだは追加できない（確認画面で日付を選ぶと消える。Build 12）
+    var dateNote: String? = nil
 
     var id: LifeItem.ID { item.id }
 }
@@ -50,6 +53,8 @@ final class QuickAddViewModel {
     var isShowingResults = false
     var isShowingVoiceInputNotice = false
     var isShowingAmountNotice = false
+    /// 「種類を決めて追加」の予定で、存在しない日付が書かれていた（Build 12。黙って保存しない）
+    var isShowingDateNotice = false
 
     init(store: LifeStore, now: Date = LifeCalendar.now) {
         self.store = store
@@ -106,11 +111,13 @@ final class QuickAddViewModel {
             case .event: kind = .event
             default: kind = .shopping
             }
-            if kind == .event, let match = TimeReader.read(trimmedInput), !match.remainingText.isEmpty {
-                store.add([
-                    LifeItem(title: match.remainingText, kind: .event, ownership: .personal,
-                             date: match.time.date(on: today), hasTime: true, assignee: .me)
-                ])
+            if kind == .event {
+                // Build 12：「12月25日 19時 美容院」のような日付も読む（無ければ今日）。存在しない日付なら保存しない
+                guard let event = Self.quickEvent(from: trimmedInput, now: now) else {
+                    isShowingDateNotice = true
+                    return false
+                }
+                store.add([event])
             } else {
                 // ToDo・買い物は、選んだ保存先へ（初期値は自分だけ。予定は Build 7 では共有しない）
                 store.add([
@@ -131,6 +138,23 @@ final class QuickAddViewModel {
 
         inputText = ""
         return true
+    }
+
+    /// 「種類を決めて追加」の予定：日付（あれば）・時刻（あれば）を読み、いつも「自分」の予定にする。
+    /// 存在しない日付が書かれていれば nil（保存しない）
+    static func quickEvent(from text: String, now: Date) -> LifeItem? {
+        var title = text
+        var day = LifeCalendar.startOfDay(now)
+        if let dateMatch = DateReader.read(title, now: now), !dateMatch.remainingText.isEmpty {
+            guard let date = dateMatch.date else { return nil }
+            day = date
+            title = dateMatch.remainingText
+        }
+        if let timeMatch = TimeReader.read(title), !timeMatch.remainingText.isEmpty {
+            return LifeItem(title: timeMatch.remainingText, kind: .event, ownership: .personal,
+                            date: timeMatch.time.date(on: day), hasTime: true, assignee: .me)
+        }
+        return LifeItem(title: title, kind: .event, ownership: .personal, date: day, assignee: .me)
     }
 
     /// 入力の最後の数字を金額として取り出す（「ランチ 1,200円」→ ランチ / 1200）
@@ -165,7 +189,7 @@ final class QuickAddViewModel {
 
     /// LifeOSの理解（入力中もその場で変わる。ルールのみ）
     var understanding: LifeUnderstanding? {
-        LifeInterpreter.understand(inputText)
+        LifeInterpreter.understand(inputText, now: now)
     }
 
     /// 理解の「いつ」
@@ -198,6 +222,11 @@ final class QuickAddViewModel {
         guard let understanding else { return false }
         switch understanding.outcome {
         case let .items(suggestions):
+            // Build 12：存在しない日付が書かれていたら、黙って保存しない。確認画面で日付を選んでもらう
+            if suggestions.contains(where: \.needsDateConfirmation) {
+                refine(usageStyle: usageStyle)
+                return false
+            }
             let items = suggestions.map { $0.makeItem(today: now) }
             store.add(items, destination: usageStyle.showsScopeFilter ? effectiveDestination : .personal)
         case let .expense(title, amount, category):
@@ -214,7 +243,9 @@ final class QuickAddViewModel {
             organize()
             return
         }
-        candidates = suggestions.map { QuickAddCandidate(item: $0.makeItem(today: now), isSelected: true) }
+        candidates = suggestions.map {
+            QuickAddCandidate(item: $0.makeItem(today: now), isSelected: true, dateNote: $0.dateProblem)
+        }
         // 保存先は、利用者がこの画面で選んだもの（初期値は自分だけ）。自動の分類からは決めない
         if !usageStyle.showsScopeFilter { destination = .personal }
         isShowingResults = true
@@ -236,7 +267,27 @@ final class QuickAddViewModel {
 
     var addButtonTitle: String { "\(selectedCount)件を追加" }
 
-    var canAdd: Bool { selectedCount > 0 }
+    /// 追加できるか（選んだ項目があり、日付を確かめる必要のある項目が残っていない）
+    var canAdd: Bool {
+        selectedCount > 0 && !candidates.contains { $0.isSelected && $0.dateNote != nil }
+    }
+
+    // MARK: - 日付（Build 12）
+
+    /// 日付を選べるか（予定と、日付を確かめる必要のある項目）。アプリ独自の「1週間先まで」などの上限は付けない
+    func canChooseDate(_ candidate: QuickAddCandidate) -> Bool {
+        candidate.item.kind == .event || candidate.dateNote != nil
+    }
+
+    /// 「詳しく整える」で日付を選ぶ。時刻のある項目は、時刻をそのままにして日付だけ変える
+    func setDate(_ date: Date, for id: QuickAddCandidate.ID) {
+        guard let index = candidates.firstIndex(where: { $0.id == id }) else { return }
+        var item = candidates[index].item
+        let day = LifeCalendar.startOfDay(date)
+        item.date = item.hasTime ? ClockTime(date: item.date).date(on: day) : day
+        candidates[index].item = item
+        candidates[index].dateNote = nil
+    }
 
     /// 柔らかい時間の選択肢（決めない＋帰宅時・夜・余力があれば・今週中）
     static let softTimeOptions: [SoftTime?] = [nil] + SoftTime.allCases.map { Optional($0) }
@@ -271,7 +322,7 @@ final class QuickAddViewModel {
     func detailText(for item: LifeItem) -> String {
         var parts = [item.kind.label]
         if !LifeCalendar.isSameDay(item.date, now) {
-            parts.append(LifeFormatters.shortDate(item.date))
+            parts.append(LifeFormatters.dateNoting(item.date, now: now))
         }
         if let softTime = item.softTime {
             parts.append(softTime.label)

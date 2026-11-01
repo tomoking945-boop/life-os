@@ -74,6 +74,11 @@ struct QuickAddSheet: View {
                     dismiss()
                 }
             }
+            .alert("日付を確かめてください", isPresented: $viewModel.isShowingDateNotice) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("書かれた日付はカレンダーにありません。日付を直すか、「詳しく整える」で日付を選んでください。")
+            }
             .alert("音声入力", isPresented: $viewModel.isShowingVoiceInputNotice) {
                 Button("OK", role: .cancel) {}
             } message: {

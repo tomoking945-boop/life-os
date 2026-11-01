@@ -34,6 +34,23 @@ struct CalendarView: View {
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        // 選んだ日から予定を追加（Build 12）。「なんでも追加」はそのまま残す
+        .sheet(isPresented: Binding(
+            get: { viewModel.eventDraft != nil },
+            set: { isPresented in if !isPresented { viewModel.cancelAddingEvent() } }
+        )) {
+            if let draft = viewModel.eventDraft {
+                CalendarEventSheet(draft: draft) { saved in
+                    withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
+                        _ = viewModel.saveEvent(saved)
+                    }
+                } onCancel: {
+                    viewModel.cancelAddingEvent()
+                }
+                .presentationDetents([.medium, .large])
+                .lifeSheetPresentation()
+            }
+        }
     }
 
     // MARK: - 月表示
@@ -154,6 +171,17 @@ struct CalendarView: View {
                     .font(LifeTypography.footnote)
                     .foregroundStyle(LifeColors.secondaryText)
             }
+
+            // 選んだ日に予定を追加（Build 12）
+            Button(action: viewModel.startAddingEvent) {
+                Label("予定を追加", systemImage: "plus")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.primary)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(viewModel.selectedDateHeadline)に予定を追加")
 
             if viewModel.selectedItems.isEmpty {
                 LifeEmptyState(systemImage: "calendar", title: "予定はありません")

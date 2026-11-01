@@ -1,6 +1,45 @@
 import Foundation
 import Observation
 
+/// カレンダーから追加する予定の下書き（Build 12。docs/BUILD_12_CALENDAR_EVENT_AND_ICON.md）。
+/// 保存すると、これまでと同じ `LifeItem(kind: .event)` の「自分」の予定になる（予定の共有はまだしない）
+struct NewEventDraft: Equatable {
+    /// 時刻を指定するときの初期の時刻
+    static let defaultHour = 10
+
+    var title = ""
+    /// 日付（選んだ日が初期値）
+    var date: Date
+    var isAllDay = true
+    /// 時刻（時と分だけを使う）
+    var time: Date
+
+    init(day: Date) {
+        let start = LifeCalendar.startOfDay(day)
+        date = start
+        time = LifeCalendar.date(on: start, hour: Self.defaultHour, minute: 0)
+    }
+
+    var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// 保存できるか（タイトルが空なら保存しない）
+    var canSave: Bool { !trimmedTitle.isEmpty }
+
+    /// 保存する予定（保存できないときは nil）
+    func makeItem() -> LifeItem? {
+        guard canSave else { return nil }
+        let day = LifeCalendar.startOfDay(date)
+        return LifeItem(
+            title: trimmedTitle,
+            kind: .event,
+            ownership: .personal,
+            date: isAllDay ? day : ClockTime(date: time).date(on: day),
+            hasTime: !isAllDay,
+            assignee: .me
+        )
+    }
+}
+
 /// 月表示の1マス（前月分の空白は date が nil）
 struct CalendarDayCell: Identifiable, Hashable {
     let id: Int
@@ -16,6 +55,8 @@ final class CalendarViewModel {
 
     var displayedMonth: Date
     var selectedDate: Date
+    /// 選んだ日から予定を追加するシートの下書き（開いていなければ nil。Build 12）
+    var eventDraft: NewEventDraft?
 
     init(store: LifeStore, appState: AppState, now: Date = LifeCalendar.now) {
         self.store = store
@@ -136,6 +177,34 @@ final class CalendarViewModel {
             parts.append("担当：\(appState.profile.displayName(for: assignee))")
         }
         return parts.joined(separator: "・")
+    }
+
+    // MARK: - 選んだ日から予定を追加（Build 12）
+
+    /// 「予定を追加」：選んだ日を初期値にしてシートを開く
+    func startAddingEvent() {
+        eventDraft = NewEventDraft(day: selectedDate)
+    }
+
+    func cancelAddingEvent() {
+        eventDraft = nil
+    }
+
+    /// 予定を保存する（自分だけ）。保存した日を選び、その月を表示して、一覧にすぐ出す。
+    /// タイトルが空なら保存しない
+    /// - Returns: 保存したら true
+    @discardableResult
+    func saveEvent(_ draft: NewEventDraft) -> Bool {
+        guard let item = draft.makeItem() else { return false }
+        store.add([item])
+        select(item.date)
+        displayedMonth = LifeCalendar.startOfMonth(item.date)
+        // 「共有」だけを表示していると自分の予定が見えないため、「すべて」に戻す
+        if !appState.effectiveScope.includes(.personal) {
+            scope = .all
+        }
+        eventDraft = nil
+        return true
     }
 
     // 予定の「パートナーと共有」ボタン（端末の中で印を付けるだけの Mock）は 2026-10-28 になくした。

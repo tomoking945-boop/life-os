@@ -22,6 +22,7 @@ enum LifeFormatters {
 
     private static let headerDateFormatter = dateFormatter("M月d日（E）")
     private static let shortDateFormatter = dateFormatter("M/d（E）")
+    private static let yearDateFormatter = dateFormatter("yyyy/M/d（E）")
     private static let timeFormatter = dateFormatter("H:mm")
     private static let monthFormatter = dateFormatter("yyyy年M月")
     private static let spokenDateFormatter = dateFormatter("M月d日EEEE")
@@ -60,6 +61,18 @@ enum LifeFormatters {
     /// 9/25（金）
     static func shortDate(_ date: Date) -> String {
         shortDateFormatter.string(from: date)
+    }
+
+    /// 2027/3/10（水）
+    static func dateWithYear(_ date: Date) -> String {
+        yearDateFormatter.string(from: date)
+    }
+
+    /// 今年なら 12/25（金）、ほかの年なら 2027/3/10（水）（Build 12：遠い先の予定で年を取り違えないように）
+    static func dateNoting(_ date: Date, now: Date) -> String {
+        let calendar = LifeCalendar.calendar
+        return calendar.component(.year, from: date) == calendar.component(.year, from: now)
+            ? shortDate(date) : dateWithYear(date)
     }
 
     /// 10:30

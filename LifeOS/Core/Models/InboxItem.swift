@@ -89,11 +89,26 @@ struct InboxSuggestion: Hashable, Codable {
     var time: ClockTime? = nil
     /// 柔らかい時間を自分で選んだか（選んでいれば、修正のあとも自動で変えない）
     var isSoftTimeChosen = false
+    /// 文の中の日付（「12月25日」「2027年3月10日」「来月15日」）。あれば day より優先する（Build 12）。
+    /// 以前の保存データには無いため Optional（読み込みはこれまでどおり）
+    var specificDate: Date? = nil
+    /// 文の中の日付が存在しないとき（「2月30日」など）の説明。あるあいだは、そのまま保存しない（確認画面で日付を選ぶ）
+    var dateProblem: String? = nil
+
+    /// 日付を確かめる必要があるか（存在しない日付）
+    var needsDateConfirmation: Bool { dateProblem != nil }
+
+    /// その日の0時（文の中の日付があればその日。無ければ 今日・明日・土曜・日曜）
+    func startDate(now: Date) -> Date {
+        specificDate.map(LifeCalendar.startOfDay) ?? day.date(from: now)
+    }
 
     /// 「買い物・明日」「ToDo・今日」のような短い説明。
     /// 2026-10-28：Inbox・なんでも追加から作る項目は、いつも自分の項目（共有は保存先で選ぶ）なので「共有」を付けない
     var summary: String {
-        "\(kind.label)・\(day.label)"
+        if dateProblem != nil { return "\(kind.label)・日付を確認" }
+        if let specificDate { return "\(kind.label)・\(LifeFormatters.shortDate(specificDate))" }
+        return "\(kind.label)・\(day.label)"
     }
 
     // MARK: - LifeOSの理解（Calm Future 第2段階）
@@ -108,6 +123,12 @@ struct InboxSuggestion: Hashable, Codable {
 
     /// 日時候補（今日・帰宅時に表示・明日 10/7（水）・今日 10:30 など）
     func timingText(now: Date) -> String {
+        if let dateProblem { return "日付を確認：\(dateProblem)" }
+        if let specificDate {
+            let base = LifeFormatters.dateNoting(specificDate, now: now)
+            if let time { return "\(base) \(time.text)" }
+            return base
+        }
         let base: String
         switch day {
         case .today:
@@ -160,7 +181,7 @@ struct InboxSuggestion: Hashable, Codable {
     /// 今日の日付をもとに LifeItem にする
     /// 時刻があれば、その日のその時刻の項目にする
     func makeItem(today: Date) -> LifeItem {
-        let dayStart = day.date(from: today)
+        let dayStart = startDate(now: today)
         return LifeItem(
             title: title,
             kind: kind,

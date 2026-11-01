@@ -16,9 +16,18 @@ enum InboxClassifier {
     /// 品名を区切る言葉（「牛乳とティッシュ」「卵、パン」）
     private static let listSeparators: [Character] = ["と", "、", ",", "，", "・", " ", "　"]
 
-    static func suggest(for text: String) -> InboxSuggestion {
+    /// - Parameter now: 渡したときだけ、文の中の日付（「12月25日」「2027年3月10日」「来月15日」）も読む（なんでも追加。Build 12）。
+    ///   おまかせ Inbox は渡さない（これまでどおり）
+    static func suggest(for text: String, now: Date? = nil) -> InboxSuggestion {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var clues: [String] = []
+
+        // Build 12：日付を先に読み取り、残りの文で時刻・分類を読む（「12月25日 19時 美容院」→ 12/25・19:00・美容院）
+        var dateMatch: DateReader.Match?
+        if let now, let match = DateReader.read(trimmed, now: now), !match.remainingText.isEmpty {
+            dateMatch = match
+            trimmed = match.remainingText
+        }
 
         // 「入力をもっと賢く」（2026-10-07）：時刻を先に読み取り、残りの文で分類する（「10:30 歯医者」→ 歯医者・10:30）
         let timeMatch = TimeReader.read(trimmed)
@@ -28,7 +37,7 @@ enum InboxClassifier {
         let time = (timeMatch?.remainingText.isEmpty == false) ? timeMatch?.time : nil
 
         var day = InboxDay.today
-        if let match = dayKeywords.first(where: { trimmed.contains($0.word) }) {
+        if dateMatch == nil, let match = dayKeywords.first(where: { trimmed.contains($0.word) }) {
             day = match.day
             clues.append(match.word)
         }
@@ -51,12 +60,15 @@ enum InboxClassifier {
             kind = .shopping
             clues.append(names[0])
         } else {
-            // 新しい解釈：時刻があって、ほかに手がかりが無ければ「予定」（「10:30 歯医者」）
-            kind = time == nil ? .todo : .event
+            // 新しい解釈：時刻か日付があって、ほかに手がかりが無ければ「予定」（「10:30 歯医者」「来月15日 歯医者」）
+            kind = (time == nil && dateMatch == nil) ? .todo : .event
         }
 
         if let timeMatch, time != nil {
             clues.insert(timeMatch.clue, at: 0)
+        }
+        if let dateMatch {
+            clues.insert(dateMatch.clue, at: 0)
         }
 
         // 新しい解釈：今日の買い物は「帰宅時」に出す（仕様の例「帰宅時に表示」）。時刻があれば時刻を優先する
@@ -67,16 +79,18 @@ enum InboxClassifier {
             kind: kind,
             ownership: .personal,
             day: day,
-            softTime: softTime,
+            softTime: dateMatch == nil ? softTime : nil,
             clues: clues,
-            time: time
+            time: time,
+            specificDate: dateMatch?.date,
+            dateProblem: dateMatch?.problem
         )
     }
 
     /// なんでも追加の「提案どおり追加」用：品名だけが並んでいるときは1品ずつに分ける
     /// （「牛乳とティッシュ」→「牛乳を買う」「ティッシュを買う」）。それ以外は1件。
-    static func suggestions(for text: String) -> [InboxSuggestion] {
-        let base = suggest(for: text)
+    static func suggestions(for text: String, now: Date? = nil) -> [InboxSuggestion] {
+        let base = suggest(for: text, now: now)
         guard base.kind == .shopping,
               let names = productNames(in: ShoppingCategorizer.itemName(from: base.title)),
               names.count > 1 else {
