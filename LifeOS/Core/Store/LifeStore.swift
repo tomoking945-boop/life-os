@@ -371,6 +371,53 @@ final class LifeStore {
         save()
     }
 
+    /// 予定のタイトル・日付・終日／時刻を変更する（Build 15）。ID と保存先は変えない。
+    /// 共有の予定は Firestore へ送り、個人の予定は端末だけに保存する。
+    @discardableResult
+    func updateEvent(_ updated: LifeItem) -> Bool {
+        let trimmed = updated.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard updated.kind == .event, !trimmed.isEmpty else { return false }
+        if householdItems.contains(where: { $0.id == updated.id && $0.kind == .event }) {
+            return updateHouseholdItem(updated.id) { item in
+                item.title = trimmed
+                item.date = updated.date
+                item.hasTime = updated.hasTime
+                item.deferredTo = nil
+            }
+        }
+        guard let index = items.firstIndex(where: { $0.id == updated.id && $0.kind == .event }) else { return false }
+        items[index].title = trimmed
+        items[index].date = updated.date
+        items[index].hasTime = updated.hasTime
+        items[index].deferredTo = nil
+        save()
+        return true
+    }
+
+    /// ToDoの名前と日付を変更する（Build 15）。ID と保存先は変えない。
+    /// 明示して日付を選んだときは「あとで」の表示先を解除し、新しい日付を正本にする。
+    @discardableResult
+    func updateTodo(_ updated: LifeItem) -> Bool {
+        let trimmed = updated.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard updated.kind == .todo, !trimmed.isEmpty else { return false }
+        let day = LifeCalendar.startOfDay(updated.date)
+        if householdItems.contains(where: { $0.id == updated.id && $0.kind == .todo }) {
+            return updateHouseholdItem(updated.id) { item in
+                item.title = trimmed
+                item.date = day
+                item.hasTime = false
+                item.deferredTo = nil
+            }
+        }
+        guard let index = items.firstIndex(where: { $0.id == updated.id && $0.kind == .todo }) else { return false }
+        items[index].title = trimmed
+        items[index].date = day
+        items[index].hasTime = false
+        items[index].deferredTo = nil
+        save()
+        return true
+    }
+
     /// 削除する（利用者が編集画面で「削除」を選んだときだけ）。わが家の共有項目なら、相手の画面からも消える
     /// 予定を1件だけ消す（カレンダーの「予定を削除」。2026-11-01 Build 13・14）。
     /// - 自分だけの予定：端末から消して保存する（アプリを開き直しても戻らない）

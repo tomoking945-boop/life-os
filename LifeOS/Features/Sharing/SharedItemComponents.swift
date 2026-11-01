@@ -31,7 +31,7 @@ struct SaveDestinationPicker: View {
     }
 }
 
-/// ToDo・買い物の編集（名前・保存先・削除）。2026-10-28
+/// ToDo・買い物の編集（名前・ToDoの日付・保存先・削除）。Build 15でToDoの日付を追加。
 ///
 /// - 自分だけの項目は「わが家で共有」に変えられる（わが家の設定でオンの種類だけ）。
 ///   端末の項目は、サーバーで保存が確かめられるまで消さない
@@ -43,6 +43,7 @@ struct LifeItemEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var destination: SaveDestination
+    @State private var todoDate: Date
     @State private var isConfirmingDelete = false
 
     init(item: LifeItem, store: LifeStore) {
@@ -50,6 +51,7 @@ struct LifeItemEditSheet: View {
         self.store = store
         _title = State(initialValue: item.title)
         _destination = State(initialValue: store.isHouseholdItem(item.id) ? .household : .personal)
+        _todoDate = State(initialValue: LifeCalendar.startOfDay(item.date))
     }
 
     private var isShared: Bool { store.isHouseholdItem(item.id) }
@@ -62,6 +64,18 @@ struct LifeItemEditSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: LifeSpacing.lg) {
                     SettingsTextField(label: "名前", text: $title, onCommit: {})
+
+                    if item.kind == .todo {
+                        VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+                            LifeSectionTitle("日付")
+                            DatePicker("日付", selection: $todoDate, displayedComponents: .date)
+                                .environment(\.locale, Locale(identifier: "ja_JP"))
+                                .environment(\.calendar, LifeCalendar.calendar)
+                                .accessibilityLabel("ToDoの日付")
+                                .accessibilityIdentifier("todo.dueDate")
+                            SettingsNote(text: "選んだ日の「今日」と「やること」に表示します。先の日付も選べます。")
+                        }
+                    }
 
                     if isShared {
                         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
@@ -110,7 +124,15 @@ struct LifeItemEditSheet: View {
     }
 
     private func save() {
-        if trimmedTitle != item.title {
+        if item.kind == .todo {
+            let selectedDay = LifeCalendar.startOfDay(todoDate)
+            if trimmedTitle != item.title || !LifeCalendar.isSameDay(selectedDay, item.date) || item.deferredTo != nil {
+                var updated = item
+                updated.title = trimmedTitle
+                updated.date = selectedDay
+                _ = store.updateTodo(updated)
+            }
+        } else if trimmedTitle != item.title {
             store.rename(item.id, to: trimmedTitle)
         }
         if destination == .household, canConvert {

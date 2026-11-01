@@ -282,9 +282,10 @@ final class QuickAddViewModel {
 
     // MARK: - 日付（Build 12）
 
-    /// 日付を選べるか（予定と、日付を確かめる必要のある項目）。アプリ独自の「1週間先まで」などの上限は付けない
+    /// 日付を選べるか（予定・ToDoと、日付を確かめる必要のある項目）。
+    /// Build 15：ToDoも「詳しく整える」で先の日付まで指定できる。アプリ独自の上限は付けない。
     func canChooseDate(_ candidate: QuickAddCandidate) -> Bool {
-        candidate.item.kind == .event || candidate.dateNote != nil
+        candidate.item.kind == .event || candidate.item.kind == .todo || candidate.dateNote != nil
     }
 
     /// 「詳しく整える」で日付を選ぶ。時刻のある項目は、時刻をそのままにして日付だけ変える

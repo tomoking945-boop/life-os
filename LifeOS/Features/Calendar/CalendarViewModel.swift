@@ -23,6 +23,15 @@ struct NewEventDraft: Equatable {
         time = LifeCalendar.date(on: start, hour: Self.defaultHour, minute: 0)
     }
 
+    /// 既存の予定を編集するときの初期値（Build 15）。保存先は表示せず、元の持ち主を保つ。
+    init(item: LifeItem) {
+        title = item.title
+        date = LifeCalendar.startOfDay(item.date)
+        isAllDay = !item.hasTime
+        time = item.hasTime ? item.date : LifeCalendar.date(on: item.date, hour: Self.defaultHour, minute: 0)
+        destination = item.ownership == .shared ? .household : .personal
+    }
+
     var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// 保存できるか（タイトルが空なら保存しない）
@@ -40,6 +49,30 @@ struct NewEventDraft: Equatable {
             hasTime: !isAllDay,
             assignee: .me
         )
+    }
+
+    /// 元の予定の ID・持ち主などを保ったまま、編集できる3項目だけを反映する。
+    func applying(to item: LifeItem) -> LifeItem? {
+        guard canSave, item.kind == .event else { return nil }
+        let day = LifeCalendar.startOfDay(date)
+        var updated = item
+        updated.title = trimmedTitle
+        updated.date = isAllDay ? day : ClockTime(date: time).date(on: day)
+        updated.hasTime = !isAllDay
+        // 「あとで」で表示日が変わっていた場合も、利用者が選んだ新しい日を表示する。
+        updated.deferredTo = nil
+        return updated
+    }
+}
+
+/// 編集中の予定と下書き。保存先は変更せず、元の予定を識別するため ID を保つ。
+struct EventEditSession: Equatable {
+    let original: LifeItem
+    var draft: NewEventDraft
+
+    init(item: LifeItem) {
+        original = item
+        draft = NewEventDraft(item: item)
     }
 }
 
@@ -60,6 +93,8 @@ final class CalendarViewModel {
     var selectedDate: Date
     /// 選んだ日から予定を追加するシートの下書き（開いていなければ nil。Build 12）
     var eventDraft: NewEventDraft?
+    /// 編集中の既存予定（Build 15）。追加とは別に持ち、保存先の変更はさせない。
+    var eventEditSession: EventEditSession?
     /// 削除の確認を出している予定（Build 13）
     var eventPendingDeletion: LifeItem?
 
@@ -221,6 +256,38 @@ final class CalendarViewModel {
             scope = .all
         }
         eventDraft = nil
+        return true
+    }
+
+    // MARK: - 予定の編集（Build 15）
+
+    /// 編集できるのは予定だけ。個人・共有のどちらも同じ画面を使う。
+    func canEditEvent(_ item: LifeItem) -> Bool {
+        item.kind == .event
+    }
+
+    /// 編集画面を開く。タイトル・日付・終日／時刻を元の値で始める。
+    func startEditingEvent(_ item: LifeItem) {
+        guard canEditEvent(item) else { return }
+        eventEditSession = EventEditSession(item: item)
+    }
+
+    func cancelEditingEvent() {
+        eventEditSession = nil
+    }
+
+    /// ID と保存先を変えずに編集を保存する。共有の予定なら相手の端末にも反映される。
+    @discardableResult
+    func saveEditedEvent(_ draft: NewEventDraft) -> Bool {
+        guard let session = eventEditSession,
+              let updated = draft.applying(to: session.original),
+              store.updateEvent(updated) else { return false }
+        select(updated.date)
+        displayedMonth = LifeCalendar.startOfMonth(updated.date)
+        if !appState.effectiveScope.includes(updated.ownership) {
+            scope = .all
+        }
+        eventEditSession = nil
         return true
     }
 

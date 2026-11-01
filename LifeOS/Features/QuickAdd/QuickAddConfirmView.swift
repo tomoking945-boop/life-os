@@ -67,7 +67,7 @@ struct QuickAddConfirmView: View {
         }
     }
 
-    /// 日付（Build 12）：予定と、日付を確かめる必要のある項目。翌月・翌年など、先の日付も選べる（上限は付けない）
+    /// 日付：予定・ToDoと、日付を確かめる必要のある項目。翌月・翌年など、先の日付も選べる（上限は付けない）
     private func dateRow(_ candidate: QuickAddCandidate) -> some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
             if let note = candidate.dateNote {

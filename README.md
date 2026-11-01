@@ -41,6 +41,7 @@
 - [新しいアプリアイコン・カレンダーから予定を追加・なんでも追加で先の予定（Build 12）](docs/BUILD_12_CALENDAR_EVENT_AND_ICON.md)
 - [家計簿の支出を「自分だけ／わが家で共有」から選ぶ・カレンダーの予定の削除（Build 13）](docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md)
 - [予定の削除の不具合を直す・カレンダーから予定を「わが家で共有」にする（Build 14）](docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md)
+- [カレンダーの予定を編集する・ToDoの日付を指定する（Build 15）](docs/BUILD_15_EVENT_EDIT.md)
 
 ## UIプロトタイプの動かし方
 

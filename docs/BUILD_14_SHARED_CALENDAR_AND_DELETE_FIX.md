@@ -284,6 +284,15 @@ Swift（`Build14SharedCalendarAndDeleteFixTests.swift`、30件）：
 - Firebase への公開（Functions・Rules）・TestFlight へのアップロード：していない
 - main への取り込み：していない
 
+### 本番・実機での最終結果（2026-11-01、池上さんの報告）
+
+- Functions：本番へ公開成功（11個すべて成功）
+- Firestore Rules：本番へ公開成功（コンパイル・公開とも成功）
+- TestFlight：Build 14 をアップロード
+- 実機確認：**今回の内容は成功**。予定の追加・共有・削除を確認できた
+- 個別16項目の結果と2台それぞれの端末名は未報告のため、推測していない
+- 次の改善として「予定の変更（タイトル・日付・終日／時刻）」を Build 15 で行う
+
 ## Mac での確認（池上さん）
 
 1. `firebase/functions` で `npm test`（目安：単体 91・Rules 93・Functions 46・アカウント削除 26）

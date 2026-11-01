@@ -69,6 +69,23 @@ struct CalendarView: View {
                 .lifeSheetPresentation()
             }
         }
+        // 既存の予定を編集（Build 15）。保存先は元のままで、タイトル・日付・終日／時刻だけを変更する。
+        .sheet(isPresented: Binding(
+            get: { viewModel.eventEditSession != nil },
+            set: { isPresented in if !isPresented { viewModel.cancelEditingEvent() } }
+        )) {
+            if let session = viewModel.eventEditSession {
+                CalendarEventSheet(draft: session.draft, sharingBlock: nil, purpose: .edit) { saved in
+                    withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
+                        _ = viewModel.saveEditedEvent(saved)
+                    }
+                } onCancel: {
+                    viewModel.cancelEditingEvent()
+                }
+                .presentationDetents([.medium, .large])
+                .lifeSheetPresentation()
+            }
+        }
     }
 
     // MARK: - 月表示
@@ -227,6 +244,9 @@ struct CalendarView: View {
                                 title: item.title,
                                 detail: viewModel.detailText(for: item)
                             )
+                            CalendarEventEditButton(title: item.title) {
+                                viewModel.startEditingEvent(item)
+                            }
                             CalendarEventDeleteButton(title: item.title) {
                                 viewModel.requestDeleteEvent(item)
                             }
@@ -242,6 +262,29 @@ struct CalendarView: View {
                 }
             }
         }
+    }
+}
+
+/// 予定の編集ボタン（Build 15）。追加時と同じ入力部品を開き、保存先は変えない。
+struct CalendarEventEditButton: View {
+    static let accessibilityIdentifier = "calendar.editEvent"
+
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "pencil")
+                .font(LifeTypography.body)
+                .foregroundStyle(LifeColors.primary)
+                .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: LifeSpacing.minTapTarget, minHeight: LifeSpacing.minTapTarget)
+        .accessibilityLabel("予定を編集")
+        .accessibilityHint("「\(title)」のタイトルや日時を変更します")
+        .accessibilityIdentifier(Self.accessibilityIdentifier)
     }
 }
 
