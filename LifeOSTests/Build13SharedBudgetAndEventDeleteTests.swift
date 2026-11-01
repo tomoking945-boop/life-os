@@ -696,7 +696,8 @@ final class EventDeletionTests: XCTestCase {
         XCTAssertTrue(view.contains("\"この予定を削除しますか？\""))
         XCTAssertTrue(view.contains("Button(\"予定を削除\", role: .destructive)"), "破壊的な操作（赤）")
         XCTAssertTrue(view.contains("Button(\"キャンセル\", role: .cancel)"))
-        XCTAssertFalse(view.contains("LifeSwipeDeleteRow"), "壊れていたスワイプは使わない（操作を二重にしない）")
+        // 説明のコメントに名前が残っていても失敗しないよう、実際の呼び出し「LifeSwipeDeleteRow(」が無いことを確かめる
+        XCTAssertFalse(view.contains("LifeSwipeDeleteRow("), "壊れていたスワイプは使わない（操作を二重にしない）")
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("LifeOS/DesignSystem/Components/LifeSwipeDeleteRow.swift").path), "使わなくなったスワイプの部品は消した")
         XCTAssertFalse(view.contains("updateEvent"), "予定の編集は Build 14 でも足さない")
     }

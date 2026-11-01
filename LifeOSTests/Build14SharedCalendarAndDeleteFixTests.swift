@@ -107,8 +107,12 @@ final class Build14EventDeleteButtonTests: XCTestCase {
         XCTAssertFalse(button.contains("deleteEvent("), "ボタンは消さない（確認を出すだけ）")
         // 行の右側に置き、押すと確認を出す
         XCTAssertTrue(view.contains("CalendarEventDeleteButton(title: item.title) {\n                                viewModel.requestDeleteEvent(item)"))
-        XCTAssertFalse(view.contains("LifeSwipeDeleteRow"))
-        XCTAssertFalse(view.contains(".onTapGesture"), "行に重なるタップの受け手を置かない（Build 13 の原因）")
+        // 壊れていたスワイプは呼んでいない（説明のコメントに名前が残っていても、呼び出し「LifeSwipeDeleteRow(」が無いことを確かめる）
+        XCTAssertFalse(view.contains("LifeSwipeDeleteRow("), "スワイプの部品を呼ばない（操作を二重にしない）")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceRoot().appendingPathComponent("LifeOS/DesignSystem/Components/LifeSwipeDeleteRow.swift").path), "使わなくなったスワイプの部品は消した")
+        // 削除ボタンの中に、ボタンに重なるタップの受け手を置かない（Build 13 の原因）
+        XCTAssertFalse(button.contains(".onTapGesture"), "削除ボタンにタップの受け手を重ねない")
+        XCTAssertFalse(button.contains("Gesture("), "削除ボタンに独自のジェスチャーを付けない")
     }
 
     /// 削除ボタン → 確認の状態になる（まだ消さない）
@@ -438,8 +442,17 @@ final class Build14EventDestinationTests: XCTestCase {
         XCTAssertEqual(sent.fields["updatedBy"], .currentUser)
         XCTAssertEqual(sent.fields["createdAt"], .serverTimestamp)
         XCTAssertEqual(sent.fields["updatedAt"], .serverTimestamp)
-        for word in ["memo", "note", "location", "email", "device", "token", "calendar", "uid", "ownership", "softTime", "memoryID"] {
+        // 決まった項目の名前に、送らない情報の名前が入っていない。
+        // （"uid" は決まった項目の assigneeUID と重なるため、部分一致の一覧には入れない。UID の値は下で別に確かめる）
+        for word in ["memo", "note", "location", "email", "device", "token", "calendar", "ownership", "softTime", "memoryID"] {
             XCTAssertFalse(sent.fields.keys.contains { $0.lowercased().contains(word.lowercased()) }, word)
+        }
+        // 実際の UID（この端末は "alice"）を、値としてアプリから送っていない（作成者・更新者は .currentUser で、Firebase の窓口が入れる）
+        XCTAssertFalse(sent.fields.values.contains(.string("alice")), "UID の文字を値として送らない")
+        for (key, value) in sent.fields {
+            if case .string(let text) = value {
+                XCTAssertFalse(text.contains("alice"), "\(key)：UID の文字を値に含めない")
+            }
         }
         // 文書の ID は予定の UUID（同じ UUID なら1件のまま）
         XCTAssertEqual(sent.id, device.store.householdEvents.first?.id)
