@@ -58,7 +58,7 @@ struct CalendarView: View {
             set: { isPresented in if !isPresented { viewModel.cancelAddingEvent() } }
         )) {
             if let draft = viewModel.eventDraft {
-                CalendarEventSheet(draft: draft) { saved in
+                CalendarEventSheet(draft: draft, sharingBlock: viewModel.eventSharingBlock) { saved in
                     withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                         _ = viewModel.saveEvent(saved)
                     }
@@ -219,15 +219,15 @@ struct CalendarView: View {
                                 viewModel.toggle(item)
                             }
                         } else if viewModel.canDeleteEvent(item) {
-                            // 予定：左へスワイプすると「削除」（Build 13）。押すと確認を出す。VoiceOver からも消せる
-                            LifeSwipeDeleteRow(onDelete: { viewModel.requestDeleteEvent(item) }) {
-                                CalendarEventRow(
-                                    time: viewModel.timeText(for: item),
-                                    title: item.title,
-                                    detail: viewModel.detailText(for: item)
-                                )
-                            }
-                            .accessibilityAction(named: "予定を削除") {
+                            // 予定：行の右側のごみ箱ボタン（Build 14）。押すと確認を出す（押しただけでは消さない）。
+                            // Build 13 の独自スワイプ（LifeSwipeDeleteRow）は、実機で「削除」を押しても消えなかったため外した。
+                            // 原因と直し方は docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md
+                            CalendarEventRow(
+                                time: viewModel.timeText(for: item),
+                                title: item.title,
+                                detail: viewModel.detailText(for: item)
+                            )
+                            CalendarEventDeleteButton(title: item.title) {
                                 viewModel.requestDeleteEvent(item)
                             }
                         } else {
@@ -242,6 +242,32 @@ struct CalendarView: View {
                 }
             }
         }
+    }
+}
+
+/// 予定の行の右側の削除ボタン（Build 14）。
+/// ふつうの Button なので、ScrollView の中でも1回のタップで確実に押せる（スワイプや重なりに頼らない）。
+/// 押すと確認を出すだけ（消すのは確認の「予定を削除」）
+struct CalendarEventDeleteButton: View {
+    /// UI テストで探すための識別子
+    static let accessibilityIdentifier = "calendar.deleteEvent"
+
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "trash")
+                .font(LifeTypography.body)
+                .foregroundStyle(LifeColors.secondaryText)
+                .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: LifeSpacing.minTapTarget, minHeight: LifeSpacing.minTapTarget)
+        .accessibilityLabel("予定を削除")
+        .accessibilityHint("「\(title)」を消す前に確認します")
+        .accessibilityIdentifier(Self.accessibilityIdentifier)
     }
 }
 

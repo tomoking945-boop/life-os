@@ -234,7 +234,7 @@ final class QuickAddViewModel {
                 return false
             }
             let items = suggestions.map { $0.makeItem(today: now) }
-            store.add(items, destination: usageStyle.showsScopeFilter ? effectiveDestination : .personal)
+            addItems(items, destination: usageStyle.showsScopeFilter ? effectiveDestination : .personal)
         case let .expense(title, amount, category):
             // 支出も、初期値は自分だけ。利用者が保存先で「わが家で共有」を選んだときだけ共有（Build 13）
             store.addExpense(Expense(title: title, amount: amount, category: category, date: LifeCalendar.startOfDay(now)),
@@ -341,8 +341,21 @@ final class QuickAddViewModel {
     /// 選択した項目を、選んだ保存先へ追加する（わが家で共有にできるのは ToDo・買い物だけ。ほかは自分だけ）
     func addSelected() {
         let items = candidates.filter(\.isSelected).map(\.item)
-        store.add(items, destination: effectiveDestination)
+        addItems(items, destination: effectiveDestination)
         reset()
+    }
+
+    /// 項目を追加する。予定は「なんでも追加」からは共有しない（Build 14。予定の共有はカレンダーの「予定を追加」で
+    /// 保存先を選んだときだけ）。ToDo・買い物は、これまでどおり選んだ保存先へ
+    private func addItems(_ items: [LifeItem], destination: SaveDestination) {
+        guard destination == .household else {
+            store.add(items, destination: .personal)
+            return
+        }
+        let events = items.filter { $0.kind == .event }
+        let others = items.filter { $0.kind != .event }
+        if !events.isEmpty { store.add(events, destination: .personal) }
+        if !others.isEmpty { store.add(others, destination: .household) }
     }
 
     private func reset() {

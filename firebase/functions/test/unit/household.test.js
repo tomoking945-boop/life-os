@@ -122,18 +122,18 @@ describe('ログ・保存に出さないもの', () => {
   });
 });
 
-describe('わが家の設定：共有する種類の変更（2026-10-28。2026-11-01 Build 13 で家計簿を追加）', () => {
-  it('いま同期できるのは ToDo・買い物・家計簿（money）', () => {
-    assert.deepEqual(SYNC_SUPPORTED_KINDS, ['todo', 'shopping', 'money']);
+describe('わが家の設定：共有する種類の変更（2026-10-28。2026-11-01 Build 13 で家計簿、Build 14 で予定を追加）', () => {
+  it('いま同期できるのは 予定（event・Build 14）・ToDo・買い物・家計簿（money）', () => {
+    assert.deepEqual(SYNC_SUPPORTED_KINDS, ['event', 'todo', 'shopping', 'money']);
     assert.equal(Object.isFrozen(SYNC_SUPPORTED_KINDS), true);
     for (const kind of SYNC_SUPPORTED_KINDS) assert.ok(SHARED_SPACE_KINDS.includes(kind));
-    for (const kind of ['event', 'chore', 'warranty', 'list']) assert.ok(!SYNC_SUPPORTED_KINDS.includes(kind), kind);
+    for (const kind of ['chore', 'warranty', 'list']) assert.ok(!SYNC_SUPPORTED_KINDS.includes(kind), kind);
   });
 
   it('ToDo・買い物・家計簿だけを切り替え、保存されている「今後対応」の種類は消さない', () => {
     assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping'], ['shopping']), { ok: true, kinds: ['shopping'] });
     assert.deepEqual(planSharedKindsUpdate(['todo'], ['todo', 'shopping']), { ok: true, kinds: ['todo', 'shopping'] });
-    assert.deepEqual(planSharedKindsUpdate(['event', 'warranty', 'todo'], []), { ok: true, kinds: ['event', 'warranty'] }, '今後対応の種類は残す');
+    assert.deepEqual(planSharedKindsUpdate(['chore', 'warranty', 'todo'], []), { ok: true, kinds: ['chore', 'warranty'] }, '今後対応の種類は残す');
     assert.deepEqual(planSharedKindsUpdate(['warranty', 'list'], ['shopping']), { ok: true, kinds: ['shopping', 'warranty', 'list'] });
   });
 
@@ -141,12 +141,12 @@ describe('わが家の設定：共有する種類の変更（2026-10-28。2026-1
     assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping'], ['todo', 'shopping', 'money']), { ok: true, kinds: ['todo', 'shopping', 'money'] });
     assert.deepEqual(planSharedKindsUpdate(['todo', 'money'], ['money']), { ok: true, kinds: ['money'] }, '家計簿だけでもよい');
     assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping', 'money'], ['todo', 'shopping']), { ok: true, kinds: ['todo', 'shopping'] }, '家計簿をオフにできる');
-    assert.deepEqual(planSharedKindsUpdate(['event', 'money', 'warranty', 'list'], ['money']), { ok: true, kinds: ['event', 'money', 'warranty', 'list'] });
-    assert.deepEqual(planSharedKindsUpdate(['event', 'money', 'warranty', 'list'], []), { ok: true, kinds: ['event', 'warranty', 'list'] }, '将来用の種類は残る');
+    assert.deepEqual(planSharedKindsUpdate(['chore', 'money', 'warranty', 'list'], ['money']), { ok: true, kinds: ['chore', 'money', 'warranty', 'list'] });
+    assert.deepEqual(planSharedKindsUpdate(['chore', 'money', 'warranty', 'list'], []), { ok: true, kinds: ['chore', 'warranty', 'list'] }, '将来用の種類は残る');
   });
 
   it('今後対応の種類・知らない値・重複は送れない。1つも残らない変更は不可', () => {
-    for (const bad of [['event'], ['warranty'], ['list'], ['chore'], ['money', 'money'], ['todo', 'todo'], ['TODO'], ['MONEY'], 'todo', null, undefined, [1]]) {
+    for (const bad of [['warranty'], ['list'], ['chore'], ['money', 'money'], ['todo', 'todo'], ['event', 'event'], ['TODO'], ['MONEY'], ['EVENT'], 'todo', null, undefined, [1]]) {
       assert.deepEqual(planSharedKindsUpdate(['todo'], bad), { ok: false, code: 'invalid-kinds' }, JSON.stringify(bad));
     }
     assert.deepEqual(planSharedKindsUpdate(['todo', 'shopping'], []), { ok: false, code: 'invalid-kinds' });

@@ -476,7 +476,8 @@ describe('わが家：設定・削除・退出（2026-10-28）', () => {
     assert.deepEqual(group.sharedKinds, ['shopping', 'warranty']);
     assert.equal(group.name, '新しいわが家');
     // 送れない値・空の名前・何も送らない
-    assert.equal((await call('updateHousehold', { syncKinds: ['event'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
+    // Build 14：予定（event）は同期できる種類になったため、送れない値の見本は家事（chore）にした
+    assert.equal((await call('updateHousehold', { syncKinds: ['chore'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
     assert.equal((await call('updateHousehold', { name: '  ' }, owner.idToken)).error.details.reason, 'invalid-name');
     assert.equal((await call('updateHousehold', {}, owner.idToken)).error.details.reason, 'invalid-update');
     const stranger = await signUp('stranger');
@@ -496,6 +497,22 @@ describe('わが家：設定・削除・退出（2026-10-28）', () => {
     assert.ok((await db.doc(`groups/${groupID}/expenses/E621E1F8-C36C-495A-93FC-0C247A3E6E5F`).get()).exists, '共有の支出は消さない');
     // 知らない種類・今後対応の種類は送れない
     assert.equal((await call('updateHousehold', { syncKinds: ['warranty'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
+  });
+
+  it('Build 14：予定（event）をオン・オフできる。オフにしても共有の予定は消さない', async () => {
+    const { owner, partner, groupID } = await household({ kinds: ['todo', 'shopping', 'list'] });
+    const on = await call('updateHousehold', { syncKinds: ['event', 'todo', 'shopping'] }, partner.idToken);
+    assert.deepEqual(on.result.household.sharedKinds, ['event', 'todo', 'shopping', 'list']);
+    const eventPath = `groups/${groupID}/items/0B6A3C1E-7F52-4C1D-9C77-2E0D8A7B5F11`;
+    await db.doc(eventPath).set({
+      schemaVersion: 1, title: '歯医者', kind: 'event', date: Timestamp.now(), hasTime: true, isCompleted: false, assigneeUID: null,
+      createdBy: owner.uid, updatedBy: owner.uid, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    const off = await call('updateHousehold', { syncKinds: ['todo', 'shopping'] }, owner.idToken);
+    assert.deepEqual(off.result.household.sharedKinds, ['todo', 'shopping', 'list'], 'リスト（将来用）は残る');
+    assert.ok((await db.doc(eventPath).get()).exists, '共有の予定は消さない');
+    // 予定がオフでも、ほかの種類は変わらず、家事・今後対応の種類は送れない
+    assert.equal((await call('updateHousehold', { syncKinds: ['chore'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
   });
 
   it('種類をオフにしても、すでにある共有項目は消さない', async () => {

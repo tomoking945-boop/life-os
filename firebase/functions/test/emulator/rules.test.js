@@ -508,12 +508,12 @@ describe('共有 ToDo・買い物（Build 7）', () => {
     });
   }
 
-  it('新しく作れるのは ToDo・買い物だけ（予定・家事は Build 7 では作れない）', async () => {
+  it('新しく作れるのは 予定・ToDo・買い物だけ（家事は作れない。予定は Build 14 から、設定でオンのときだけ）', async () => {
     const db = as('bob');
     await setSharedKinds(['event', 'todo', 'chore', 'shopping']);
     await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/k-todo`), sharedItem('bob')));
     await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/k-shop`), { ...sharedItem('bob'), kind: 'shopping' }));
-    await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-event`), { ...sharedItem('bob'), kind: 'event' }));
+    await assertSucceeds(setDoc(doc(db, `groups/${GROUP}/items/k-event`), { ...sharedItem('bob'), kind: 'event' }));
     await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-chore`), { ...sharedItem('bob'), kind: 'chore' }));
     await assertFails(setDoc(doc(db, `groups/${GROUP}/items/k-money`), { ...sharedItem('bob'), kind: 'money' }));
   });
@@ -911,5 +911,159 @@ describe('Build 9：オーナーとパートナーの共有項目の権限', () 
     await testEnv.withSecurityRulesDisabled(async (context) => {
       assert.equal((await getDoc(doc(context.firestore(), `groups/${GROUP}/items/rejected-1`))).exists(), false);
     });
+  });
+});
+
+// MARK: - 共有の予定（2026-11-01 Build 14）。docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md
+
+describe('Build 14：カレンダーから共有する予定（groups/{groupID}/items の kind: event）', () => {
+  const EVENT_ID = '0B6A3C1E-7F52-4C1D-9C77-2E0D8A7B5F11';
+  const eventPath = (id = EVENT_ID) => `groups/${GROUP}/items/${id}`;
+
+  /** カレンダーの「予定を追加」で送る形（アプリの SharedItemPayload.createFields と同じ項目） */
+  function sharedEvent(uid, time = serverTimestamp()) {
+    return {
+      schemaVersion: 1,
+      title: '歯医者',
+      kind: 'event',
+      date: Timestamp.fromDate(new Date('2026-11-05T10:30:00+09:00')),
+      hasTime: true,
+      isCompleted: false,
+      assigneeUID: null,
+      createdBy: uid,
+      updatedBy: uid,
+      createdAt: time,
+      updatedAt: time,
+    };
+  }
+
+  async function setSharedKinds(kinds) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: kinds });
+    });
+  }
+
+  it('予定がオフ（はじめの設定：ToDo・買い物だけ）なら、予定を新しく共有できない。ToDo・買い物は作れる', async () => {
+    const bob = as('bob');
+    await assertFails(setDoc(doc(bob, eventPath()), sharedEvent('bob')));
+    await assertSucceeds(setDoc(doc(bob, `groups/${GROUP}/items/todo-while-event-off`), sharedItem('bob')));
+  });
+
+  it('予定がオンなら、オーナーもパートナーも予定を作れる。終日の予定も作れる', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(as('alice'), eventPath()), sharedEvent('alice')));
+    const allDay = { ...sharedEvent('bob'), hasTime: false, date: Timestamp.fromDate(new Date('2026-11-06T00:00:00+09:00')) };
+    await assertSucceeds(setDoc(doc(as('bob'), eventPath('1C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F')), allDay));
+  });
+
+  it('作った予定は相手にも見え、相手も削除できる', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(as('alice'), eventPath()), sharedEvent('alice')));
+    const seen = await getDoc(doc(as('bob'), eventPath()));
+    assert.equal(seen.data().title, '歯医者');
+    assert.equal(seen.data().kind, 'event');
+    await assertSucceeds(deleteDoc(doc(as('bob'), eventPath())));
+    assert.equal((await getDoc(doc(as('alice'), eventPath()))).exists(), false);
+  });
+
+  it('予定をオフにしたあとも、すでにある共有の予定は残り、削除できる（新しくは作れない）', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(as('alice'), eventPath()), sharedEvent('alice')));
+    await setSharedKinds(['todo', 'shopping']);
+    assert.equal((await getDoc(doc(as('bob'), eventPath()))).exists(), true, 'オフにしても勝手に消えない');
+    await assertFails(setDoc(doc(as('bob'), eventPath('2D3E4F5A-6B7C-4D8E-9F0A-1B2C3D4E5F60')), sharedEvent('bob')));
+    await assertSucceeds(deleteDoc(doc(as('bob'), eventPath())));
+  });
+
+  it('作成者・更新者は本人、作成日時・更新日時はサーバーの時刻（端末の時刻・他人の UID は拒否）', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    const bob = as('bob');
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), createdBy: 'alice' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), updatedBy: 'alice' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), createdAt: Timestamp.now() }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), updatedAt: Timestamp.now() }));
+    await assertSucceeds(setDoc(doc(bob, eventPath()), sharedEvent('bob')));
+  });
+
+  it('形を厳しく確かめる（タイトル 1〜200 文字・日付は Timestamp・終日／時刻は bool・schemaVersion 1）', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    const bob = as('bob');
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), title: '' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), title: 'あ'.repeat(201) }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), date: '2026-11-05' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), hasTime: 'true' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), schemaVersion: 2 }));
+    const { date, ...withoutDate } = sharedEvent('bob');
+    assert.ok(date);
+    await assertFails(setDoc(doc(bob, eventPath()), withoutDate));
+    await assertSucceeds(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), title: 'あ'.repeat(200) }));
+  });
+
+  it('予定は、完了済み・担当あり・あとで／もうやらないの印つきでは作れない', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    const bob = as('bob');
+    const later = Timestamp.fromDate(new Date('2026-11-07T00:00:00+09:00'));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), isCompleted: true }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), assigneeUID: 'alice' }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), deferredTo: later }));
+    await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), droppedAt: later }));
+    await assertSucceeds(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), deferredTo: null, droppedAt: null }));
+  });
+
+  it('メモ・場所・メールアドレス・端末・通知トークン・外部カレンダーの情報は書けない', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    const bob = as('bob');
+    const extras = [
+      { memo: '個人のメモ' }, { note: 'メモ' }, { location: '駅前クリニック' }, { email: 'bob@example.com' },
+      { deviceID: 'device-1' }, { fcmToken: 'token' }, { calendarIdentifier: 'ek-1' }, { externalID: 'x' },
+      { ownership: 'personal' }, { softTime: 'morning' },
+    ];
+    for (const extra of extras) {
+      await assertFails(setDoc(doc(bob, eventPath()), { ...sharedEvent('bob'), ...extra }), JSON.stringify(Object.keys(extra)));
+    }
+  });
+
+  it('同じ UUID の作成をくり返しても、2件目はできない（重ならない）', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    const bob = as('bob');
+    await assertSucceeds(setDoc(doc(bob, eventPath()), sharedEvent('bob')));
+    await assertFails(setDoc(doc(bob, eventPath()), sharedEvent('bob')));
+    const all = await getDocs(collection(bob, `groups/${GROUP}/items`));
+    assert.equal(all.docs.filter((d) => d.id === EVENT_ID).length, 1);
+  });
+
+  it('メンバーでない人・サインインしていない人は、予定を読めず、作れず、消せない', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(as('alice'), eventPath()), sharedEvent('alice')));
+    const mallory = as('mallory');
+    await assertFails(getDoc(doc(mallory, eventPath())));
+    await assertFails(setDoc(doc(mallory, eventPath('3E4F5A6B-7C8D-4E9F-8A0B-1C2D3E4F5A6B')), sharedEvent('mallory')));
+    await assertFails(deleteDoc(doc(mallory, eventPath())));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(anon, eventPath())));
+    await assertFails(setDoc(doc(anon, eventPath('4F5A6B7C-8D9E-4F0A-9B1C-2D3E4F5A6B7C')), sharedEvent('anon')));
+    await assertFails(deleteDoc(doc(anon, eventPath())));
+    assert.equal((await getDoc(doc(as('alice'), eventPath()))).exists(), true);
+  });
+
+  it('退出した人は、予定を読めず、作れず、消せない', async () => {
+    await setSharedKinds(['event', 'todo', 'shopping']);
+    await assertSucceeds(setDoc(doc(as('alice'), eventPath()), sharedEvent('alice')));
+    await removeMemberAsServer('bob');
+    const bob = as('bob');
+    await assertFails(getDoc(doc(bob, eventPath())));
+    await assertFails(setDoc(doc(bob, eventPath('5A6B7C8D-9E0F-4A1B-8C2D-3E4F5A6B7C8D')), sharedEvent('bob')));
+    await assertFails(deleteDoc(doc(bob, eventPath())));
+  });
+
+  it('予定の種類はあとから変えられない。ToDo・買い物・家計簿の権限は緩まない（家事・支出は items に作れない）', async () => {
+    await setSharedKinds(['event', 'todo', 'chore', 'shopping', 'money']);
+    const bob = as('bob');
+    await assertSucceeds(setDoc(doc(bob, eventPath()), sharedEvent('bob')));
+    await assertFails(updateDoc(doc(bob, eventPath()), { kind: 'todo', updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/items/chore-1`), { ...sharedItem('bob'), kind: 'chore' }));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/items/money-1`), { ...sharedItem('bob'), kind: 'money' }));
+    // ToDo の作成の決まりは変わらない（完了済み・担当ありでも ToDo なら作れる。これまでどおり）
+    await assertSucceeds(setDoc(doc(bob, `groups/${GROUP}/items/todo-done`), { ...sharedItem('bob'), isCompleted: true, assigneeUID: 'alice' }));
   });
 });

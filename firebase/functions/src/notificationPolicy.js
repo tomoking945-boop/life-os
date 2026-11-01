@@ -17,7 +17,7 @@
 /** 共有できる種類（以前の仕様：予定・ToDo・家事・買い物）。Security Rules の項目の形と同じ一覧 */
 const SHARED_KINDS = Object.freeze(['event', 'todo', 'chore', 'shopping']);
 
-/** 通知する種類（Build 8：ToDo・買い物だけ） */
+/** 通知する種類（Build 8：ToDo・買い物だけ。Build 14 で共有できるようになった予定は、プッシュ通知しない） */
 const NOTIFY_KINDS = Object.freeze(['todo', 'shopping']);
 
 const NotificationType = Object.freeze({

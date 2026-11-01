@@ -17,7 +17,7 @@ struct HouseholdSharedMark: View {
 /// 保存先を選ぶ（自分だけ／わが家で共有）。初期値は呼ぶ側で必ず「自分だけ」にする
 struct SaveDestinationPicker: View {
     @Binding var selection: SaveDestination
-    var note: String = "わが家で共有にできるのは ToDo・買い物・家計簿の支出だけです。予定などは自分だけに保存します。"
+    var note: String = "ここでわが家で共有にできるのは ToDo・買い物・家計簿の支出だけです。予定は、カレンダーの「予定を追加」で共有を選べます。"
 
     var body: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
@@ -53,7 +53,8 @@ struct LifeItemEditSheet: View {
     }
 
     private var isShared: Bool { store.isHouseholdItem(item.id) }
-    private var canConvert: Bool { !isShared && store.canShareInHousehold(item.kind) }
+    /// 予定は、この画面からは共有に変えない（Build 14。予定の共有はカレンダーの「予定を追加」だけ）
+    private var canConvert: Bool { !isShared && item.kind != .event && store.canShareInHousehold(item.kind) }
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {

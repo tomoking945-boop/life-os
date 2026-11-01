@@ -683,20 +683,21 @@ final class EventDeletionTests: XCTestCase {
         XCTAssertTrue(center.pending.contains(otherID), "ほかの予定の通知は残る")
     }
 
-    /// 画面：スワイプの「削除」・確認の文言・VoiceOver の「予定を削除」がある。予定の編集・共有は足していない
+    /// 画面：削除の入口・確認の文言・VoiceOver の「予定を削除」がある。予定の編集は足していない。
+    /// Build 14（2026-11-01）：Build 13 のスワイプ（LifeSwipeDeleteRow）は実機で「削除」を押しても消えなかったため、
+    /// 行の右側のごみ箱ボタンに置き換えた。確かめる内容もボタンに合わせた（docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md）
     func testCalendarSourceHasSwipeConfirmationAndVoiceOverAction() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        guard let view = try? String(contentsOf: root.appendingPathComponent("LifeOS/Features/Calendar/CalendarView.swift"), encoding: .utf8),
-              let swipe = try? String(contentsOf: root.appendingPathComponent("LifeOS/DesignSystem/Components/LifeSwipeDeleteRow.swift"), encoding: .utf8) else {
+        guard let view = try? String(contentsOf: root.appendingPathComponent("LifeOS/Features/Calendar/CalendarView.swift"), encoding: .utf8) else {
             throw XCTSkip("ソースを読めない環境のため、確認を省きます")
         }
-        XCTAssertTrue(view.contains("LifeSwipeDeleteRow(onDelete: { viewModel.requestDeleteEvent(item) })"), "左へスワイプで削除")
-        XCTAssertTrue(view.contains(".accessibilityAction(named: \"予定を削除\")"), "VoiceOver から削除できる")
+        XCTAssertTrue(view.contains("CalendarEventDeleteButton(title: item.title) {\n                                viewModel.requestDeleteEvent(item)"), "ごみ箱ボタンで確認を出す")
+        XCTAssertTrue(view.contains(".accessibilityLabel(\"予定を削除\")"), "VoiceOver から削除できる")
         XCTAssertTrue(view.contains("\"この予定を削除しますか？\""))
         XCTAssertTrue(view.contains("Button(\"予定を削除\", role: .destructive)"), "破壊的な操作（赤）")
         XCTAssertTrue(view.contains("Button(\"キャンセル\", role: .cancel)"))
-        XCTAssertTrue(swipe.contains("init(title: String = \"削除\""))
-        XCTAssertTrue(swipe.contains("Color.red"))
-        XCTAssertFalse(view.contains("updateEvent"), "予定の編集は Build 13 では足さない")
+        XCTAssertFalse(view.contains("LifeSwipeDeleteRow"), "壊れていたスワイプは使わない（操作を二重にしない）")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("LifeOS/DesignSystem/Components/LifeSwipeDeleteRow.swift").path), "使わなくなったスワイプの部品は消した")
+        XCTAssertFalse(view.contains("updateEvent"), "予定の編集は Build 14 でも足さない")
     }
 }

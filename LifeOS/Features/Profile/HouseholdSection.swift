@@ -124,7 +124,7 @@ private struct HouseholdDetail: View {
                     .font(LifeTypography.body)
                     .foregroundStyle(LifeColors.text)
                     .fixedSize(horizontal: false, vertical: true)
-                SettingsNote(text: "共有されるのは、あなたが「わが家で共有」を選んだToDo・買い物・家計簿の支出だけです。今ある個人のデータは送信されません。予定などの共有は今後対応します。")
+                SettingsNote(text: "共有されるのは、あなたが「わが家で共有」を選んだ予定・ToDo・買い物・家計簿の支出だけです。今ある個人のデータは送信されません。家事などの共有は今後対応します。")
             }
 
             // 名前・共有する種類・削除・退出（2026-10-28）
@@ -144,7 +144,7 @@ private struct HouseholdDetail: View {
         }
     }
 
-    /// いま同期している種類（ToDo・買い物のうちオンのもの）
+    /// いま同期している種類（予定・ToDo・買い物・家計簿のうちオンのもの）
     private var syncKindsText: String {
         let kinds = summary.sharedKinds.filter(\.isSyncSupported)
         return kinds.isEmpty ? "なし（設定でオンにできます）" : SharedSpaceKind.titles(kinds)
@@ -207,7 +207,7 @@ struct CreateHouseholdView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.sm) {
                 LifeSectionTitle("共有する種類")
                 VStack(spacing: 0) {
-                    // いま2台で同期できるのは ToDo・買い物・家計簿（2026-10-28・2026-11-01 Build 13）
+                    // いま2台で同期できるのは 予定・ToDo・買い物・家計簿（2026-10-28・2026-11-01 Build 13・Build 14）。はじめはToDo・買い物だけオン
                     ForEach(SharedSpaceKind.syncSupported) { kind in
                         SettingsToggleRow(title: kind.title, isOn: binding(for: kind))
                     }
@@ -215,7 +215,7 @@ struct CreateHouseholdView: View {
                 if kinds.isEmpty {
                     SettingsNote(text: "1つ以上選んでください。")
                 }
-                SettingsNote(text: "予定・家事・保証書・リスト・メモの共有は、今後対応します。")
+                SettingsNote(text: "家事・保証書・リスト・メモの共有は、今後対応します。")
             }
 
             VStack(alignment: .leading, spacing: LifeSpacing.xs) {

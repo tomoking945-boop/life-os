@@ -37,15 +37,16 @@ enum SharedSpaceKind: String, CaseIterable, Identifiable, Hashable {
     static let defaultSelection: Set<SharedSpaceKind> = [.todo, .shopping]
 
     /// いま実際に2台で同期できる種類（サーバーの SYNC_SUPPORTED_KINDS と同じ）。
-    /// 2026-10-28：ToDo・買い物。2026-11-01（Build 13）：家計簿（支出の明細）を追加。
-    /// ほかの種類は「今後対応」。保存されていても消さないが、画面から切り替えられるのはこの3つだけ。
-    /// docs/SHARED_TODO_SHOPPING_FOUNDATION.md・docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md
-    static let syncSupported: [SharedSpaceKind] = [.todo, .shopping, .money]
+    /// 2026-10-28：ToDo・買い物。2026-11-01（Build 13）：家計簿（支出の明細）。（Build 14）：予定。
+    /// ほかの種類は「今後対応」。保存されていても消さないが、画面から切り替えられるのはこの4つだけ。
+    /// docs/SHARED_TODO_SHOPPING_FOUNDATION.md・docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md・
+    /// docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md
+    static let syncSupported: [SharedSpaceKind] = [.event, .todo, .shopping, .money]
 
     /// 2台で同期できる種類か
     var isSyncSupported: Bool { Self.syncSupported.contains(self) }
 
-    /// 「今後対応」の種類（予定・家事・保証書・リスト・メモ）
+    /// 「今後対応」の種類（家事・保証書・リスト・メモ）
     static var comingSoon: [SharedSpaceKind] { allCases.filter { !$0.isSyncSupported } }
 
     /// 決まった並び（画面・送る値の並び）にそろえる

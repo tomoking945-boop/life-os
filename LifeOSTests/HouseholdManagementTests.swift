@@ -24,16 +24,17 @@ private func freshInvite() -> InviteLink {
 }
 
 final class HouseholdSettingsModelTests: XCTestCase {
-    /// いま同期できるのは ToDo・買い物・家計簿（2026-11-01 Build 13 で家計簿を追加）。ほかは「今後対応」
+    /// いま同期できるのは 予定・ToDo・買い物・家計簿（2026-11-01 Build 13 で家計簿、Build 14 で予定を追加）。ほかは「今後対応」
     func testSyncSupportedKinds() {
-        XCTAssertEqual(SharedSpaceKind.syncSupported, [.todo, .shopping, .money])
-        XCTAssertEqual(SharedSpaceKind.comingSoon, [.event, .chore, .warranty, .list])
+        XCTAssertEqual(SharedSpaceKind.syncSupported, [.event, .todo, .shopping, .money])
+        XCTAssertEqual(SharedSpaceKind.comingSoon, [.chore, .warranty, .list])
+        XCTAssertTrue(SharedSpaceKind.event.isSyncSupported)
         XCTAssertTrue(SharedSpaceKind.todo.isSyncSupported)
         XCTAssertTrue(SharedSpaceKind.money.isSyncSupported)
-        for kind in [SharedSpaceKind.event, .chore, .warranty, .list] {
+        for kind in [SharedSpaceKind.chore, .warranty, .list] {
             XCTAssertFalse(kind.isSyncSupported, kind.rawValue)
         }
-        XCTAssertEqual(SharedSpaceKind.defaultSelection, [.todo, .shopping], "家計簿ははじめはオフ")
+        XCTAssertEqual(SharedSpaceKind.defaultSelection, [.todo, .shopping], "家計簿・予定ははじめはオフ")
     }
 
     /// サーバー（household.js）の SYNC_SUPPORTED_KINDS と同じ
@@ -68,16 +69,21 @@ final class HouseholdSettingsModelTests: XCTestCase {
     }
 
     /// 種類のオン・オフ：「今後対応」の種類は残す。1つも残らない変更は不可。
-    /// 2026-11-01（Build 13）：家計簿は同期できる種類になったため、「今後対応」の見本は予定・保証書にした
+    /// 2026-11-01（Build 13）：家計簿は同期できる種類になったため、「今後対応」の見本は予定・保証書にした。
+    /// Build 14：予定も同期できる種類になったため、「今後対応」の見本は家事・保証書にした
     func testKindsAfterSettingKeepComingSoon() {
-        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.event, .todo, .shopping, .warranty], isOwner: false, members: partner.members)
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo]), [.event, .todo, .warranty])
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: []), [.event, .warranty], "予定・保証書は消さない")
-        XCTAssertEqual(mixed.comingSoonKinds, [.event, .warranty])
+        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .chore, .shopping, .warranty], isOwner: false, members: partner.members)
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo]), [.todo, .chore, .warranty])
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: []), [.chore, .warranty], "家事・保証書は消さない")
+        XCTAssertEqual(mixed.comingSoonKinds, [.chore, .warranty])
         // 「今後対応」の種類は、ここから足せない
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .list]), [.event, .todo, .warranty])
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .list]), [.todo, .chore, .warranty])
         // 家計簿はオン・オフできる
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .money]), [.event, .todo, .money, .warranty])
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .money]), [.todo, .chore, .money, .warranty])
+        // 予定（Build 14）もオン・オフできる
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.event, .todo]), [.event, .todo, .chore, .warranty])
+        let withEvent = HouseholdSummary(name: "わが家", sharedKinds: [.event, .todo, .list], isOwner: false, members: partner.members)
+        XCTAssertEqual(withEvent.sharedKinds(afterSettingSyncKinds: [.todo]), [.todo, .list], "予定をオフにできる。リストは残る")
         let withMoney = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .money, .list], isOwner: false, members: partner.members)
         XCTAssertEqual(withMoney.sharedKinds(afterSettingSyncKinds: [.todo]), [.todo, .list], "家計簿をオフにできる。リストは残る")
         XCTAssertNil(soleOwner.sharedKinds(afterSettingSyncKinds: []), "1つも残らない")
@@ -86,10 +92,14 @@ final class HouseholdSettingsModelTests: XCTestCase {
 
     /// 「わが家で共有」を選べるのは、同期できる種類で、設定でオンのものだけ
     func testAllowsSharing() {
-        let todoOnly = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .event], isOwner: true, members: soleOwner.members)
+        let todoOnly = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .chore], isOwner: true, members: soleOwner.members)
         XCTAssertTrue(todoOnly.allowsSharing(.todo))
         XCTAssertFalse(todoOnly.allowsSharing(.shopping), "オフの種類")
-        XCTAssertFalse(todoOnly.allowsSharing(.event), "今後対応の種類")
+        XCTAssertFalse(todoOnly.allowsSharing(.chore), "今後対応の種類")
+        XCTAssertFalse(todoOnly.allowsSharing(.event), "予定がオフ")
+        // Build 14：予定がオンなら選べる
+        let withEvent = HouseholdSummary(name: "わが家", sharedKinds: [.event, .todo], isOwner: true, members: soleOwner.members)
+        XCTAssertTrue(withEvent.allowsSharing(.event))
     }
 
     /// 削除・退出の理由と文言（UID・トークンなどを出さない）

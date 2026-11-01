@@ -18,11 +18,14 @@ const cleanupRunner = read('../../src/accountCleanupRunner.js');
 const rules = read('../../../../firestore.rules');
 
 describe('Build 13：共有の支出と Functions', () => {
-  it('家計簿（money）は同期できる種類。保存済みの将来用の種類（予定・家事・保証書・リスト）は消さない', () => {
+  it('家計簿（money）は同期できる種類。保存済みの将来用の種類（家事・保証書・リスト）は消さない', () => {
     assert.ok(SYNC_SUPPORTED_KINDS.includes('money'));
     assert.ok(SHARED_SPACE_KINDS.includes('money'));
-    const planned = planSharedKindsUpdate(['event', 'chore', 'warranty', 'list'], ['money']);
-    assert.deepEqual(planned, { ok: true, kinds: ['event', 'chore', 'money', 'warranty', 'list'] });
+    const planned = planSharedKindsUpdate(['chore', 'warranty', 'list'], ['money']);
+    assert.deepEqual(planned, { ok: true, kinds: ['chore', 'money', 'warranty', 'list'] });
+    // Build 14：予定（event）は同期できる種類になった。オンのまま送れば残り、送らなければオフになる
+    assert.deepEqual(planSharedKindsUpdate(['event', 'chore', 'warranty', 'list'], ['event', 'money']), { ok: true, kinds: ['event', 'chore', 'money', 'warranty', 'list'] });
+    assert.deepEqual(planSharedKindsUpdate(['event', 'chore', 'warranty', 'list'], ['money']), { ok: true, kinds: ['chore', 'money', 'warranty', 'list'] });
   });
 
   it('通知の Function は共有 ToDo・買い物（items）だけを見る。共有の支出（expenses）では動かない', () => {

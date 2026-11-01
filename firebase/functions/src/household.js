@@ -22,12 +22,13 @@ const SHARED_SPACE_KINDS = Object.freeze(['event', 'todo', 'chore', 'shopping', 
 /**
  * いま実際に同期できる種類。2026-10-28 の第2段階で ToDo・買い物（docs/SHARED_TODO_SHOPPING_FOUNDATION.md）、
  * 2026-11-01（Build 13）で家計簿の支出（money。groups/{groupID}/expenses。docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md）。
- * ほかの種類は「今後対応」。保存されていても消さないが、アプリから切り替えられるのはこの3つだけ。
- * money をオフにしても、すでにある共有の支出は消さない（ここは種類の一覧を変えるだけ）
+ * 2026-11-01（Build 14）で予定（event。ToDo・買い物と同じ groups/{groupID}/items。docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md）。
+ * ほかの種類は「今後対応」。保存されていても消さないが、アプリから切り替えられるのはこの4つだけ。
+ * money・event をオフにしても、すでにある共有の支出・予定は消さない（ここは種類の一覧を変えるだけ）
  */
-const SYNC_SUPPORTED_KINDS = Object.freeze(['todo', 'shopping', 'money']);
+const SYNC_SUPPORTED_KINDS = Object.freeze(['event', 'todo', 'shopping', 'money']);
 
-/** はじめに選んでおく種類 */
+/** はじめに選んでおく種類（Build 14 でも ToDo・買い物だけ。予定は自動でオンにしない） */
 const DEFAULT_SHARED_SPACE_KINDS = Object.freeze(['todo', 'shopping']);
 
 /** 1つのわが家の人数の上限（オーナー＋パートナー） */

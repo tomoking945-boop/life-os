@@ -30,10 +30,12 @@ final class FakeSharedServer {
     fileprivate func create(id: UUID, data: [String: Any]) -> SharedItemsFailure? {
         if deniesEverything { return .permissionDenied }
         if let memberUIDs, !memberUIDs.contains((data["createdBy"] as? String) ?? "") { return .permissionDenied }
-        // 同じ ID がすでにある（作成日時を変える上書きは Rules が断る）・オフの種類・ToDo と買い物以外は断る
+        // 同じ ID がすでにある（作成日時を変える上書きは Rules が断る）・オフの種類・予定と ToDo と買い物以外は断る。
+        // 予定（Build 14）は、完了なし・担当なしでだけ作れる（Security Rules の validNewEvent と同じ）
         guard documents[id] == nil,
-              let kind = data["kind"] as? String, ["todo", "shopping"].contains(kind), enabledKinds.contains(kind),
-              data["schemaVersion"] as? Int == 1 else {
+              let kind = data["kind"] as? String, ["event", "todo", "shopping"].contains(kind), enabledKinds.contains(kind),
+              data["schemaVersion"] as? Int == 1,
+              kind != "event" || ((data["isCompleted"] as? Bool) == false && data["assigneeUID"] is NSNull) else {
             return .permissionDenied
         }
         documents[id] = data
@@ -262,14 +264,18 @@ final class SharedItemPayloadTests: XCTestCase {
     }
 
     /// ToDo・買い物以外（予定・家事・支払・習慣）や、名前が空の項目は送らない
+    /// Build 14（2026-11-01）：カレンダーから作る予定も送れる。家事・支払予定・習慣は送らない
     func testOnlyTodoAndShopping() {
-        for kind in [LifeItemKind.event, .chore, .payment, .habit] {
+        for kind in [LifeItemKind.chore, .payment, .habit] {
             let item = LifeItem(title: "a", kind: kind, ownership: .shared, date: TestDates.friday)
             XCTAssertNil(SharedItemPayload.createFields(for: item), kind.rawValue)
             XCTAssertNil(SharedItemPayload.updateFields(for: item), kind.rawValue)
         }
+        let event = LifeItem(title: "歯医者", kind: .event, ownership: .shared, date: TestDates.friday, hasTime: true)
+        XCTAssertEqual(SharedItemPayload.createFields(for: event)?["kind"], .string("event"))
+        XCTAssertNotNil(SharedItemPayload.updateFields(for: event))
         XCTAssertNil(SharedItemPayload.createFields(for: todo("   ")))
-        XCTAssertEqual(HouseholdItemPolicy.kinds, [.todo, .shopping])
+        XCTAssertEqual(HouseholdItemPolicy.kinds, [.event, .todo, .shopping])
     }
 
     /// 名前は上限（200）まで
@@ -288,9 +294,13 @@ final class SharedItemPayloadTests: XCTestCase {
         XCTAssertNil(item.assignee)
         XCTAssertTrue(item.isCompleted)
         XCTAssertNil(SharedItemPayload.item(documentID: "not-a-uuid", data: data))
+        // Build 14：予定は読む（カレンダー・今日に出す）。家事は読まない
         var event = data
         event["kind"] = "event"
-        XCTAssertNil(SharedItemPayload.item(documentID: id.uuidString, data: event))
+        XCTAssertEqual(SharedItemPayload.item(documentID: id.uuidString, data: event)?.kind, .event)
+        var chore = data
+        chore["kind"] = "chore"
+        XCTAssertNil(SharedItemPayload.item(documentID: id.uuidString, data: chore))
         var noDate = data
         noDate["date"] = nil
         XCTAssertNil(SharedItemPayload.item(documentID: id.uuidString, data: noDate))

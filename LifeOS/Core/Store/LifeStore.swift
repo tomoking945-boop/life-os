@@ -372,17 +372,43 @@ final class LifeStore {
     }
 
     /// 削除する（利用者が編集画面で「削除」を選んだときだけ）。わが家の共有項目なら、相手の画面からも消える
-    /// 予定を1件だけ消す（カレンダーの「予定を削除」。2026-11-01 Build 13）。
-    /// 予定（kind == .event）で、端末の項目のときだけ消す。ToDo・買い物・家事・わが家の共有項目は消さない。
-    /// 保存するので、アプリを開き直しても戻らない。通知は MainTabView が items の変化で予約し直す
+    /// 予定を1件だけ消す（カレンダーの「予定を削除」。2026-11-01 Build 13・14）。
+    /// - 自分だけの予定：端末から消して保存する（アプリを開き直しても戻らない）
+    /// - わが家で共有している予定（Build 14）：Firestore の共有項目を1回だけ消す（予定がオフでも消せる）。端末には保存しない
+    /// - 予定でない項目（ToDo・買い物・家事など）は、ここからは消さない
+    /// 通知は MainTabView が予定の変化で予約し直す
     /// - Returns: 消したら true
     @discardableResult
     func deleteEvent(_ id: LifeItem.ID) -> Bool {
-        guard !isHouseholdItem(id),
-              items.contains(where: { $0.id == id && $0.kind == .event }) else { return false }
+        if let shared = householdItems.first(where: { $0.id == id }) {
+            guard shared.kind == .event else { return false }
+            deleteHouseholdItem(id)
+            return true
+        }
+        guard items.contains(where: { $0.id == id && $0.kind == .event }) else { return false }
         items.removeAll { $0.id == id && $0.kind == .event }
         save()
         return true
+    }
+
+    /// 予定を新しく「わが家で共有」にできない理由（できるなら nil。Build 14）
+    var eventSharingBlock: EventSharingBlock? {
+        guard let householdSync else { return .notConnected }
+        return householdSync.eventSharingBlock
+    }
+
+    /// わが家で共有している予定（ローカル通知の予約に使う。端末には保存しない。Build 14）
+    var householdEvents: [LifeItem] {
+        householdItems.filter { $0.kind == .event && !$0.isDropped }
+    }
+
+    /// ローカル通知を予約する項目：端末の項目＋わが家で共有している予定（同じ ID は1つだけ。Build 14）。
+    /// 共有の ToDo・買い物は入れない（これまでどおり。共有の通知はプッシュ通知で届く）
+    var notificationItems: [LifeItem] {
+        let events = householdEvents
+        guard !events.isEmpty else { return items }
+        let sharedIDs = Set(events.map(\.id))
+        return items.filter { !sharedIDs.contains($0.id) } + events
     }
 
     func deleteItem(_ id: LifeItem.ID) {
@@ -416,7 +442,7 @@ final class LifeStore {
     }
 
     /// 新しい項目を、選んだ保存先へ追加する。
-    /// 「わが家で共有」は、共有できる種類（ToDo・買い物）で、わが家の設定でオンのときだけ。それ以外は「自分だけ」として端末に保存する。
+    /// 「わが家で共有」は、共有できる種類（予定・ToDo・買い物）で、わが家の設定でオンのときだけ。それ以外は「自分だけ」として端末に保存する。
     /// - Returns: わが家で共有した件数
     @discardableResult
     func add(_ newItems: [LifeItem], destination: SaveDestination) -> Int {

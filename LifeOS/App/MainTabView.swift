@@ -17,7 +17,8 @@ struct MainTabView: View {
     private let push = SharedPushService.live
     private let pushRouter = SharedPushRouter.shared
 
-    /// 通知を予約し直すきっかけ（予定・タスク・保証書・プラン・通知設定が変わったとき）
+    /// 通知を予約し直すきっかけ（予定・タスク・保証書・プラン・通知設定が変わったとき）。
+    /// Build 14：わが家で共有している予定（届いた・消えた）も含める。同じ内容なら変わらない（予約し直しのループを作らない）
     private struct NotificationSyncKey: Equatable {
         let items: [LifeItem]
         let warranties: [WarrantyDocument]
@@ -27,7 +28,7 @@ struct MainTabView: View {
 
     private var notificationSyncKey: NotificationSyncKey {
         NotificationSyncKey(
-            items: store.items,
+            items: store.notificationItems,
             warranties: store.warranties,
             isPremium: appState.isPremium,
             settings: appState.notificationSettings
@@ -124,6 +125,8 @@ struct MainTabView: View {
 extension MainTabView {
     /// わが家の情報を、招待のカードと共有項目の見張りへ伝える
     private func applyHousehold() {
+        // 予定を「わが家で共有」にできない理由の表示に使う（Build 14。見張りには使わない）
+        sharedItems.updateSignIn(auth.account != nil)
         switch household.state {
         case .loaded(let summary):
             appState.householdMemberCount = summary.members.count

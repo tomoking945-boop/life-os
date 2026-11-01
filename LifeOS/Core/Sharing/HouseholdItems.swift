@@ -4,7 +4,8 @@ import Observation
 // わが家で共有する ToDo・買い物（2026-10-28。Build 7 第2段階）。docs/SHARED_TODO_SHOPPING_FOUNDATION.md
 //
 // - 端末の個人データは、これまでどおり端末の中（life-store.json）だけ。形も変えない
-// - 共有するのは、利用者が「わが家で共有」を選んだ ToDo・買い物だけ。保存先は Firestore の groups/{groupID}/items/{itemID}
+// - 共有するのは、利用者が「わが家で共有」を選んだ ToDo・買い物と、カレンダーの「予定を追加」で選んだ予定（Build 14）だけ。
+//   保存先は Firestore の groups/{groupID}/items/{itemID}（予定も同じ場所。別の仕組みは作らない）
 // - 既存のデータを一括で送らない。AI・自動の分類が「共有」を選ぶこともない
 // - 文書の ID は端末の項目の UUID（同じ操作をくり返しても1件のまま。共有への変換でも二重にならない）
 // - 送る項目は決まった項目だけ（SharedItemPayload）。UID はアプリの画面・ログに出さない（作成者・更新者は Firebase の窓口が付ける）
@@ -29,11 +30,11 @@ enum SaveDestination: String, CaseIterable, Identifiable, Hashable {
     static let initial: SaveDestination = .personal
 }
 
-/// わが家で共有できる項目の種類（Build 7 では ToDo・買い物だけ）
+/// わが家で共有できる項目の種類（Build 7：ToDo・買い物。2026-11-01 Build 14：カレンダーから作る予定も）
 enum HouseholdItemPolicy {
-    static let kinds: Set<LifeItemKind> = [.todo, .shopping]
+    static let kinds: Set<LifeItemKind> = [.event, .todo, .shopping]
 
-    /// 共有の保存先へ送れる項目か（ToDo・買い物で、名前が空でない）
+    /// 共有の保存先へ送れる項目か（予定・ToDo・買い物で、名前が空でない）
     static func canShare(_ item: LifeItem) -> Bool {
         kinds.contains(item.kind) && !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -246,8 +247,34 @@ extension SharedItemsBackend {
     func diagnose(groupID: String) async -> SharedSyncCheck { .notAvailable }
 }
 
+/// 予定を「わが家で共有」にできない理由（画面に日本語で出す。2026-11-01 Build 14）
+enum EventSharingBlock: Equatable {
+    /// 一人で使う設定
+    case soloMode
+    /// Firebase に接続していない
+    case notConnected
+    /// サインインしていない
+    case notSignedIn
+    /// わが家に参加していない
+    case notJoined
+    /// わが家の設定で「予定」がオフ
+    case eventOff
+
+    var message: String {
+        switch self {
+        case .soloMode: return "一人で使う設定のため、自分だけに保存します。"
+        case .notConnected: return "共有の準備ができていないため、自分だけに保存します。"
+        case .notSignedIn: return "Appleでサインインして、わが家に参加すると共有できます。"
+        case .notJoined: return "わが家に参加すると共有できます。"
+        case .eventOff: return "わが家の設定で「予定」がオフのため、共有できません。"
+        }
+    }
+}
+
 /// LifeStore から共有項目の保存を頼む先
 protocol HouseholdItemSyncing: AnyObject {
+    /// 予定を新しく「わが家で共有」にできない理由（できるなら nil。Build 14）
+    var eventSharingBlock: EventSharingBlock? { get }
     /// その種類で「わが家で共有」を選べるか（わが家に参加していて、設定でオン）
     func allowsSharing(_ kind: LifeItemKind) -> Bool
     /// 作る。convertingLocal は「端末の個人項目を共有に変える」とき（保存が確かめられてから端末の項目を片付ける）
@@ -290,6 +317,8 @@ final class SharedItemsService: HouseholdItemSyncing {
     var activeListenerCount: Int { observation == nil ? 0 : 1 }
     /// 見張りの中の「わが家に参加しているか」（画面の更新のため、見える値として持つ）
     private(set) var isJoined = false
+    /// サインインしているか（予定を共有できない理由の表示に使う。Build 14。見張りには使わない）
+    private(set) var isSignedIn = true
 
     init(backend: SharedItemsBackend?) {
         self.backend = backend
@@ -343,6 +372,20 @@ final class SharedItemsService: HouseholdItemSyncing {
 
     func dismissNotice() {
         notice = nil
+    }
+
+    /// サインインの状態（MainTabView から。理由の表示だけに使う）
+    func updateSignIn(_ isSignedIn: Bool) {
+        if self.isSignedIn != isSignedIn { self.isSignedIn = isSignedIn }
+    }
+
+    /// 予定を新しく「わが家で共有」にできない理由（できるなら nil）
+    var eventSharingBlock: EventSharingBlock? {
+        if backend == nil { return .notConnected }
+        if !isSignedIn { return .notSignedIn }
+        if !isJoined || groupID == nil { return .notJoined }
+        if !enabledKinds.contains(.event) { return .eventOff }
+        return nil
     }
 
     /// 共有の状態を確かめる（読み取りだけ）

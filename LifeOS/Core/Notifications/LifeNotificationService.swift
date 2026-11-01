@@ -305,7 +305,8 @@ final class LifeNotificationService {
             warranties: store.warranties,
             isPremium: appState.isPremium,
             warrantyRemindersEnabled: settings.warrantyRemindersEnabled,
-            items: store.items,
+            // 端末の項目＋わが家で共有している予定（Build 14。共有の予定も、この iPhone の通知設定に従って予約する）
+            items: store.notificationItems,
             eventRemindersEnabled: settings.todaySchedule,
             taskRemindersEnabled: settings.taskReminder
         )

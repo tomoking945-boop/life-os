@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// カレンダーから追加する予定の下書き（Build 12。docs/BUILD_12_CALENDAR_EVENT_AND_ICON.md）。
-/// 保存すると、これまでと同じ `LifeItem(kind: .event)` の「自分」の予定になる（予定の共有はまだしない）
+/// 保存すると、これまでと同じ `LifeItem(kind: .event)` の「自分」の予定になる。
+/// Build 14：保存先で「わが家で共有」を選んだときだけ、わが家の共有の予定にする（初期値は自分だけ）
 struct NewEventDraft: Equatable {
     /// 時刻を指定するときの初期の時刻
     static let defaultHour = 10
@@ -13,6 +14,8 @@ struct NewEventDraft: Equatable {
     var isAllDay = true
     /// 時刻（時と分だけを使う）
     var time: Date
+    /// 保存先（Build 14）。初期値は必ず「自分だけ」。利用者が選んだときだけ「わが家で共有」
+    var destination: SaveDestination = .initial
 
     init(day: Date) {
         let start = LifeCalendar.startOfDay(day)
@@ -192,17 +195,29 @@ final class CalendarViewModel {
         eventDraft = nil
     }
 
-    /// 予定を保存する（自分だけ）。保存した日を選び、その月を表示して、一覧にすぐ出す。
-    /// タイトルが空なら保存しない
+    /// 予定を「わが家で共有」にできない理由（できるなら nil。Build 14）
+    var eventSharingBlock: EventSharingBlock? {
+        showsScopeFilter ? store.eventSharingBlock : .soloMode
+    }
+
+    /// 予定を保存する。保存した日を選び、その月を表示して、一覧にすぐ出す。タイトルが空なら保存しない。
+    /// 保存先は、利用者が「わが家で共有」を選び、共有できるときだけ共有（Build 14）。それ以外は自分だけ。
+    /// 共有の保存に失敗したときは、自分だけの予定として1件だけ端末に残る（LifeStore・SharedItemsService）
     /// - Returns: 保存したら true
     @discardableResult
     func saveEvent(_ draft: NewEventDraft) -> Bool {
         guard let item = draft.makeItem() else { return false }
-        store.add([item])
+        let ownership: Ownership
+        if draft.destination == .household, eventSharingBlock == nil {
+            ownership = store.add([item], destination: .household) == 1 ? .shared : .personal
+        } else {
+            store.add([item])
+            ownership = .personal
+        }
         select(item.date)
         displayedMonth = LifeCalendar.startOfMonth(item.date)
-        // 「共有」だけを表示していると自分の予定が見えないため、「すべて」に戻す
-        if !appState.effectiveScope.includes(.personal) {
+        // 表示している範囲で見えないときは「すべて」に戻す（自分の予定を「共有」だけで、共有の予定を「自分」だけで見ていたとき）
+        if !appState.effectiveScope.includes(ownership) {
             scope = .all
         }
         eventDraft = nil
@@ -211,9 +226,9 @@ final class CalendarViewModel {
 
     // MARK: - 予定の削除（Build 13）
 
-    /// 消せる予定か（端末の予定だけ。ToDo・買い物・家事・共有項目は、ここからは消さない）
+    /// 消せる予定か（予定だけ。自分だけの予定も、わが家で共有している予定も。ToDo・買い物・家事は、ここからは消さない）
     func canDeleteEvent(_ item: LifeItem) -> Bool {
-        item.kind == .event && !store.isHouseholdItem(item.id)
+        item.kind == .event
     }
 
     /// 「削除」を押した：確認を出す（まだ消さない）
@@ -236,7 +251,8 @@ final class CalendarViewModel {
     }
 
     // 予定の「パートナーと共有」ボタン（端末の中で印を付けるだけの Mock）は 2026-10-28 になくした。
-    // 予定の共有は今後対応（いま2台で同期できるのは ToDo・買い物だけ。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
+    // Build 14 から、カレンダーの「予定を追加」で保存先「わが家で共有」を選ぶと、ToDo・買い物と同じ
+    // groups/{groupID}/items/{予定のUUID} に保存する（docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md）
 
     func toggle(_ item: LifeItem) {
         store.toggleCompletion(of: item.id)

@@ -40,6 +40,7 @@
 - [使っているうちに重くなる不具合と、「今日」と「やること」の食い違いの修正（Build 10）](docs/BUILD_10_PERFORMANCE_AND_TODO_CONSISTENCY.md)
 - [新しいアプリアイコン・カレンダーから予定を追加・なんでも追加で先の予定（Build 12）](docs/BUILD_12_CALENDAR_EVENT_AND_ICON.md)
 - [家計簿の支出を「自分だけ／わが家で共有」から選ぶ・カレンダーの予定の削除（Build 13）](docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md)
+- [予定の削除の不具合を直す・カレンダーから予定を「わが家で共有」にする（Build 14）](docs/BUILD_14_SHARED_CALENDAR_AND_DELETE_FIX.md)
 
 ## UIプロトタイプの動かし方
 
