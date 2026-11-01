@@ -330,22 +330,36 @@ final class Build15EventEditUITests: XCTestCase {
         XCTAssertTrue(source.contains("viewModel.startEditingEvent(item)"))
     }
 
+    /// Build 16（2026-11-02）：編集でも保存先を出すようになった（Build 15 では追加のときだけだった）。
+    /// 同じ入力部品を使うこと・保存先の初期値が今の保存先であることを確かめる（docs/BUILD_16_EVENT_DESTINATION_SWITCH.md）
     func testEditSheetUsesSameFieldsButDoesNotOfferDestinationChange() throws {
         let source = try build15Source("LifeOS/Features/Calendar/CalendarEventSheet.swift")
         XCTAssertEqual(CalendarEventSheetPurpose.edit.title, "予定を編集")
         XCTAssertEqual(CalendarEventSheetPurpose.add.title, "予定を追加")
-        XCTAssertTrue(source.contains("if purpose == .add"), "保存先は追加のときだけ表示する")
+        XCTAssertFalse(source.contains("if purpose == .add {\n"), "Build 16：保存先は追加・編集の両方で出す")
+        XCTAssertTrue(source.contains("Picker(\"保存先\", selection: $draft.destination)"))
+        let shared = LifeItem(title: "共有", kind: .event, ownership: .shared, date: build15OriginalDay)
+        XCTAssertEqual(EventEditSession(item: shared, isShared: true).draft.destination, .household, "初期値は今の保存先")
+        XCTAssertEqual(EventEditSession(item: build15Event(), isShared: false).draft.destination, .personal)
         XCTAssertTrue(source.contains("DatePicker(\"日付\""))
         XCTAssertTrue(source.contains("Toggle(\"終日\""))
         XCTAssertTrue(source.contains("DatePicker(\"時刻\""))
         XCTAssertTrue(source.contains("calendar.saveEvent"))
     }
 
+    /// Build 16（2026-11-02）：Build 番号は 16 になった。4か所がそろっていて、Build 15 より前に戻っていないことを確かめる
+    /// （ちょうど 16 であることは Build16EventDestinationSwitchTests で確かめる）
     func testBuildNumberIs15InAllFourSettings() throws {
         let project = try build15Source("LifeOS.xcodeproj/project.pbxproj")
         let lines = project.components(separatedBy: .newlines).filter { $0.contains("CURRENT_PROJECT_VERSION =") }
         XCTAssertEqual(lines.count, 4)
-        XCTAssertTrue(lines.allSatisfy { $0.contains("CURRENT_PROJECT_VERSION = 15;") })
+        let numbers = lines.compactMap { line -> Int? in
+            guard let value = line.split(separator: "=").last else { return nil }
+            return Int(value.trimmingCharacters(in: CharacterSet(charactersIn: " ;\t")))
+        }
+        XCTAssertEqual(numbers.count, 4)
+        XCTAssertEqual(Set(numbers).count, 1, "4か所の Build 番号がそろっている")
+        XCTAssertTrue(numbers.allSatisfy { $0 >= 15 })
     }
 }
 

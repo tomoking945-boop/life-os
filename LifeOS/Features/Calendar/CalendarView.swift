@@ -69,18 +69,53 @@ struct CalendarView: View {
                 .lifeSheetPresentation()
             }
         }
-        // 既存の予定を編集（Build 15）。保存先は元のままで、タイトル・日付・終日／時刻だけを変更する。
+        // 既存の予定を編集（Build 15）。タイトル・日付・終日／時刻を変更する。
+        // Build 16：保存先（自分だけ／わが家で共有）も変えられる。「自分だけ」へ変えるときは確認を出す
         .sheet(isPresented: Binding(
             get: { viewModel.eventEditSession != nil },
             set: { isPresented in if !isPresented { viewModel.cancelEditingEvent() } }
         )) {
             if let session = viewModel.eventEditSession {
-                CalendarEventSheet(draft: session.draft, sharingBlock: nil, purpose: .edit) { saved in
+                CalendarEventSheet(
+                    draft: session.draft,
+                    sharingBlock: viewModel.editSharingBlock,
+                    purpose: .edit,
+                    originalDestination: session.originalDestination
+                ) { saved in
                     withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
                         _ = viewModel.saveEditedEvent(saved)
                     }
                 } onCancel: {
                     viewModel.cancelEditingEvent()
+                }
+                // 「わが家で共有」→「自分だけ」の確認（Build 16）。キャンセルなら何も変えない
+                .alert(
+                    "自分だけの予定に変更しますか？",
+                    isPresented: Binding(
+                        get: { viewModel.pendingPersonalConversionDraft != nil },
+                        set: { isPresented in if !isPresented { viewModel.cancelPersonalConversion() } }
+                    )
+                ) {
+                    Button("自分だけに変更", role: .destructive) {
+                        withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
+                            _ = viewModel.confirmPersonalConversion()
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) { viewModel.cancelPersonalConversion() }
+                } message: {
+                    Text("変更すると、この予定はパートナーのカレンダーから削除されます。")
+                }
+                // 保存先を変えられなかった理由（Build 16）
+                .alert(
+                    "保存できませんでした",
+                    isPresented: Binding(
+                        get: { viewModel.eventEditError != nil },
+                        set: { isPresented in if !isPresented { viewModel.dismissEventEditError() } }
+                    )
+                ) {
+                    Button("OK", role: .cancel) { viewModel.dismissEventEditError() }
+                } message: {
+                    Text(viewModel.eventEditError ?? "")
                 }
                 .presentationDetents([.medium, .large])
                 .lifeSheetPresentation()

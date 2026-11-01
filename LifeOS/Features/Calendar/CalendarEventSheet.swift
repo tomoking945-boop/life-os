@@ -17,11 +17,15 @@ enum CalendarEventSheetPurpose: Equatable {
 /// Build 14：保存先（自分だけ／わが家で共有）を選べる。初期値は必ず「自分だけ」。
 /// 共有できないとき（サインインしていない・わが家に参加していない・わが家の設定で「予定」がオフ）は
 /// 「わが家で共有」を選べず、理由を日本語で出す
+/// Build 16：予定の編集でも保存先を出す。初期値は今の保存先。
+/// 「わが家で共有」→「自分だけ」は、保存するときに確認を出す（CalendarView）
 struct CalendarEventSheet: View {
     @State private var draft: NewEventDraft
-    /// 「わが家で共有」にできない理由（できるなら nil）
+    /// 「わが家で共有」にできない理由（できるなら nil）。共有している予定の編集では nil（自分だけへ戻せる）
     let sharingBlock: EventSharingBlock?
     let purpose: CalendarEventSheetPurpose
+    /// 編集のとき、開いたときの保存先（追加のときは nil）
+    let originalDestination: SaveDestination?
     let onSave: (NewEventDraft) -> Void
     let onCancel: () -> Void
 
@@ -31,6 +35,7 @@ struct CalendarEventSheet: View {
         draft: NewEventDraft,
         sharingBlock: EventSharingBlock?,
         purpose: CalendarEventSheetPurpose = .add,
+        originalDestination: SaveDestination? = nil,
         onSave: @escaping (NewEventDraft) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -40,6 +45,7 @@ struct CalendarEventSheet: View {
         _draft = State(initialValue: initial)
         self.sharingBlock = sharingBlock
         self.purpose = purpose
+        self.originalDestination = originalDestination
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -69,23 +75,21 @@ struct CalendarEventSheet: View {
                     }
                 }
 
-                if purpose == .add {
-                    // 保存先（Build 14）。編集では元の保存先を保つため表示しない（Build 15）
-                    Section {
-                        Picker("保存先", selection: $draft.destination) {
-                            ForEach(SaveDestination.allCases) { destination in
-                                Text(destination.title).tag(destination)
-                            }
+                // 保存先（Build 14）。Build 16 から編集でも出す（初期値は今の保存先）
+                Section {
+                    Picker("保存先", selection: $draft.destination) {
+                        ForEach(SaveDestination.allCases) { destination in
+                            Text(destination.title).tag(destination)
                         }
-                        .pickerStyle(.segmented)
-                        .disabled(sharingBlock != nil)
-                        .accessibilityLabel("保存先")
-                        .accessibilityIdentifier("calendar.eventDestination")
-                    } header: {
-                        Text("保存先")
-                    } footer: {
-                        Text(destinationFooter)
                     }
+                    .pickerStyle(.segmented)
+                    .disabled(sharingBlock != nil)
+                    .accessibilityLabel("保存先")
+                    .accessibilityIdentifier("calendar.eventDestination")
+                } header: {
+                    Text("保存先")
+                } footer: {
+                    Text(destinationFooter)
                 }
             }
             .environment(\.locale, Locale(identifier: "ja_JP"))
@@ -112,11 +116,28 @@ struct CalendarEventSheet: View {
     /// 保存先の下の説明
     private var destinationFooter: String {
         if let sharingBlock { return sharingBlock.message }
+        if let originalDestination {
+            return Self.editFooter(from: originalDestination, to: draft.destination)
+        }
         switch draft.destination {
         case .personal:
             return "この iPhone だけに保存します。"
         case .household:
             return "わが家のメンバーのカレンダーと今日にも出ます。送るのはタイトル・日付・時刻だけです。"
+        }
+    }
+
+    /// 編集のときの保存先の説明（Build 16）
+    static func editFooter(from original: SaveDestination, to selected: SaveDestination) -> String {
+        switch (original, selected) {
+        case (.personal, .personal):
+            return "この iPhone だけに保存します。"
+        case (.personal, .household):
+            return "わが家のメンバーのカレンダーと今日にも出ます。共有の保存が確かめられるまで、この iPhone の予定は消しません。送るのはタイトル・日付・時刻だけです。"
+        case (.household, .household):
+            return "わが家で共有しています。変更は、パートナーのカレンダーにも反映されます。"
+        case (.household, .personal):
+            return "保存するときに確認します。変更すると、この予定はパートナーのカレンダーから削除されます。"
         }
     }
 }

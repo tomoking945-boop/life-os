@@ -23,7 +23,7 @@ struct NewEventDraft: Equatable {
         time = LifeCalendar.date(on: start, hour: Self.defaultHour, minute: 0)
     }
 
-    /// 既存の予定を編集するときの初期値（Build 15）。保存先は表示せず、元の持ち主を保つ。
+    /// 既存の予定を編集するときの初期値（Build 15）。保存先の初期値は元の持ち主（Build 16 から編集画面に表示する）。
     init(item: LifeItem) {
         title = item.title
         date = LifeCalendar.startOfDay(item.date)
@@ -65,14 +65,20 @@ struct NewEventDraft: Equatable {
     }
 }
 
-/// 編集中の予定と下書き。保存先は変更せず、元の予定を識別するため ID を保つ。
+/// 編集中の予定と下書き。元の予定を識別するため ID を保つ。
+/// Build 16：開いたときの保存先（`originalDestination`）を持ち、下書きの保存先の初期値にする
 struct EventEditSession: Equatable {
     let original: LifeItem
+    /// 開いたときの保存先（いま「わが家で共有」している予定なら household）
+    let originalDestination: SaveDestination
     var draft: NewEventDraft
 
-    init(item: LifeItem) {
+    /// - Parameter isShared: わが家で共有している予定か（nil なら予定の持ち主から決める）
+    init(item: LifeItem, isShared: Bool? = nil) {
         original = item
+        originalDestination = (isShared ?? (item.ownership == .shared)) ? .household : .personal
         draft = NewEventDraft(item: item)
+        draft.destination = originalDestination
     }
 }
 
@@ -93,8 +99,12 @@ final class CalendarViewModel {
     var selectedDate: Date
     /// 選んだ日から予定を追加するシートの下書き（開いていなければ nil。Build 12）
     var eventDraft: NewEventDraft?
-    /// 編集中の既存予定（Build 15）。追加とは別に持ち、保存先の変更はさせない。
+    /// 編集中の既存予定（Build 15）。追加とは別に持つ。Build 16 から保存先も変えられる
     var eventEditSession: EventEditSession?
+    /// 「自分だけの予定に変更しますか？」の確認を出している下書き（Build 16。確認するまで何も変えない）
+    var pendingPersonalConversionDraft: NewEventDraft?
+    /// 予定の編集で、保存先を変えられなかった理由（Build 16。編集画面に出す）
+    var eventEditError: String?
     /// 削除の確認を出している予定（Build 13）
     var eventPendingDeletion: LifeItem?
 
@@ -266,27 +276,86 @@ final class CalendarViewModel {
         item.kind == .event
     }
 
-    /// 編集画面を開く。タイトル・日付・終日／時刻を元の値で始める。
+    /// 編集画面を開く。タイトル・日付・終日／時刻・保存先を元の値で始める。
+    /// 保存先は、わが家で共有している予定（Firestore から届いたもの）かどうかで決める（Build 16）
     func startEditingEvent(_ item: LifeItem) {
         guard canEditEvent(item) else { return }
-        eventEditSession = EventEditSession(item: item)
+        eventEditSession = EventEditSession(item: item, isShared: store.isHouseholdItem(item.id))
+        pendingPersonalConversionDraft = nil
+        eventEditError = nil
     }
 
     func cancelEditingEvent() {
         eventEditSession = nil
+        pendingPersonalConversionDraft = nil
+        eventEditError = nil
     }
 
-    /// ID と保存先を変えずに編集を保存する。共有の予定なら相手の端末にも反映される。
+    /// 編集画面で「わが家で共有」を選べない理由（Build 16）。
+    /// - 自分だけの予定：新しく共有するときと同じ条件（サインイン・参加・設定で予定がオン）
+    /// - 共有している予定：nil（「自分だけ」へ戻すのは、予定がオフでもできる。共有のままにもできる）
+    var editSharingBlock: EventSharingBlock? {
+        guard let session = eventEditSession, session.originalDestination == .personal else { return nil }
+        return eventSharingBlock
+    }
+
+    /// 編集を保存する。共有の予定なら相手の端末にも反映される。
+    /// Build 16：保存先も変えられる。「わが家で共有」→「自分だけ」は、確認を出してから（ここでは何も変えずに false）
+    /// - Returns: 保存してシートを閉じたら true
     @discardableResult
     func saveEditedEvent(_ draft: NewEventDraft) -> Bool {
+        guard let session = eventEditSession else { return false }
+        if session.originalDestination == .household, draft.destination == .personal {
+            pendingPersonalConversionDraft = draft
+            return false
+        }
+        return commitEditedEvent(draft)
+    }
+
+    /// 確認の「自分だけに変更」
+    @discardableResult
+    func confirmPersonalConversion() -> Bool {
+        guard let draft = pendingPersonalConversionDraft else { return false }
+        pendingPersonalConversionDraft = nil
+        return commitEditedEvent(draft)
+    }
+
+    /// 確認の「キャンセル」：何も変えない（編集画面はそのまま）
+    func cancelPersonalConversion() {
+        pendingPersonalConversionDraft = nil
+    }
+
+    func dismissEventEditError() {
+        eventEditError = nil
+    }
+
+    private func commitEditedEvent(_ draft: NewEventDraft) -> Bool {
         guard let session = eventEditSession,
-              let updated = draft.applying(to: session.original),
-              store.updateEvent(updated) else { return false }
+              let updated = draft.applying(to: session.original) else { return false }
+        // 共有できないのに「わが家で共有」になっていたら、何も変えずに理由を出す（画面では選べない）
+        if session.originalDestination == .personal, draft.destination == .household, let block = editSharingBlock {
+            eventEditError = block.message
+            return false
+        }
+        let outcome = store.saveEvent(updated, destination: draft.destination)
+        let ownership: Ownership
+        switch outcome {
+        case .failed(let reason):
+            eventEditError = reason
+            return false
+        case .saved:
+            ownership = session.originalDestination == .household ? .shared : .personal
+        case .sharingStarted:
+            ownership = .shared
+        case .madePersonal:
+            ownership = .personal
+        }
         select(updated.date)
         displayedMonth = LifeCalendar.startOfMonth(updated.date)
-        if !appState.effectiveScope.includes(updated.ownership) {
+        if !appState.effectiveScope.includes(ownership) {
             scope = .all
         }
+        eventEditError = nil
         eventEditSession = nil
         return true
     }

@@ -63,6 +63,16 @@ final class LifeStore {
     /// 共有項目の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
     @ObservationIgnored private(set) var householdUpdateCount = 0
 
+    /// 「わが家で共有」から「自分だけ」へ変えている途中の予定の UUID（Build 16）。
+    /// 端末の life-store.json にも保存する（UUID だけ。外へは送らない）。共有の予定の削除がサーバーで確かめられるまで、
+    /// - 同じ UUID の共有の予定が届いても、画面には出さない（自分だけの予定の1件だけを出す）
+    /// - 同じ UUID の共有の予定が届いても、端末の自分だけの予定を片付けない（データを失わない）
+    @ObservationIgnored private(set) var pendingPersonalConversions: Set<LifeItem.ID> = []
+    /// この起動中に、自分だけへの変更のための削除を送った予定（同じ予定の削除は、1回の起動で1回だけ）
+    @ObservationIgnored private var personalConversionDeletesSent: Set<LifeItem.ID> = []
+    /// いちばん最近届いた共有の一覧にあった UUID（画面に出さないものも含む）
+    @ObservationIgnored private var lastHouseholdSnapshotIDs: Set<LifeItem.ID> = []
+
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
     private struct Snapshot: Codable {
@@ -81,6 +91,8 @@ final class LifeStore {
         // 保証書管理（2026-10-13）で追加。以前の保存データには無いため Optional（無ければ空）
         var warranties: [WarrantyDocument]?
         var warrantyAttachments: [WarrantyAttachment]?
+        // Build 16 で追加：「自分だけ」へ変えている途中の予定の UUID（以前の保存データには無いため Optional）
+        var personalConversionIDs: [UUID]?
     }
 
     /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
@@ -144,6 +156,8 @@ final class LifeStore {
                 warranties: snapshot.warranties ?? [],
                 warrantyAttachments: snapshot.warrantyAttachments ?? []
             )
+            // Build 16：「自分だけ」へ変えている途中の予定（前回の起動で、共有の予定の削除が確かめられなかったもの）
+            store.pendingPersonalConversions = Set(snapshot.personalConversionIDs ?? [])
         } else if startEmptyIfNoSavedData {
             store = LifeStore.empty()
         } else {
@@ -156,10 +170,13 @@ final class LifeStore {
         return store
     }
 
-    private func save() {
+    /// 端末へ保存する。
+    /// - Returns: 保存できたら true（保存しない置き場＝テスト・プレビューでは、いつも true）
+    @discardableResult
+    private func save() -> Bool {
         notifyItemObservers()
-        guard persists else { return }
-        LocalStorage.save(
+        guard persists else { return true }
+        return LocalStorage.save(
             Snapshot(
                 items: items,
                 expenses: expenses,
@@ -173,7 +190,10 @@ final class LifeStore {
                 habits: habits,
                 suggestionDecisions: suggestionDecisions,
                 warranties: warranties,
-                warrantyAttachments: warrantyAttachments
+                warrantyAttachments: warrantyAttachments,
+                personalConversionIDs: pendingPersonalConversions.isEmpty
+                    ? nil
+                    : pendingPersonalConversions.sorted { $0.uuidString < $1.uuidString }
             ),
             to: Self.fileName
         )
@@ -394,6 +414,106 @@ final class LifeStore {
         return true
     }
 
+    // MARK: - 予定の保存先の変更（Build 16。docs/BUILD_16_EVENT_DESTINATION_SWITCH.md）
+
+    /// 予定の編集を保存する。保存先（自分だけ／わが家で共有）も変えられる。UUID は変えない（2件にしない）。
+    /// - 保存先が同じ：これまでどおり（Build 15 の `updateEvent`）
+    /// - 自分だけ → わが家で共有：編集後の内容を端末の同じ予定へ保存してから、同じ UUID で Firestore への作成を始める。
+    ///   サーバーで保存が確かめられるまで端末の予定は消さない。断られたら、編集後の予定が「自分だけ」として1件残る
+    /// - わが家で共有 → 自分だけ：編集後の予定を同じ UUID で端末へ先に保存し、保存できたことを確かめてから
+    ///   共有の予定を1回だけ消す。削除が確かめられるまで、同じ UUID の共有の予定は画面に出さず、端末の予定も消さない
+    ///   （わが家の設定で「予定」がオフでもできる）
+    @discardableResult
+    func saveEvent(_ updated: LifeItem, destination: SaveDestination) -> EventSaveOutcome {
+        let trimmed = updated.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard updated.kind == .event, !trimmed.isEmpty else { return .failed(EventSaveOutcome.notSavedMessage) }
+        let isShared = householdItems.contains { $0.id == updated.id && $0.kind == .event }
+        let isPersonal = items.contains { $0.id == updated.id && $0.kind == .event }
+        guard isShared || isPersonal else { return .failed(EventSaveOutcome.notSavedMessage) }
+        switch (isShared ? SaveDestination.household : .personal, destination) {
+        case (.personal, .personal), (.household, .household):
+            return updateEvent(updated) ? .saved : .failed(EventSaveOutcome.notSavedMessage)
+        case (.personal, .household):
+            return makeEventShared(updated)
+        case (.household, .personal):
+            return makeEventPersonal(updated, title: trimmed)
+        }
+    }
+
+    /// 自分だけ → わが家で共有
+    private func makeEventShared(_ updated: LifeItem) -> EventSaveOutcome {
+        guard let sync = householdSync else { return .failed(EventSharingBlock.notConnected.message) }
+        if let block = sync.eventSharingBlock { return .failed(block.message) }
+        guard canShareInHousehold(.event), HouseholdItemPolicy.canShare(updated) else {
+            return .failed(EventSharingBlock.eventOff.message)
+        }
+        if pendingPersonalConversions.contains(updated.id) {
+            // 前の「自分だけ」への変更で、共有の予定がまだサーバーに残っている：重ねて作らない
+            guard !lastHouseholdSnapshotIDs.contains(updated.id) else { return .failed(EventSaveOutcome.conversionInProgressMessage) }
+            // 共有の予定はもう無い（削除の結果だけが届かなかった）：印を外して進める
+            pendingPersonalConversions.remove(updated.id)
+        }
+        // 1. 編集後のタイトル・日付・終日／時刻を、端末の同じ予定へ保存する
+        guard updateEvent(updated) else { return .failed(EventSaveOutcome.notSavedMessage) }
+        // 2. 同じ UUID で Firestore への作成を始める（確かめられてから端末の予定を片付ける。SharedItemsService）
+        guard convertToHousehold(updated.id) else { return .failed(EventSharingBlock.notConnected.message) }
+        return .sharingStarted
+    }
+
+    /// わが家で共有 → 自分だけ
+    private func makeEventPersonal(_ updated: LifeItem, title: String) -> EventSaveOutcome {
+        guard let shared = householdItems.first(where: { $0.id == updated.id && $0.kind == .event }),
+              let sync = householdSync, sync.canDeleteHouseholdItems else {
+            return .failed(EventSaveOutcome.notJoinedMessage)
+        }
+        let id = shared.id
+        var edited = shared
+        edited.title = title
+        edited.date = updated.date
+        edited.hasTime = updated.hasTime
+        edited.deferredTo = nil
+        let personal = Self.personalCopy(edited)
+        let previous = items
+        // 1. 編集後の予定を、同じ UUID で端末へ先に保存する
+        if let index = items.firstIndex(where: { $0.id == id }) {
+            items[index] = personal
+        } else {
+            items.append(personal)
+        }
+        pendingPersonalConversions.insert(id)
+        guard save() else {
+            // 端末に保存できなかった：何も変えず、共有のまま残す（共有の予定は消さない）
+            items = previous
+            pendingPersonalConversions.remove(id)
+            return .failed(EventSaveOutcome.deviceSaveFailedMessage)
+        }
+        // 2. 保存できたので、共有の予定を1回だけ消す（結果は finishPersonalConversion へ。失敗しても端末の予定は残る）
+        householdItems.removeAll { $0.id == id }
+        pendingHouseholdCreates[id] = nil
+        personalConversionDeletesSent.insert(id)
+        sync.deleteHouseholdItemForPersonalConversion(id)
+        return .madePersonal
+    }
+
+    /// 自分だけへの変更で、共有の予定の削除がサーバーで確かめられた（SharedItemsService から）
+    func finishPersonalConversion(_ id: LifeItem.ID) {
+        guard pendingPersonalConversions.remove(id) != nil else { return }
+        save()
+    }
+
+    /// 「自分だけ」へ変えている途中の予定の数（確認用）
+    var pendingPersonalConversionCount: Int { pendingPersonalConversions.count }
+
+    /// 前の起動で消せなかった共有の予定を、この起動で1回だけ消す（くり返し送らない）
+    private func retryPersonalConversionDeletes(_ ids: Set<LifeItem.ID>) {
+        let retry = ids.subtracting(personalConversionDeletesSent)
+        guard !retry.isEmpty, let sync = householdSync, sync.canDeleteHouseholdItems else { return }
+        for id in retry.sorted(by: { $0.uuidString < $1.uuidString }) {
+            personalConversionDeletesSent.insert(id)
+            sync.deleteHouseholdItemForPersonalConversion(id)
+        }
+    }
+
     /// ToDoの名前と日付を変更する（Build 15）。ID と保存先は変えない。
     /// 明示して日付を選んだときは「あとで」の表示先を解除し、新しい日付を正本にする。
     @discardableResult
@@ -535,7 +655,10 @@ final class LifeStore {
     /// Firestore から届いた一覧で、共有項目を入れ替える（自分の変更も相手の変更も、ここに1件ずつだけ）。
     /// サーバーで保存が確かめられた項目と同じ ID の端末の ToDo・買い物（共有へ変換したもの）は、ここで片付ける
     func applyHouseholdSnapshot(_ snapshots: [SharedItemSnapshot]) {
-        var received = snapshots.map(\.item)
+        lastHouseholdSnapshotIDs = Set(snapshots.map(\.item.id))
+        // Build 16：「自分だけ」へ変えている途中の予定は、共有の一覧から外す（自分だけの予定の1件だけを画面に出す）
+        let hidden = pendingPersonalConversions
+        var received = snapshots.map(\.item).filter { !hidden.contains($0.id) }
         // 保存の結果がまだ届いていない自分の作成は、一覧に無くても残す（最初の・一時的な空の一覧で消さない。2026-10-28 Build 9）
         let receivedIDs = Set(received.map(\.id))
         // 並びを毎回同じにする（辞書の順番で並びが変わり、同じ内容でも描き直さないように）
@@ -549,6 +672,8 @@ final class LifeStore {
         }
         let confirmed = Set(snapshots.filter(\.isConfirmed).map(\.item.id))
         removeConvertedLocalItems(confirmed)
+        // Build 16：前の起動で消せなかった共有の予定がまだサーバーにある：この起動で1回だけ、もう一度消す
+        retryPersonalConversionDeletes(confirmed.intersection(hidden))
     }
 
     /// 共有への変換がサーバーで保存されたとき（SharedItemsService から）
@@ -570,6 +695,7 @@ final class LifeStore {
     func clearHouseholdItems() {
         // 送信待ちの作成の印も外す（結果が届けば、断られたものは householdCreateFailed で自分だけに残る）
         pendingHouseholdCreates = [:]
+        lastHouseholdSnapshotIDs = []
         guard !householdItems.isEmpty else { return }
         householdItems = []
     }
@@ -595,6 +721,8 @@ final class LifeStore {
     }
 
     private func removeConvertedLocalItems(_ ids: Set<LifeItem.ID>) {
+        // Build 16：「自分だけ」へ変えている途中の予定は、同じ UUID の共有の予定があっても片付けない（データを失わない）
+        let ids = ids.subtracting(pendingPersonalConversions)
         guard !ids.isEmpty else { return }
         let before = items.count
         items.removeAll { ids.contains($0.id) && HouseholdItemPolicy.kinds.contains($0.kind) }
