@@ -20,10 +20,12 @@ const { toMillis } = require('./timestamps');
 const SHARED_SPACE_KINDS = Object.freeze(['event', 'todo', 'chore', 'shopping', 'money', 'warranty', 'list']);
 
 /**
- * いま実際に同期できる種類（2026-10-28 の第2段階で ToDo・買い物だけ。docs/SHARED_TODO_SHOPPING_FOUNDATION.md）。
- * ほかの種類は「今後対応」。保存されていても消さないが、アプリから切り替えられるのはこの2つだけ
+ * いま実際に同期できる種類。2026-10-28 の第2段階で ToDo・買い物（docs/SHARED_TODO_SHOPPING_FOUNDATION.md）、
+ * 2026-11-01（Build 13）で家計簿の支出（money。groups/{groupID}/expenses。docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md）。
+ * ほかの種類は「今後対応」。保存されていても消さないが、アプリから切り替えられるのはこの3つだけ。
+ * money をオフにしても、すでにある共有の支出は消さない（ここは種類の一覧を変えるだけ）
  */
-const SYNC_SUPPORTED_KINDS = Object.freeze(['todo', 'shopping']);
+const SYNC_SUPPORTED_KINDS = Object.freeze(['todo', 'shopping', 'money']);
 
 /** はじめに選んでおく種類 */
 const DEFAULT_SHARED_SPACE_KINDS = Object.freeze(['todo', 'shopping']);
@@ -75,8 +77,8 @@ function validateGroupName(value) {
 }
 
 /**
- * 共有する種類の変更（わが家の設定）。アプリが送るのは「同期できる種類（ToDo・買い物）のうち、オンにするもの」だけ。
- * - 送られた値は ToDo・買い物だけ・重複なし（空でもよい）
+ * 共有する種類の変更（わが家の設定）。アプリが送るのは「同期できる種類（ToDo・買い物・家計簿）のうち、オンにするもの」だけ。
+ * - 送られた値は ToDo・買い物・家計簿だけ・重複なし（空でもよい）
  * - すでに保存されている「今後対応」の種類（予定・家計簿など）は、そのまま残す（勝手に消さない）
  * - 変更のあとに1つも残らないときは不可（わが家の共有する種類は1つ以上）
  * @returns {{ok: true, kinds: string[]} | {ok: false, code: string}}

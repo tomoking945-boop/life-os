@@ -17,7 +17,7 @@ struct HouseholdSharedMark: View {
 /// 保存先を選ぶ（自分だけ／わが家で共有）。初期値は呼ぶ側で必ず「自分だけ」にする
 struct SaveDestinationPicker: View {
     @Binding var selection: SaveDestination
-    var note: String = "わが家で共有にできるのは ToDo・買い物だけです。予定などは自分だけに保存します。"
+    var note: String = "わが家で共有にできるのは ToDo・買い物・家計簿の支出だけです。予定などは自分だけに保存します。"
 
     var body: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {

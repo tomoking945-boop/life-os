@@ -63,7 +63,12 @@ final class QuickAddViewModel {
 
     /// 「わが家で共有」を選べるか（わが家に参加していて、ToDo・買い物のどちらかがオン）
     var canChooseDestination: Bool {
-        store.canShareInHousehold(.todo) || store.canShareInHousehold(.shopping)
+        store.canShareInHousehold(.todo) || store.canShareInHousehold(.shopping) || store.expenseSharingBlock == nil
+    }
+
+    /// 支出の保存先（Build 13）：利用者が「わが家で共有」を選び、家計簿を共有できるときだけ共有。初期値・それ以外は自分だけ
+    private func expenseDestination(showsScopeFilter: Bool = true) -> SaveDestination {
+        showsScopeFilter && destination == .household && store.expenseSharingBlock == nil ? .household : .personal
     }
 
     /// 実際に使う保存先（選べないときは「自分だけ」）
@@ -133,7 +138,8 @@ final class QuickAddViewModel {
                 return false
             }
             let category = LifeInterpreter.expenseCategory(for: parsed.title)
-            store.add(Expense(title: parsed.title, amount: parsed.amount, category: category, date: today))
+            store.addExpense(Expense(title: parsed.title, amount: parsed.amount, category: category, date: today),
+                             destination: expenseDestination())
         }
 
         inputText = ""
@@ -230,7 +236,9 @@ final class QuickAddViewModel {
             let items = suggestions.map { $0.makeItem(today: now) }
             store.add(items, destination: usageStyle.showsScopeFilter ? effectiveDestination : .personal)
         case let .expense(title, amount, category):
-            store.add(Expense(title: title, amount: amount, category: category, date: LifeCalendar.startOfDay(now)))
+            // 支出も、初期値は自分だけ。利用者が保存先で「わが家で共有」を選んだときだけ共有（Build 13）
+            store.addExpense(Expense(title: title, amount: amount, category: category, date: LifeCalendar.startOfDay(now)),
+                             destination: expenseDestination(showsScopeFilter: usageStyle.showsScopeFilter))
         }
         inputText = ""
         return true

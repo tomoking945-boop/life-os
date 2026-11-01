@@ -34,6 +34,24 @@ struct CalendarView: View {
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
+        // 予定の削除の確認（Build 13）。「予定を削除」は赤（破壊的な操作）
+        .alert(
+            "この予定を削除しますか？",
+            isPresented: Binding(
+                get: { viewModel.eventPendingDeletion != nil },
+                set: { isPresented in if !isPresented { viewModel.cancelDeleteEvent() } }
+            ),
+            presenting: viewModel.eventPendingDeletion
+        ) { _ in
+            Button("予定を削除", role: .destructive) {
+                withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
+                    _ = viewModel.confirmDeleteEvent()
+                }
+            }
+            Button("キャンセル", role: .cancel) { viewModel.cancelDeleteEvent() }
+        } message: { item in
+            Text("「\(item.title)」を、カレンダーと今日から消します。")
+        }
         // 選んだ日から予定を追加（Build 12）。「なんでも追加」はそのまま残す
         .sheet(isPresented: Binding(
             get: { viewModel.eventDraft != nil },
@@ -199,6 +217,18 @@ struct CalendarView: View {
                                 isShared: viewModel.isShared(item)
                             ) {
                                 viewModel.toggle(item)
+                            }
+                        } else if viewModel.canDeleteEvent(item) {
+                            // 予定：左へスワイプすると「削除」（Build 13）。押すと確認を出す。VoiceOver からも消せる
+                            LifeSwipeDeleteRow(onDelete: { viewModel.requestDeleteEvent(item) }) {
+                                CalendarEventRow(
+                                    time: viewModel.timeText(for: item),
+                                    title: item.title,
+                                    detail: viewModel.detailText(for: item)
+                                )
+                            }
+                            .accessibilityAction(named: "予定を削除") {
+                                viewModel.requestDeleteEvent(item)
                             }
                         } else {
                             CalendarEventRow(

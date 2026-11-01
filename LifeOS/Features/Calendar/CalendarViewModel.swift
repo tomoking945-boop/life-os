@@ -57,6 +57,8 @@ final class CalendarViewModel {
     var selectedDate: Date
     /// 選んだ日から予定を追加するシートの下書き（開いていなければ nil。Build 12）
     var eventDraft: NewEventDraft?
+    /// 削除の確認を出している予定（Build 13）
+    var eventPendingDeletion: LifeItem?
 
     init(store: LifeStore, appState: AppState, now: Date = LifeCalendar.now) {
         self.store = store
@@ -205,6 +207,32 @@ final class CalendarViewModel {
         }
         eventDraft = nil
         return true
+    }
+
+    // MARK: - 予定の削除（Build 13）
+
+    /// 消せる予定か（端末の予定だけ。ToDo・買い物・家事・共有項目は、ここからは消さない）
+    func canDeleteEvent(_ item: LifeItem) -> Bool {
+        item.kind == .event && !store.isHouseholdItem(item.id)
+    }
+
+    /// 「削除」を押した：確認を出す（まだ消さない）
+    func requestDeleteEvent(_ item: LifeItem) {
+        guard canDeleteEvent(item) else { return }
+        eventPendingDeletion = item
+    }
+
+    /// 「キャンセル」：何も変えない
+    func cancelDeleteEvent() {
+        eventPendingDeletion = nil
+    }
+
+    /// 「予定を削除」：選んだ予定1件だけを消す（保存する。通知は MainTabView が予約し直す）
+    @discardableResult
+    func confirmDeleteEvent() -> Bool {
+        guard let item = eventPendingDeletion else { return false }
+        eventPendingDeletion = nil
+        return store.deleteEvent(item.id)
     }
 
     // 予定の「パートナーと共有」ボタン（端末の中で印を付けるだけの Mock）は 2026-10-28 になくした。

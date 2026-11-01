@@ -105,14 +105,15 @@ struct HouseholdSettingsView: View {
                     SettingsToggleRow(title: kind.title, isOn: kindBinding(kind, summary: summary))
                 }
             }
-            SettingsNote(text: "オンにすると、その種類を作るときに「わが家で共有」を選べるようになります。オフにしても、すでに共有した項目は消えません。今ある個人のデータが勝手に共有されることもありません。")
+            SettingsNote(text: "オンにすると、その種類を作るときに「わが家で共有」を選べるようになります。オフにしても、すでに共有した項目・支出は消えず、変更・削除もできます。今ある個人のデータが勝手に共有されることもありません。")
+            SettingsNote(text: "家計簿で共有するのは、「わが家で共有」を選んだ支出の明細（タイトル・金額・カテゴリー・日付）だけです。月の予算・レシート・メモは共有しません。")
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(SharedSpaceKind.comingSoon) { kind in
                     SettingsValueRow(title: kind.title, value: summary.comingSoonKinds.contains(kind) ? "今後対応（選択済み）" : "今後対応")
                 }
             }
             .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
-            SettingsNote(text: "予定・家事・家計簿・保証書・リスト・メモの共有は、今後のアップデートで対応します。いまは共有されません。")
+            SettingsNote(text: "予定・家事・保証書・リスト・メモの共有は、今後のアップデートで対応します。いまは共有されません。")
         }
 
         pushSection

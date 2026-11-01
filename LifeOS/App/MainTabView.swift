@@ -9,6 +9,8 @@ struct MainTabView: View {
     private let household = HouseholdService.live
     /// わが家で共有する ToDo・買い物（2026-10-28 Build 7）
     private let sharedItems = SharedItemsService.live
+    /// わが家で共有する家計簿の支出（2026-11-01 Build 13）
+    private let sharedExpenses = SharedExpensesService.live
     /// サインインの状態（サインイン・サインアウト・アカウント削除で、わが家を読み直す）
     private let auth = AuthService.live
     /// 共有の通知（2026-10-28 Build 8）：端末の登録と、通知をタップしたときの行き先
@@ -61,7 +63,7 @@ struct MainTabView: View {
             .tag(AppTab.lists)
 
             NavigationStack {
-                MoneyView(store: store)
+                MoneyView(store: store, appState: appState)
             }
             .tabItem { Label(AppTab.money.title, systemImage: AppTab.money.systemImage) }
             .tag(AppTab.money)
@@ -73,12 +75,20 @@ struct MainTabView: View {
         .onChange(of: appState.usageStyle) { appState.save() }
         // Firebase の「わが家」（2026-10-28）：人数は「今日」の招待のカードに、groupID と種類は共有 ToDo・買い物の見張りに使う。
         // 退出・削除・サインアウトでわが家が無くなったら、共有項目の表示だけを消す（端末の個人データは消さない）
-        .onAppear { sharedItems.attach(store) }
+        .onAppear {
+            sharedItems.attach(store)
+            sharedExpenses.attach(store)
+        }
         .onChange(of: household.state) { applyHousehold() }
         // 共有の保存がうまくいかなかったとき：「共有できなかったため、自分だけに保存しました」などを上に出す（2026-10-28 Build 9）
         .overlay(alignment: .top) {
             if let notice = sharedItems.notice {
                 SharedSyncNoticeBanner(message: notice) { sharedItems.dismissNotice() }
+                    .padding(.top, LifeSpacing.xs)
+                    .transition(.opacity)
+            } else if let notice = sharedExpenses.notice {
+                // 共有の支出（Build 13）：「共有できなかったため、自分だけに保存しました（理由）」など
+                SharedSyncNoticeBanner(message: notice) { sharedExpenses.dismissNotice() }
                     .padding(.top, LifeSpacing.xs)
                     .transition(.opacity)
             }
@@ -118,10 +128,12 @@ extension MainTabView {
         case .loaded(let summary):
             appState.householdMemberCount = summary.members.count
             sharedItems.apply(household: summary)
+            sharedExpenses.apply(household: summary, isSignedIn: auth.account != nil)
             updatePushContext(isJoined: summary.groupID != nil)
         case .none, .signedOut, .unavailable:
             appState.householdMemberCount = nil
             sharedItems.apply(household: nil)
+            sharedExpenses.apply(household: nil, isSignedIn: auth.account != nil)
             updatePushContext(isJoined: false)
         case .idle, .loading, .failed:
             // 読み込み中・通信できないときは、いまの表示のまま（勝手に消さない）

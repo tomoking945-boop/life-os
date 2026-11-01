@@ -105,7 +105,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`]) {
+  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`]) {
     await clearCollection(path);
   }
   for (const user of [alice, bob, carol]) {
@@ -466,13 +466,14 @@ describe('わが家：設定・削除・退出（2026-10-28）', () => {
   });
 
   it('名前と共有する種類は、オーナーもパートナーも変えられる。今後対応の種類は消さない', async () => {
-    const { owner, partner, groupID } = await household({ kinds: ['todo', 'shopping', 'money'] });
+    // 2026-11-01（Build 13）：家計簿（money）は同期できる種類になったため、「今後対応」の見本は保証書（warranty）にした
+    const { owner, partner, groupID } = await household({ kinds: ['todo', 'shopping', 'warranty'] });
     const byOwner = await call('updateHousehold', { name: '新しいわが家' }, owner.idToken);
     assert.equal(byOwner.result.household.name, '新しいわが家');
     const byPartner = await call('updateHousehold', { syncKinds: ['shopping'] }, partner.idToken);
-    assert.deepEqual(byPartner.result.household.sharedKinds, ['shopping', 'money'], '家計簿（今後対応）は残る');
+    assert.deepEqual(byPartner.result.household.sharedKinds, ['shopping', 'warranty'], '保証書（今後対応）は残る');
     const group = (await db.doc(`groups/${groupID}`).get()).data();
-    assert.deepEqual(group.sharedKinds, ['shopping', 'money']);
+    assert.deepEqual(group.sharedKinds, ['shopping', 'warranty']);
     assert.equal(group.name, '新しいわが家');
     // 送れない値・空の名前・何も送らない
     assert.equal((await call('updateHousehold', { syncKinds: ['event'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
@@ -480,6 +481,21 @@ describe('わが家：設定・削除・退出（2026-10-28）', () => {
     assert.equal((await call('updateHousehold', {}, owner.idToken)).error.details.reason, 'invalid-update');
     const stranger = await signUp('stranger');
     assert.equal((await call('updateHousehold', { name: 'x' }, stranger.idToken)).error.details.reason, 'no-household');
+  });
+
+  it('Build 13：家計簿（money）をオン・オフできる。オフにしても共有の支出は消さない。将来用の種類も残る', async () => {
+    const { owner, partner, groupID } = await household({ kinds: ['todo', 'shopping', 'list'] });
+    const on = await call('updateHousehold', { syncKinds: ['todo', 'shopping', 'money'] }, partner.idToken);
+    assert.deepEqual(on.result.household.sharedKinds, ['todo', 'shopping', 'money', 'list']);
+    await db.doc(`groups/${groupID}/expenses/E621E1F8-C36C-495A-93FC-0C247A3E6E5F`).set({
+      schemaVersion: 1, title: 'スーパー', amount: 3520, category: 'food', date: Timestamp.now(),
+      createdBy: owner.uid, updatedBy: owner.uid, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    const off = await call('updateHousehold', { syncKinds: ['todo', 'shopping'] }, owner.idToken);
+    assert.deepEqual(off.result.household.sharedKinds, ['todo', 'shopping', 'list'], 'リスト（将来用）は残る');
+    assert.ok((await db.doc(`groups/${groupID}/expenses/E621E1F8-C36C-495A-93FC-0C247A3E6E5F`).get()).exists, '共有の支出は消さない');
+    // 知らない種類・今後対応の種類は送れない
+    assert.equal((await call('updateHousehold', { syncKinds: ['warranty'] }, owner.idToken)).error.details.reason, 'invalid-kinds');
   });
 
   it('種類をオフにしても、すでにある共有項目は消さない', async () => {
@@ -679,6 +695,34 @@ describe('共有更新の通知', () => {
     for (const message of messages) {
       assert.equal(JSON.stringify(message).includes(alice.uid), false, '送信者の UID を入れない');
       assert.equal(JSON.stringify(message).includes(bob.uid), false);
+    }
+  });
+
+  it('Build 13：共有の支出（expenses）の追加・変更・削除では、通知も通知の記録も作らない（金額・支出名を送らない）', async () => {
+    await addMembersAndDevices();
+    const ref = db.doc(`groups/${GROUP}/expenses/0F8FAD5B-D9CB-469F-A165-70867728950E`);
+    await ref.set({
+      schemaVersion: 1, title: 'ランチ', amount: 1200, category: 'diningOut', date: Timestamp.now(),
+      createdBy: alice.uid, updatedBy: alice.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    await ref.update({ title: 'ディナー', amount: 4800, updatedBy: bob.uid, updatedAt: FieldValue.serverTimestamp() });
+    await ref.delete();
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0, '支出では通知しない');
+    assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
+
+    // 既存の ToDo の通知（宛先・文面）は変わらない
+    await db.doc(`groups/${GROUP}/items/item-after-expense`).set(item(alice.uid));
+    const messages = await waitFor(async () => {
+      const list = await sentMessages();
+      return list.length > 0 ? list : null;
+    });
+    assert.ok(messages, 'ToDo の通知が届かない');
+    assert.deepEqual(messages.map((m) => m.token), ['token-bob']);
+    assert.equal(messages[0].notification.body, 'わが家のToDoが更新されました');
+    for (const message of messages) {
+      const text = JSON.stringify(message);
+      assert.ok(!text.includes('ランチ') && !text.includes('1200') && !text.includes('4800'), '支出の名前・金額を送らない');
     }
   });
 

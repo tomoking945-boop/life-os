@@ -24,12 +24,16 @@ private func freshInvite() -> InviteLink {
 }
 
 final class HouseholdSettingsModelTests: XCTestCase {
-    /// いま同期できるのは ToDo・買い物だけ。ほかは「今後対応」
+    /// いま同期できるのは ToDo・買い物・家計簿（2026-11-01 Build 13 で家計簿を追加）。ほかは「今後対応」
     func testSyncSupportedKinds() {
-        XCTAssertEqual(SharedSpaceKind.syncSupported, [.todo, .shopping])
-        XCTAssertEqual(SharedSpaceKind.comingSoon, [.event, .chore, .money, .warranty, .list])
+        XCTAssertEqual(SharedSpaceKind.syncSupported, [.todo, .shopping, .money])
+        XCTAssertEqual(SharedSpaceKind.comingSoon, [.event, .chore, .warranty, .list])
         XCTAssertTrue(SharedSpaceKind.todo.isSyncSupported)
-        XCTAssertFalse(SharedSpaceKind.money.isSyncSupported)
+        XCTAssertTrue(SharedSpaceKind.money.isSyncSupported)
+        for kind in [SharedSpaceKind.event, .chore, .warranty, .list] {
+            XCTAssertFalse(kind.isSyncSupported, kind.rawValue)
+        }
+        XCTAssertEqual(SharedSpaceKind.defaultSelection, [.todo, .shopping], "家計簿ははじめはオフ")
     }
 
     /// サーバー（household.js）の SYNC_SUPPORTED_KINDS と同じ
@@ -63,14 +67,19 @@ final class HouseholdSettingsModelTests: XCTestCase {
         XCTAssertTrue(partner.canLeave)
     }
 
-    /// 種類のオン・オフ：「今後対応」の種類は残す。1つも残らない変更は不可
+    /// 種類のオン・オフ：「今後対応」の種類は残す。1つも残らない変更は不可。
+    /// 2026-11-01（Build 13）：家計簿は同期できる種類になったため、「今後対応」の見本は予定・保証書にした
     func testKindsAfterSettingKeepComingSoon() {
-        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.event, .todo, .shopping, .money], isOwner: false, members: partner.members)
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo]), [.event, .todo, .money])
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: []), [.event, .money], "予定・家計簿は消さない")
-        XCTAssertEqual(mixed.comingSoonKinds, [.event, .money])
+        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.event, .todo, .shopping, .warranty], isOwner: false, members: partner.members)
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo]), [.event, .todo, .warranty])
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: []), [.event, .warranty], "予定・保証書は消さない")
+        XCTAssertEqual(mixed.comingSoonKinds, [.event, .warranty])
         // 「今後対応」の種類は、ここから足せない
-        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .warranty]), [.event, .todo, .money])
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .list]), [.event, .todo, .warranty])
+        // 家計簿はオン・オフできる
+        XCTAssertEqual(mixed.sharedKinds(afterSettingSyncKinds: [.todo, .money]), [.event, .todo, .money, .warranty])
+        let withMoney = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .money, .list], isOwner: false, members: partner.members)
+        XCTAssertEqual(withMoney.sharedKinds(afterSettingSyncKinds: [.todo]), [.todo, .list], "家計簿をオフにできる。リストは残る")
         XCTAssertNil(soleOwner.sharedKinds(afterSettingSyncKinds: []), "1つも残らない")
         XCTAssertEqual(soleOwner.sharedKinds(afterSettingSyncKinds: [.shopping]), [.shopping])
     }
@@ -124,16 +133,21 @@ final class HouseholdManagementServiceTests: XCTestCase {
         }
     }
 
-    /// 種類の変更：送るのは ToDo・買い物のうちオンのものだけ。「今後対応」の種類は残る（テスト10の画面側）
+    /// 種類の変更：送るのは同期できる種類（ToDo・買い物・家計簿）のうちオンのものだけ。「今後対応」の種類は残る（テスト10の画面側）
     @MainActor
     func testSetSyncKindsKeepsComingSoon() async {
-        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .shopping, .money], isOwner: false, members: partner.members)
+        let mixed = HouseholdSummary(name: "わが家", sharedKinds: [.todo, .shopping, .warranty], isOwner: false, members: partner.members)
         let (service, backend) = makeService(mixed)
         await service.refresh()
-        let changed = await service.setSyncKinds([.shopping, .money])
+        let changed = await service.setSyncKinds([.shopping, .warranty])
         XCTAssertTrue(changed)
         XCTAssertEqual(backend.updatedWith.last?.syncKinds, [.shopping], "今後対応の種類は送らない")
-        XCTAssertEqual(service.state.summary?.sharedKinds, [.shopping, .money])
+        XCTAssertEqual(service.state.summary?.sharedKinds, [.shopping, .warranty])
+        // Build 13：家計簿はオン・オフを送れる
+        let withMoney = await service.setSyncKinds([.shopping, .money])
+        XCTAssertTrue(withMoney)
+        XCTAssertEqual(backend.updatedWith.last?.syncKinds, [.shopping, .money])
+        XCTAssertEqual(service.state.summary?.sharedKinds, [.shopping, .money, .warranty])
     }
 
     /// テスト11：1人のオーナーは削除できる。削除のあとは「わが家なし」（サインインはそのまま）

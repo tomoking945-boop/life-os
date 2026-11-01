@@ -49,6 +49,17 @@ final class LifeStore {
     @ObservationIgnored private var pendingHouseholdCreates: [LifeItem.ID: LifeItem] = [:]
     /// 送信待ちの作成の数（確認用。2026-10-28 Build 10）
     var pendingHouseholdCreateCount: Int { pendingHouseholdCreates.count }
+
+    /// わが家で共有している家計簿の支出（2026-11-01 Build 13）。Firestore から受け取る。
+    /// 端末の life-store.json には保存しない（expenses は「自分だけ」の支出だけ）
+    private(set) var householdExpenses: [Expense] = []
+    /// 共有の支出の保存を頼む先（SharedExpensesService）。無ければ「わが家で共有」は選べない
+    @ObservationIgnored weak var expenseSync: HouseholdExpenseSyncing?
+    /// 共有の保存の結果がまだ届いていない支出の作成（空・古い一覧が届いても、結果が届くまでは画面から消さない）
+    @ObservationIgnored private var pendingSharedExpenseCreates: [Expense.ID: Expense] = [:]
+    var pendingSharedExpenseCreateCount: Int { pendingSharedExpenseCreates.count }
+    /// 共有の支出の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
+    @ObservationIgnored private(set) var householdExpenseUpdateCount = 0
     /// 共有項目の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
     @ObservationIgnored private(set) var householdUpdateCount = 0
 
@@ -119,7 +130,8 @@ final class LifeStore {
         if let snapshot = LocalStorage.load(Snapshot.self, from: fileName) {
             store = LifeStore(
                 items: snapshot.items,
-                expenses: snapshot.expenses,
+                // Build 13：端末に保存されている支出は、すべて「自分だけ」として読む（以前の保存データには区別が無い）
+                expenses: snapshot.expenses.map(Self.personalExpense),
                 budget: snapshot.budget,
                 lists: snapshot.lists,
                 inbox: snapshot.inbox ?? MockData.inbox(),
@@ -360,6 +372,19 @@ final class LifeStore {
     }
 
     /// 削除する（利用者が編集画面で「削除」を選んだときだけ）。わが家の共有項目なら、相手の画面からも消える
+    /// 予定を1件だけ消す（カレンダーの「予定を削除」。2026-11-01 Build 13）。
+    /// 予定（kind == .event）で、端末の項目のときだけ消す。ToDo・買い物・家事・わが家の共有項目は消さない。
+    /// 保存するので、アプリを開き直しても戻らない。通知は MainTabView が items の変化で予約し直す
+    /// - Returns: 消したら true
+    @discardableResult
+    func deleteEvent(_ id: LifeItem.ID) -> Bool {
+        guard !isHouseholdItem(id),
+              items.contains(where: { $0.id == id && $0.kind == .event }) else { return false }
+        items.removeAll { $0.id == id && $0.kind == .event }
+        save()
+        return true
+    }
+
     func deleteItem(_ id: LifeItem.ID) {
         if isHouseholdItem(id) {
             deleteHouseholdItem(id)
@@ -802,9 +827,178 @@ final class LifeStore {
 
     // MARK: - お金
 
+    /// 「自分だけ」の支出を足す（端末の中だけ。Firestore へは送らない）
     func add(_ expense: Expense) {
-        expenses.append(expense)
+        expenses.append(Self.personalExpense(expense))
         save()
+    }
+
+    // MARK: - 家計簿：自分だけ／わが家で共有（2026-11-01 Build 13。docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md）
+
+    /// 端末に保存する形（いつも「自分だけ」）
+    static func personalExpense(_ expense: Expense) -> Expense {
+        var copy = expense
+        copy.ownership = .personal
+        return copy
+    }
+
+    /// 画面に出す支出：自分だけの支出＋わが家の共有の支出（範囲で絞る）。
+    /// 同じ ID（保存先を変えている途中）は「自分だけ」の方だけを出す（二重に数えない）
+    func visibleExpenses(scope: ScopeFilter) -> [Expense] {
+        let personalIDs = Set(expenses.map(\.id))
+        let shared = householdExpenses.filter { !personalIDs.contains($0.id) }
+        return (expenses + shared).filter { scope.includes($0.ownership) }
+    }
+
+    /// 新しく「わが家で共有」にできない理由（できるなら nil）
+    var expenseSharingBlock: ExpenseSharingBlock? {
+        guard let expenseSync else { return .notConnected }
+        return expenseSync.expenseSharingBlock
+    }
+
+    /// 共有の支出を変更・削除できるか（わが家に参加していれば、家計簿がオフでもできる）
+    var canEditSharedExpenses: Bool { expenseSync?.canEditSharedExpenses ?? false }
+
+    /// 支出を足す。「わが家で共有」は利用者が選んだときだけ（初期値は自分だけ）。共有できないときは自分だけに保存する
+    /// - Returns: 共有の保存を始めたら true
+    @discardableResult
+    func addExpense(_ expense: Expense, destination: SaveDestination) -> Bool {
+        guard destination == .household,
+              let sync = expenseSync,
+              sync.expenseSharingBlock == nil,
+              SharedExpensePayload.canShare(expense),
+              !expenses.contains(where: { $0.id == expense.id }),
+              !householdExpenses.contains(where: { $0.id == expense.id }) else {
+            add(expense)
+            return false
+        }
+        var shared = expense
+        shared.ownership = .shared
+        householdExpenses.append(shared)
+        pendingSharedExpenseCreates[shared.id] = shared
+        sync.createSharedExpense(shared, convertingPersonal: false)
+        return true
+    }
+
+    /// 支出を変える（自分だけの支出は端末だけ、共有の支出は Firestore だけ）
+    /// - Returns: 変えたら true
+    @discardableResult
+    func updateExpense(_ updated: Expense) -> Bool {
+        if let index = expenses.firstIndex(where: { $0.id == updated.id }) {
+            expenses[index] = Self.personalExpense(updated)
+            save()
+            return true
+        }
+        guard let index = householdExpenses.firstIndex(where: { $0.id == updated.id }),
+              let sync = expenseSync, sync.canEditSharedExpenses,
+              SharedExpensePayload.canShare(updated) else { return false }
+        var shared = updated
+        shared.ownership = .shared
+        householdExpenses[index] = shared
+        if pendingSharedExpenseCreates[shared.id] != nil { pendingSharedExpenseCreates[shared.id] = shared }
+        sync.updateSharedExpense(shared)
+        return true
+    }
+
+    /// 支出を消す（自分だけの支出は端末だけ、共有の支出は Firestore だけ）
+    /// - Returns: 消したら true
+    @discardableResult
+    func deleteExpense(_ id: Expense.ID) -> Bool {
+        if expenses.contains(where: { $0.id == id }) {
+            expenses.removeAll { $0.id == id }
+            save()
+            return true
+        }
+        guard let shared = householdExpenses.first(where: { $0.id == id }),
+              let sync = expenseSync, sync.canEditSharedExpenses else { return false }
+        householdExpenses.removeAll { $0.id == id }
+        pendingSharedExpenseCreates[id] = nil
+        sync.deleteSharedExpense(shared, keepingPersonalCopy: false)
+        return true
+    }
+
+    /// 保存先を変える（編集画面から）。
+    /// - 自分だけ → 共有：Firestore への保存が確かめられてから、端末の支出を消す（失敗したら自分だけのまま）
+    /// - 共有 → 自分だけ：先に端末へ保存してから、Firestore の共有の支出を消す（失敗したら端末の写しを片付け、共有のまま）
+    /// - Returns: 変更を始めたら true
+    @discardableResult
+    func changeExpenseDestination(_ id: Expense.ID, to destination: SaveDestination) -> Bool {
+        switch destination {
+        case .household:
+            guard let personal = expenses.first(where: { $0.id == id }),
+                  let sync = expenseSync, sync.expenseSharingBlock == nil,
+                  SharedExpensePayload.canShare(personal),
+                  !householdExpenses.contains(where: { $0.id == id }) else { return false }
+            var shared = personal
+            shared.ownership = .shared
+            householdExpenses.append(shared)
+            pendingSharedExpenseCreates[id] = shared
+            sync.createSharedExpense(shared, convertingPersonal: true)
+            return true
+        case .personal:
+            guard !expenses.contains(where: { $0.id == id }),
+                  let shared = householdExpenses.first(where: { $0.id == id }),
+                  let sync = expenseSync, sync.canEditSharedExpenses else { return false }
+            // 1. 先に端末へ「自分だけ」として保存する
+            expenses.append(Self.personalExpense(shared))
+            save()
+            // 2. そのあとで共有の支出を消す
+            householdExpenses.removeAll { $0.id == id }
+            pendingSharedExpenseCreates[id] = nil
+            sync.deleteSharedExpense(shared, keepingPersonalCopy: true)
+            return true
+        }
+    }
+
+    /// Firestore から届いた共有の支出の一覧で入れ替える（同じ一覧なら入れ替えない。書き戻さない）
+    func applySharedExpenseSnapshot(_ snapshots: [SharedExpenseSnapshot]) {
+        var received = snapshots.map(\.expense)
+        let receivedIDs = Set(received.map(\.id))
+        for expense in pendingSharedExpenseCreates.values.sorted(by: { $0.id.uuidString < $1.id.uuidString }) where !receivedIDs.contains(expense.id) {
+            received.append(expense)
+        }
+        if received != householdExpenses {
+            householdExpenses = received
+            householdExpenseUpdateCount += 1
+        }
+    }
+
+    /// 共有の支出の表示を消す（退出・わが家の削除・サインアウトのとき）。端末の個人の支出は消さない
+    func clearHouseholdExpenses() {
+        pendingSharedExpenseCreates = [:]
+        guard !householdExpenses.isEmpty else { return }
+        householdExpenses = []
+    }
+
+    /// 共有の支出の作成が断られた：新しく作った支出は「自分だけ」として端末に残す（消さない・2件にしない）。
+    /// 変換なら端末の支出がそのまま残っている
+    func sharedExpenseCreateFailed(_ expense: Expense, convertingPersonal: Bool) {
+        pendingSharedExpenseCreates[expense.id] = nil
+        householdExpenses.removeAll { $0.id == expense.id }
+        guard !convertingPersonal, !expenses.contains(where: { $0.id == expense.id }) else { return }
+        expenses.append(Self.personalExpense(expense))
+        save()
+    }
+
+    /// 共有の支出の作成がサーバーで受け付けられた。変換なら、ここで初めて端末の支出を片付ける
+    func finishSharedExpenseCreate(_ id: Expense.ID, convertingPersonal: Bool) {
+        pendingSharedExpenseCreates[id] = nil
+        guard convertingPersonal, expenses.contains(where: { $0.id == id }) else { return }
+        expenses.removeAll { $0.id == id }
+        save()
+    }
+
+    /// 共有 → 自分だけの変更に失敗した：端末の写しを片付け、共有のまま残す
+    func sharedExpenseConversionFailed(_ expense: Expense) {
+        if expenses.contains(where: { $0.id == expense.id }) {
+            expenses.removeAll { $0.id == expense.id }
+            save()
+        }
+        if !householdExpenses.contains(where: { $0.id == expense.id }) {
+            var shared = expense
+            shared.ownership = .shared
+            householdExpenses.append(shared)
+        }
     }
 
     // MARK: - リスト

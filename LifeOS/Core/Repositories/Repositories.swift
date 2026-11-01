@@ -18,6 +18,8 @@ protocol LifeItemRepository: AnyObject {
     func reschedule(_ id: LifeItem.ID, to date: Date)
     func drop(_ id: LifeItem.ID, at date: Date)
     func share(_ id: LifeItem.ID)
+    /// 予定を1件だけ消す（2026-11-01 Build 13）。予定でない項目（ToDo・買い物・家事など）・共有項目は消さない
+    @discardableResult func deleteEvent(_ id: LifeItem.ID) -> Bool
 
     // MARK: パートナー共有（2026-10-11）：非同期・監視の窓口（後方互換：既定の実装あり）
     // Firestore では書き込みの失敗・オフラインがあり、相手の変更を受け取る必要があるため追加した。
@@ -79,9 +81,22 @@ enum RepositoryError: Error, Equatable {
 
 /// お金（支出と今月の予算）
 protocol ExpenseRepository: AnyObject {
+    /// 端末に保存している「自分だけ」の支出
     var expenses: [Expense] { get }
     var budget: MonthlyBudget { get }
     func add(_ expense: Expense)
+
+    // MARK: 家計簿：自分だけ／わが家で共有（2026-11-01 Build 13）
+    /// 画面に出す支出（自分だけ＋共有。範囲で絞る。同じ支出は1回だけ）
+    func visibleExpenses(scope: ScopeFilter) -> [Expense]
+    /// 新しく「わが家で共有」にできない理由（できるなら nil）
+    var expenseSharingBlock: ExpenseSharingBlock? { get }
+    /// 共有の支出を変更・削除できるか
+    var canEditSharedExpenses: Bool { get }
+    @discardableResult func addExpense(_ expense: Expense, destination: SaveDestination) -> Bool
+    @discardableResult func updateExpense(_ updated: Expense) -> Bool
+    @discardableResult func deleteExpense(_ id: Expense.ID) -> Bool
+    @discardableResult func changeExpenseDestination(_ id: Expense.ID, to destination: SaveDestination) -> Bool
 }
 
 /// リスト（行きたい場所・観たいもの など）

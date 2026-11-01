@@ -12,6 +12,10 @@ rules_version = '2';
 // - 共有項目（2026-10-28 Build 7）：新しく作れるのは ToDo・買い物だけ。わが家の設定でオンの種類だけ。
 //   種類・作成者・作成日時・schemaVersion は変えられない（docs/SHARED_TODO_SHOPPING_FOUNDATION.md）
 // - 退出・削除は leaveHousehold・deleteHousehold（サーバー）だけ。アプリからメンバー文書を消せない（2026-10-28）
+// - 共有の支出（2026-11-01 Build 13）：groups/{groupID}/expenses/{expenseID}。メンバーだけが読み書きでき、
+//   新しく作れるのは、わが家の設定で「家計簿」（money）がオンのときだけ。決まった項目だけ（レシート・メモ・予算は置けない）。
+//   作成者・作成日時・schemaVersion は変えられない。オフにしたあとも、すでにある支出の変更・削除はできる
+//   （docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md）
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
 service cloud.firestore {
@@ -154,6 +158,54 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.get('schemaVersion', 0) == resource.data.get('schemaVersion', 0);
 
+        allow delete: if isMember(groupID);
+      }
+
+      // 共有の支出（2026-11-01 Build 13）。共有 ToDo・買い物（items）とは別の場所・別の形
+      match /expenses/{expenseID} {
+        function validExpense(data) {
+          return data.keys().hasOnly([
+              'schemaVersion', 'title', 'amount', 'category', 'date', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && data.keys().hasAll([
+              'schemaVersion', 'title', 'amount', 'category', 'date', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && data.schemaVersion == 1
+            && isShortText(data.title, 200)
+            && data.amount is int
+            && data.amount > 0
+            && data.amount <= 999999999
+            && data.category in ['food', 'dailyGoods', 'diningOut', 'transport', 'subscription', 'other']
+            && data.date is timestamp
+            && data.createdBy is string
+            && data.createdAt is timestamp
+            && data.updatedBy == request.auth.uid
+            && data.updatedAt == request.time;
+        }
+
+        // わが家の設定で「家計簿」がオンか（groups の sharedKinds。変えられるのは updateHousehold だけ）
+        function moneyIsEnabled() {
+          return 'money' in get(/databases/$(database)/documents/groups/$(groupID)).data.get('sharedKinds', []);
+        }
+
+        allow read: if isMember(groupID);
+
+        // 作成：家計簿がオンのときだけ・文書の ID は支出の UUID・作成者は本人・作成日時はサーバーの時刻
+        allow create: if isMember(groupID)
+          && expenseID.matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$')
+          && validExpense(request.resource.data)
+          && moneyIsEnabled()
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+
+        // 更新：作成者・作成日時・schemaVersion は変えられない。家計簿をオフにしたあとも変更できる（勝手に消さない）
+        allow update: if isMember(groupID)
+          && validExpense(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.schemaVersion == resource.data.schemaVersion;
+
+        // 削除：メンバーなら（家計簿をオフにしたあとも）
         allow delete: if isMember(groupID);
       }
 

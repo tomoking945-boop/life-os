@@ -609,6 +609,188 @@ describe('共有 ToDo・買い物（Build 7）', () => {
   });
 });
 
+// MARK: - 共有の支出（2026-11-01 Build 13）。docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md
+
+describe('Build 13：共有の支出（groups/{groupID}/expenses）', () => {
+  const ID1 = 'E621E1F8-C36C-495A-93FC-0C247A3E6E5F';
+  const ID2 = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+  const ID3 = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+
+  async function setSharedKinds(kinds) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: kinds });
+    });
+  }
+
+  /** 決まった形の共有の支出（作成時は createdAt・updatedAt にサーバーの時刻） */
+  function expense(uid, overrides = {}) {
+    return {
+      schemaVersion: 1,
+      title: 'スーパー',
+      amount: 3520,
+      category: 'food',
+      date: Timestamp.fromDate(new Date('2026-11-01T00:00:00+09:00')),
+      createdBy: uid,
+      updatedBy: uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      ...overrides,
+    };
+  }
+
+  const path = (id) => `groups/${GROUP}/expenses/${id}`;
+
+  beforeEach(async () => {
+    await setSharedKinds(['todo', 'shopping', 'money']);
+  });
+
+  it('オーナーとパートナーは、作成・読み取り・更新・削除ができる（双方向）', async () => {
+    const alice = as('alice');
+    const bob = as('bob');
+    await assertSucceeds(setDoc(doc(alice, path(ID1)), expense('alice')));
+    await assertSucceeds(setDoc(doc(bob, path(ID2)), expense('bob', { title: 'ランチ', amount: 1200, category: 'diningOut' })));
+    assert.equal((await getDoc(doc(bob, path(ID1)))).data().amount, 3520);
+    assert.equal((await getDocs(collection(alice, `groups/${GROUP}/expenses`))).size, 2);
+    await assertSucceeds(updateDoc(doc(bob, path(ID1)), { title: 'スーパー（まとめ買い）', amount: 4980, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    const changed = (await getDoc(doc(alice, path(ID1)))).data();
+    assert.equal(changed.amount, 4980);
+    assert.equal(changed.updatedBy, 'bob');
+    assert.equal(changed.createdBy, 'alice', '作成者は変わらない');
+    await assertSucceeds(updateDoc(doc(alice, path(ID2)), { category: 'food', date: Timestamp.now(), updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(doc(alice, path(ID2))));
+    await assertSucceeds(deleteDoc(doc(bob, path(ID1))));
+    assert.equal((await getDocs(collection(alice, `groups/${GROUP}/expenses`))).size, 0);
+  });
+
+  it('サインインしていない人・メンバーでない人は、読めず、作れず、変えられず、消せない', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), path(ID1)), expense('alice')));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(anon, path(ID1))));
+    await assertFails(getDocs(collection(anon, `groups/${GROUP}/expenses`)));
+    await assertFails(setDoc(doc(anon, path(ID2)), expense('anon')));
+    const mallory = as('mallory');
+    await assertFails(getDoc(doc(mallory, path(ID1))));
+    await assertFails(getDocs(collection(mallory, `groups/${GROUP}/expenses`)));
+    await assertFails(setDoc(doc(mallory, path(ID2)), expense('mallory')));
+    await assertFails(updateDoc(doc(mallory, path(ID1)), { amount: 1, updatedBy: 'mallory', updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(mallory, path(ID1))));
+    // ほかのわが家・グループをまたいだ検索もできない
+    await assertFails(getDocs(collection(as('bob'), `groups/${OTHER_GROUP}/expenses`)));
+    await assertFails(getDocs(collectionGroup(as('bob'), 'expenses')));
+  });
+
+  it('退出（サーバーがメンバー文書を外した）あとは、読めず書けない', async () => {
+    await assertSucceeds(setDoc(doc(as('bob'), path(ID1)), expense('bob')));
+    await removeMemberAsServer('bob');
+    const bob = as('bob');
+    await assertFails(getDoc(doc(bob, path(ID1))));
+    await assertFails(updateDoc(doc(bob, path(ID1)), { amount: 1, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(bob, path(ID1))));
+    await assertFails(setDoc(doc(bob, path(ID2)), expense('bob')));
+  });
+
+  it('家計簿（money）がオフなら新しく作れない。オフのあとも、すでにある支出は変更・削除できる', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), path(ID1)), expense('alice')));
+    await setSharedKinds(['todo', 'shopping']);
+    await assertFails(setDoc(doc(as('bob'), path(ID2)), expense('bob')));
+    await assertSucceeds(updateDoc(doc(as('bob'), path(ID1)), { amount: 3000, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(doc(as('alice'), path(ID1))));
+    await setSharedKinds(['money']);
+    await assertSucceeds(setDoc(doc(as('bob'), path(ID2)), expense('bob')));
+  });
+
+  it('金額は 1〜999,999,999 の整数だけ', async () => {
+    const db = as('bob');
+    for (const [i, amount] of [0, -1, 1000000000, 12.5, '1200', null, true].entries()) {
+      await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { amount })), `amount ${i}`);
+    }
+    await assertSucceeds(setDoc(doc(db, path(ID1)), expense('bob', { amount: 1 })));
+    await assertSucceeds(setDoc(doc(db, path(ID2)), expense('bob', { amount: 999999999 })));
+    await assertFails(updateDoc(doc(db, path(ID1)), { amount: 0, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(db, path(ID1)), { amount: 1000000000, updatedBy: 'bob', updatedAt: serverTimestamp() }));
+  });
+
+  it('カテゴリーは決まった6つだけ。タイトルは 1〜200 文字。日付は Timestamp', async () => {
+    const db = as('bob');
+    for (const category of ['food', 'dailyGoods', 'diningOut', 'transport', 'subscription', 'other']) {
+      await assertSucceeds(setDoc(doc(db, path(ID1)), expense('bob', { category })), category);
+      await testEnv.withSecurityRulesDisabled(async (context) => deleteDoc(doc(context.firestore(), path(ID1))));
+    }
+    for (const category of ['medical', 'Food', '', null]) {
+      await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { category })), String(category));
+    }
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { title: '' })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { title: 'あ'.repeat(201) })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { title: 1200 })));
+    await assertSucceeds(setDoc(doc(db, path(ID1)), expense('bob', { title: 'あ'.repeat(200) })));
+    for (const date of ['2026-11-01', 1793500000, null]) {
+      await assertFails(setDoc(doc(db, path(ID2)), expense('bob', { date })), String(date));
+    }
+  });
+
+  it('作成者・更新者は操作した本人。作成日時・更新日時はサーバーの時刻。schemaVersion は 1', async () => {
+    const db = as('bob');
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { createdBy: 'alice' })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { updatedBy: 'alice' })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('mallory')));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { createdAt: Timestamp.now() })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { updatedAt: Timestamp.now() })));
+    await assertFails(setDoc(doc(db, path(ID1)), expense('bob', { schemaVersion: 2 })));
+    const { schemaVersion, ...withoutVersion } = expense('bob');
+    assert.equal(schemaVersion, 1);
+    await assertFails(setDoc(doc(db, path(ID1)), withoutVersion));
+    await assertSucceeds(setDoc(doc(db, path(ID1)), expense('bob')));
+    await assertFails(updateDoc(doc(db, path(ID1)), { amount: 10, updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(db, path(ID1)), { amount: 10, updatedBy: 'bob', updatedAt: Timestamp.now() }));
+  });
+
+  it('作成の情報（作成者・作成日時・schemaVersion）は、あとから改ざんできない', async () => {
+    await assertSucceeds(setDoc(doc(as('bob'), path(ID1)), expense('bob')));
+    const alice = as('alice');
+    await assertFails(updateDoc(doc(alice, path(ID1)), { createdBy: 'alice', updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(alice, path(ID1)), { createdAt: serverTimestamp(), updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(alice, path(ID1)), { createdAt: Timestamp.now(), updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(alice, path(ID1)), { schemaVersion: 2, updatedBy: 'alice', updatedAt: serverTimestamp() }));
+    // 同じ ID の作り直し（上書き）でも、作成の情報は変えられない
+    await assertFails(setDoc(doc(alice, path(ID1)), expense('alice')));
+  });
+
+  it('決まっていない項目（レシート・メモ・予算・メール・端末・持ち主の印）を足せない', async () => {
+    const db = as('bob');
+    for (const extra of [
+      { receiptImage: 'data' }, { receiptURL: 'https://example.com/r.jpg' }, { memo: '個人のメモ' }, { budget: 100000 },
+      { email: 'a@example.com' }, { deviceID: 'install-1' }, { ownership: 'personal' }, { kind: 'todo' },
+    ]) {
+      await assertFails(setDoc(doc(db, path(ID1)), expense('bob', extra)), JSON.stringify(extra));
+    }
+    await assertSucceeds(setDoc(doc(db, path(ID1)), expense('bob')));
+    await assertFails(updateDoc(doc(db, path(ID1)), { memo: 'メモ', updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(db, path(ID1)), { receiptImage: 'x', updatedBy: 'bob', updatedAt: serverTimestamp() }));
+    // 支出の下にさらに置くこともできない（レシートの場所を作れない）
+    await assertFails(setDoc(doc(db, `${path(ID1)}/receipts/r1`), { image: 'x' }));
+  });
+
+  it('文書の ID は支出の UUID だけ（自動の ID・決まっていない形は拒否）', async () => {
+    const db = as('bob');
+    for (const id of ['expense-1', 'abc', '12345678-1234-1234-1234-12345678901']) {
+      await assertFails(setDoc(doc(db, `groups/${GROUP}/expenses/${id}`), expense('bob')), id);
+    }
+    await assertSucceeds(setDoc(doc(db, path(ID3.toLowerCase())), expense('bob')));
+  });
+
+  it('共有 ToDo・買い物の権限は変わらない（支出の形では items に書けない。items の形では expenses に書けない）', async () => {
+    const bob = as('bob');
+    await assertSucceeds(setDoc(doc(bob, `groups/${GROUP}/items/after-expense`), sharedItem('bob')));
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/items/money-1`), expense('bob')));
+    await assertFails(setDoc(doc(bob, path(ID1)), sharedItem('bob')));
+    await assertFails(setDoc(doc(as('mallory'), `groups/${GROUP}/items/m-x`), sharedItem('mallory')));
+    // 家計簿をオンにしても、items に money の種類は作れない
+    await assertFails(setDoc(doc(bob, `groups/${GROUP}/items/k-money-2`), { ...sharedItem('bob'), kind: 'money' }));
+    // アプリから sharedKinds は変えられない（家計簿のオン・オフも updateHousehold だけ）
+    await assertFails(updateDoc(doc(as('alice'), `groups/${GROUP}`), { sharedKinds: ['money'], updatedAt: serverTimestamp() }));
+  });
+});
+
 // MARK: - 共有の通知の端末（2026-10-28 Build 8）。docs/SHARED_PUSH_NOTIFICATIONS.md
 
 describe('共有の通知の端末（Build 8）', () => {
