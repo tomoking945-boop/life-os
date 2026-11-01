@@ -258,6 +258,32 @@ Swift（`Build14SharedCalendarAndDeleteFixTests.swift`、30件）：
 
 保証書の Vision の読み取りのテスト（`WarrantyTests` など）は変更していません。Xcode での実行で成功を確かめてください。
 
+### Xcode で失敗した3件のテストの修正（`39ff3ab`。テストだけ。アプリのコードは変更なし）
+
+`a4f26dc` を Mac の Xcode で確かめたとき、テストが3件失敗しました（池上さんの報告）。
+
+| テスト | 原因 | 直し方 |
+| --- | --- | --- |
+| `Build13SharedBudgetAndEventDeleteTests.testCalendarSourceHasSwipeConfirmationAndVoiceOverAction` | `CalendarView.swift` の説明のコメントに `LifeSwipeDeleteRow` の名前が残っていて、単語の有無の確認が誤って失敗した | 実際の呼び出し `LifeSwipeDeleteRow(` が無いことを確かめる。部品のファイルが無いことの確認は残した |
+| `Build14SharedCalendarAndDeleteFixTests.testDeleteButtonSourceIsReliableButton` | 上と同じ | 上と同じ。`.onTapGesture` の確認は `CalendarEventDeleteButton` の範囲だけにし、独自のジェスチャーが無いことの確認を足した |
+| `Build14SharedCalendarAndDeleteFixTests.testOnlyExplicitHouseholdChoiceSendsFixedFields` | 決まった項目の `assigneeUID` を、禁止語 `uid` の部分一致で拒否していて矛盾していた | 部分一致の一覧から `uid` だけを外し、実際の UID（`alice`）が値として送られていないことを別に確かめる。決まった項目の完全一致・`assigneeUID == .null`・`createdBy`／`updatedBy == .currentUser` の確認はそのまま |
+
+### Mac での確認結果（2026-11-01、池上さんの報告。3件の修正 `39ff3ab` のあと）
+
+| テスト | 件数 | 結果 |
+| --- | --- | --- |
+| サーバーの単体テスト | 91 | **成功** |
+| Rules Emulator | 93 | **成功** |
+| Functions Emulator | 46 | **成功** |
+| アカウント削除 | 26 | **成功** |
+| サーバーのテストの合計 | **256** | **256件成功・失敗0・スキップ0** |
+| Xcode のテスト | 実行件数：未報告（予定は499件） | **Test Succeeded・失敗0**（スキップ数：未報告） |
+| Release ビルド | — | **成功** |
+
+- 2台の iPhone での確認（上の12の16項目）：**未実施**
+- Firebase への公開（Functions・Rules）・TestFlight へのアップロード：していない
+- main への取り込み：していない
+
 ## Mac での確認（池上さん）
 
 1. `firebase/functions` で `npm test`（目安：単体 91・Rules 93・Functions 46・アカウント削除 26）
