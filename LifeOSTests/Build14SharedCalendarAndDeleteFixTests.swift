@@ -749,13 +749,29 @@ final class Build14HouseholdSettingsTests: XCTestCase {
         XCTAssertTrue(push.contains("case \"shopping\": self = .tasks(.shopping)"), "買い物の通知の行き先は変えない")
     }
 
-    /// Build 14 では、家計簿用のレシートの読み取りを足さない（保証書の Vision の読み取りはそのまま）
-    func testNoReceiptToExpenseFeature() throws {
+    /// Build 14 では家計簿用のレシートの読み取りが無いことを確かめていた（`testNoReceiptToExpenseFeature`）。
+    /// Build 18（2026-11-02）でレシートの読み取りを作ったため、削除せず、新しい仕様を確かめるテストに置き換えた
+    /// （docs/BUILD_18_RECEIPT_TO_BUDGET.md）：
+    /// - お金の画面は Vision を直接使わず、文字認識は保証書と同じ端末内の部品（WarrantyTextRecognizer）だけ
+    /// - 読み取りは ReceiptTextRecognizer → 候補は ReceiptFieldExtractor（端末内の計算）
+    /// - お金の画面・レシートの部品は Firebase・ネットワークを使わない
+    func testReceiptToExpenseUsesOnlyOnDeviceRecognition() throws {
         let money = try readSource("LifeOS/Features/Money/MoneyView.swift")
-        XCTAssertFalse(money.contains("Vision"))
+        XCTAssertFalse(money.contains("import Vision"))
         XCTAssertFalse(money.contains("VNRecognizeTextRequest"))
         let moneyModel = try readSource("LifeOS/Features/Money/MoneyViewModel.swift")
-        XCTAssertFalse(moneyModel.contains("Vision"))
-        XCTAssertFalse(moneyModel.contains("receipt"))
+        XCTAssertFalse(moneyModel.contains("import Vision"))
+        XCTAssertFalse(moneyModel.contains("VNRecognizeTextRequest"))
+        XCTAssertTrue(moneyModel.contains("ReceiptFieldExtractor.extract(from: usable, today: now)"))
+        XCTAssertTrue(moneyModel.contains("receiptRecognizer: any ReceiptTextRecognizing = ReceiptTextRecognizer()"))
+        let recognizer = try readSource("LifeOS/Core/Utilities/ReceiptTextRecognizer.swift")
+        XCTAssertTrue(recognizer.contains("WarrantyTextRecognizer.recognizeLines(in: imageData)"), "保証書と同じ端末内の文字認識")
+        XCTAssertFalse(recognizer.contains("VNRecognizeTextRequest"), "文字認識を別に作らない（共通の部品を使う）")
+        let extractor = try readSource("LifeOS/Core/Utilities/ReceiptFieldExtractor.swift")
+        for (name, text) in [("MoneyView", money), ("MoneyViewModel", moneyModel), ("ReceiptTextRecognizer", recognizer), ("ReceiptFieldExtractor", extractor)] {
+            for word in ["import Firebase", "Firestore.firestore", "URLSession", "URLRequest", "print(", "NSLog", "os_log", "Logger("] {
+                XCTAssertFalse(text.contains(word), "\(name)：\(word)")
+            }
+        }
     }
 }

@@ -548,10 +548,16 @@ final class Build17NotificationAndBuildTests: XCTestCase {
     }
 
     /// Build 17（アプリとテスト、Debug と Release の4か所）。Version 1.0・暗号化の設定は変えない
+    /// Build 18（2026-11-02）：Build 番号は 18 になった。4か所がそろっていて、Build 17 より前に戻っていないことを確かめる
+    /// （ちょうど 18 であることは Build18ReceiptToBudgetTests で確かめる。Version・暗号化の設定の確認はそのまま）
     func testBuildNumberIs17InAllFourSettings() throws {
         let project = try build17Source("LifeOS.xcodeproj/project.pbxproj")
         let lines = project.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }, Array(repeating: "CURRENT_PROJECT_VERSION = 17;", count: 4))
+        let builds = lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }
+        XCTAssertEqual(builds.count, 4)
+        XCTAssertEqual(Set(builds).count, 1, "4か所の Build 番号がそろっている")
+        let number = builds.first.flatMap { Int($0.replacingOccurrences(of: "CURRENT_PROJECT_VERSION = ", with: "").replacingOccurrences(of: ";", with: "")) }
+        XCTAssertGreaterThanOrEqual(number ?? 0, 17)
         XCTAssertEqual(lines.filter { $0.hasPrefix("MARKETING_VERSION =") }, Array(repeating: "MARKETING_VERSION = 1.0;", count: 4))
         XCTAssertEqual(lines.filter { $0.hasPrefix("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption =") }, Array(repeating: "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;", count: 2))
     }

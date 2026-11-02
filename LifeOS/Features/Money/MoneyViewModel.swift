@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 /// 支出の入力の下書き（追加・編集。2026-11-01 Build 13）
 struct ExpenseDraft: Equatable, Identifiable {
@@ -15,6 +16,10 @@ struct ExpenseDraft: Equatable, Identifiable {
     var destination: SaveDestination
     /// 編集を始めたときの保存先
     let originalDestination: SaveDestination
+    /// レシートから作った下書きのときの一言（読み取れなかった項目など。Build 18）。保存しない
+    var receiptNotes: [String] = []
+    /// レシートから作った下書きか（Build 18）
+    private(set) var isFromReceipt = false
 
     /// 新しい支出（保存先の初期値は「自分だけ」。入力の内容から共有を選ばない）
     init(newOn date: Date) {
@@ -26,6 +31,23 @@ struct ExpenseDraft: Equatable, Identifiable {
         self.date = LifeCalendar.startOfDay(date)
         destination = .initial
         originalDestination = .initial
+    }
+
+    /// レシートの読み取りから作る新しい支出（Build 18）。保存先の初期値は必ず「自分だけ」。
+    /// 候補が無いとき（読み取れなかった）は、タイトル「レシート」・金額は空・今日・その他で始める（手入力できる）
+    init(receipt proposal: ReceiptExtractionProposal?, today: Date, failure: String? = nil) {
+        self.init(newOn: today)
+        isFromReceipt = true
+        if let proposal {
+            title = proposal.title
+            amountText = proposal.amount.map { String($0) } ?? ""
+            category = proposal.category
+            date = LifeCalendar.startOfDay(proposal.date)
+            receiptNotes = proposal.notes
+        } else {
+            title = ReceiptFieldExtractor.fallbackTitle
+            receiptNotes = [failure ?? ReceiptImageError.unreadable.message]
+        }
     }
 
     /// 今ある支出の編集
@@ -93,10 +115,29 @@ final class MoneyViewModel {
     /// 削除の確認を出している支出
     var pendingDeletion: Expense?
 
-    init(store repository: any ExpenseRepository, appState: AppState = AppState(), now: Date = LifeCalendar.now) {
+    // MARK: レシートの読み取り（Build 18）
+
+    /// 「カメラで撮る／写真から選ぶ」を出している
+    var isChoosingReceiptSource = false
+    /// 端末の中で読み取っている
+    private(set) var isReadingReceipt = false
+    /// 文字を読み取る窓口（テストでは偽物）
+    @ObservationIgnored private let receiptRecognizer: any ReceiptTextRecognizing
+    /// 読み取りの処理（キャンセル・終わったら nil。写真のデータはこの処理の中だけで持つ）
+    @ObservationIgnored private var receiptTask: Task<Void, Never>?
+    /// 読み取りの回数（キャンセルしたあとに届いた結果を捨てるため）
+    @ObservationIgnored private var receiptGeneration = 0
+
+    init(
+        store repository: any ExpenseRepository,
+        appState: AppState = AppState(),
+        now: Date = LifeCalendar.now,
+        receiptRecognizer: any ReceiptTextRecognizing = ReceiptTextRecognizer()
+    ) {
         self.repository = repository
         self.appState = appState
         self.now = now
+        self.receiptRecognizer = receiptRecognizer
     }
 
     func refreshNow(_ date: Date = LifeCalendar.now) {
@@ -232,6 +273,11 @@ final class MoneyViewModel {
     @discardableResult
     func save(_ draft: ExpenseDraft) -> Bool {
         guard let expense = draft.makeExpense() else { return false }
+        // Build 18：同じ新しい支出を2回保存しない（保存ボタンを続けて押したとき・閉じる前のもう一度の保存）
+        if draft.isNew, self.expense(id: expense.id) != nil {
+            if self.draft?.id == draft.id { self.draft = nil }
+            return false
+        }
         let destination = canChoose(draft.destination, in: draft) ? draft.destination : draft.originalDestination
         if draft.isNew {
             repository.addExpense(expense, destination: destination == .household && sharingBlock == nil ? .household : .personal)
@@ -257,6 +303,78 @@ final class MoneyViewModel {
         }
         if saved { self.draft = nil }
         return saved
+    }
+
+    // MARK: - レシートの読み取り（Build 18。docs/BUILD_18_RECEIPT_TO_BUDGET.md）
+
+    /// 「レシートを読み取る」を押せるか（読み取り中・入力中は押せない）
+    var canStartReceiptScan: Bool { !isReadingReceipt && draft == nil }
+
+    /// 「レシートを読み取る」：撮るか選ぶかを出す
+    func startReceiptScan() {
+        guard canStartReceiptScan else { return }
+        isChoosingReceiptSource = true
+    }
+
+    /// 写真を受け取って、端末の中で読み取る（1枚だけ）。読み取り中なら何もしない（二重に始めない）。
+    /// 読み取りが終わったら、候補を入れた支出の追加画面を開く（保存するまで支出は作らない）。
+    /// 写真が大きすぎる・形式が違う・読めないときも、手入力できる追加画面を開く
+    func readReceipt(_ data: Data, contentType: UTType? = nil) {
+        guard !isReadingReceipt, draft == nil else { return }
+        isChoosingReceiptSource = false
+        if let error = ReceiptTextRecognizer.validate(data, contentType: contentType) {
+            openReceiptDraft(lines: nil, failure: error)
+            return
+        }
+        isReadingReceipt = true
+        receiptGeneration += 1
+        let generation = receiptGeneration
+        let recognizer = receiptRecognizer
+        receiptTask = Task { @MainActor [weak self] in
+            let lines = try? await recognizer.recognizeLines(in: data)
+            guard let self, self.receiptGeneration == generation, !Task.isCancelled else { return }
+            self.finishReceiptReading(lines: lines)
+        }
+    }
+
+    /// 写真を読み込めなかった・カメラで撮れなかった（アプリは止めず、手入力できる画面を開く）
+    func receiptImageFailed(_ error: ReceiptImageError = .loadFailed) {
+        guard !isReadingReceipt, draft == nil else { return }
+        isChoosingReceiptSource = false
+        openReceiptDraft(lines: nil, failure: error)
+    }
+
+    /// 読み取りの「キャンセル」：何も保存しない。読み取った結果が後から届いても捨てる
+    func cancelReceiptReading() {
+        receiptGeneration += 1
+        receiptTask?.cancel()
+        receiptTask = nil
+        isReadingReceipt = false
+        isChoosingReceiptSource = false
+    }
+
+    /// 読み取りの処理を持っているか（確認用。終わった・キャンセルしたら false）
+    var isHoldingReceiptWork: Bool { receiptTask != nil }
+
+    /// 読み取りが終わるまで待つ（テスト・画面の確認用）
+    func waitForReceiptReading() async {
+        let task = receiptTask
+        await task?.value
+    }
+
+    private func finishReceiptReading(lines: [String]?) {
+        receiptTask = nil
+        isReadingReceipt = false
+        openReceiptDraft(lines: lines, failure: .unreadable)
+    }
+
+    /// 候補（または手入力用の空の下書き）で支出の追加画面を開く。読み取った文字はここで捨てる（下書きには4項目だけ）
+    private func openReceiptDraft(lines: [String]?, failure: ReceiptImageError) {
+        let proposal = lines.flatMap { lines -> ReceiptExtractionProposal? in
+            let usable = lines.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return usable.isEmpty ? nil : ReceiptFieldExtractor.extract(from: usable, today: now)
+        }
+        draft = ExpenseDraft(receipt: proposal, today: now, failure: proposal == nil ? failure.message : nil)
     }
 
     // MARK: - 削除（Build 13）

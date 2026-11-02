@@ -6,7 +6,18 @@ import UniformTypeIdentifiers
 /// カメラで保証書を撮る。撮影した写真は、カメラが作ったデータ（HEIC か JPEG）をそのまま渡す（再圧縮しない）。
 /// カメラを使えない・許可されていないときは、理由と「設定を開く」を表示する（アプリは止まらない）。
 struct WarrantyCameraView: View {
+    /// 撮影の案内（Build 18：レシートの読み取りでも使うため、変えられるようにした。保証書は今までの文言）
+    static let warrantyGuide = "保証書・レシート・製品ラベルを枠いっぱいに"
+    /// レシートの読み取り（家計簿）の案内
+    static let receiptGuide = "レシート1枚を、合計と日付が入るように枠いっぱいに"
+
+    let guide: String
     let onCapture: (Data, UTType) -> Void
+
+    init(guide: String = WarrantyCameraView.warrantyGuide, onCapture: @escaping (Data, UTType) -> Void) {
+        self.guide = guide
+        self.onCapture = onCapture
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -71,7 +82,7 @@ struct WarrantyCameraView: View {
     private var shutter: some View {
         VStack {
             Spacer()
-            Text("保証書・レシート・製品ラベルを枠いっぱいに")
+            Text(guide)
                 .font(LifeTypography.footnote)
                 .foregroundStyle(.white)
                 .padding(.bottom, LifeSpacing.sm)

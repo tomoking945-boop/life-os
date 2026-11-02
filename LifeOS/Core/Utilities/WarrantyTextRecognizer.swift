@@ -12,11 +12,17 @@ enum WarrantyTextRecognizer {
         case unreadableImage
     }
 
-    /// 写真（原本のデータ）から文字の行を読み取る。重い処理のため、呼び出し側で待つ（async）
+    /// 写真（原本のデータ）から文字の行を読み取る。重い処理のため、呼び出し側で待つ（async）。
+    /// Build 18：呼び出し側の Task を取り消したら、まだ始まっていない読み取りは始めない（レシートの「キャンセル」。保証書の動きは同じ）
     static func recognizeLines(in imageData: Data) async throws -> [WarrantyRecognizedLine] {
-        try await Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) {
             try recognizeLinesSynchronously(in: imageData)
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     /// 複数の写真を読み取り、候補を作る
@@ -41,6 +47,7 @@ enum WarrantyTextRecognizer {
         request.usesLanguageCorrection = true
 
         let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
+        try Task.checkCancellation()
         try handler.perform([request])
 
         let observations = request.results ?? []
