@@ -203,6 +203,34 @@ Firestore のデータの形・Rules・Functions・索引・Hosting・招待・F
 - 池上さんの指示で、この報告のあと main へ取り込んだ（fast-forward）
 - Firebase への公開・TestFlight へのアップロード：していない
 
+### Xcode で失敗した2件のテストの修正（2026-11-04、池上さんの報告。修正はこのブランチ）
+
+池上さんの報告で、Build 18 の Xcode のテストが **2件失敗** しました（上の「テスト：確認できた」の記録のあと）。
+
+| テスト | 原因 | 直し方 |
+| --- | --- | --- |
+| `Build14SharedCalendarAndDeleteFixTests.testReceiptToExpenseUsesOnlyOnDeviceRecognition` | `ReceiptTextRecognizer.swift` の説明のコメントに `VNRecognizeTextRequest` という型の名前が入っていて、テストが「レシート側が文字認識を別に作っている」と判断した（実装は正しく、`WarrantyTextRecognizer.recognizeLines` だけを使っている） | コメントを「端末内の Apple Vision で読み取る」に変えた。テストはそのまま（削除・スキップ・弱めていない）。実装も変えていない |
+| `Build18ReceiptToBudgetTests.testStoreNameCandidate` | 「店名：まちの八百屋」が「レシート」になった。`ReceiptFieldExtractor.isStoreName` の「数字ばかりの行は店名にしない」の判定が `Character.isNumber` を使っていて、漢数字の「八」「百」も数字として数えた（6文字中2文字＝30%超で除外） | 数えるのを **半角の 0〜9 だけ** にした（全角の数字は normalize で半角になってから数える）。「八百屋」「三越」などの漢数字の店名を除外しない。電話番号・郵便番号・登録番号・レシート番号などの除外はそのまま |
+
+追加したテスト（1件）：`Build18ReceiptToBudgetTests.testKanjiNumeralStoreNamesAndNumberLines`
+
+- 「店名：まちの八百屋」→「まちの八百屋」
+- 「三越 日本橋店」「八百八町そば」を店名として扱える
+- 半角の数字ばかりの番号の行は、引き続き店名にしない
+- 全角の電話番号も、半角にしてから店名から除く（「ＴＥＬ」付き・無しの両方）
+- 郵便番号・登録番号・レシート番号の行も除く
+
+変更したファイル：`LifeOS/Core/Utilities/ReceiptTextRecognizer.swift`（コメントだけ）、`LifeOS/Core/Utilities/ReceiptFieldExtractor.swift`（数字の数え方）、`LifeOSTests/Build18ReceiptToBudgetTests.swift`（1件追加）、この文書。Build 18・Version 1.0 のまま。Firebase・Rules・Functions・索引・Hosting は変更なし。
+
+| テスト | 件数 | この作業環境 | 結果 |
+| --- | --- | --- | --- |
+| サーバーの単体テスト | 91 | 再実行した（Node） | **91件成功・失敗0・スキップ0** |
+| Rules・Functions・アカウント削除 | 93・46・26 | 実行できなかった | **未実行**（変更なし） |
+| Swift（Xcode） | **571**（570＋1） | 実行できなかった（Xcode が無い） | **未実行・未確認**（全 Swift ファイルの簡易の字句チェックだけ実行。問題なし） |
+| Release ビルド | — | 実行できなかった | **未確認** |
+
+- 注意：Build 18 は、この2件の失敗が分かる前に main へ取り込み済み（`49c2b86`）。この修正は作業ブランチだけにあり、**main にはまだ入っていない**
+
 ## 11. Mac での確認（池上さん）
 
 1. `firebase/functions` で `npm test`（目安：単体 91・Rules 93・Functions 46・アカウント削除 26、合計 256）

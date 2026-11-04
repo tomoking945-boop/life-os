@@ -33,7 +33,7 @@ protocol ReceiptTextRecognizing {
     func recognizeLines(in imageData: Data) async throws -> [String]
 }
 
-/// レシートの写真の文字を、端末内の Apple Vision（VNRecognizeTextRequest）で読み取る（Build 18）。
+/// レシートの写真の文字を、端末内の Apple Vision で読み取る（Build 18）。
 ///
 /// - 文字認識は保証書と同じ `WarrantyTextRecognizer` を使う（端末内。外部へ画像も文字も送らない）
 /// - 写真は1枚だけ。25MB まで、HEIC・JPEG・PNG だけ

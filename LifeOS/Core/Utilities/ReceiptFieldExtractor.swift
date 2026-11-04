@@ -253,8 +253,10 @@ enum ReceiptFieldExtractor {
         guard text.count >= 2, text.count <= 60 else { return false }
         let upper = text.uppercased()
         guard !containsAny(upper, notStoreName) else { return false }
-        // 電話番号・郵便番号・番号ばかりの行は店名にしない
-        let digits = text.filter(\.isNumber).count
+        // 電話番号・郵便番号・番号ばかりの行は店名にしない。
+        // 数えるのは半角の 0〜9 だけ（全角の数字は normalize で半角になっている）。
+        // 「八百屋」「三越」などの漢数字は数字として数えない（Character.isNumber は漢数字も数字とするため使わない）
+        let digits = text.unicodeScalars.filter { (48...57).contains($0.value) }.count
         guard Double(digits) / Double(text.count) <= 0.3 else { return false }
         guard text.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 2 else { return false }
         // 住所

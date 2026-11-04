@@ -216,6 +216,26 @@ final class Build18ReceiptFieldTests: XCTestCase {
         }
     }
 
+    /// 11（追加。2026-11-04）：漢数字を含む店名は店名として扱う。数字ばかりの行（半角・全角）は店名にしない。
+    /// Build 18 の Xcode のテストで、「八」「百」を数字として数えて「まちの八百屋」が「レシート」になっていたため
+    func testKanjiNumeralStoreNamesAndNumberLines() {
+        XCTAssertEqual(extract(["店名：まちの八百屋", "合計 300"]).title, "まちの八百屋")
+        XCTAssertEqual(extract(["三越 日本橋店", "合計 5,000"]).title, "三越 日本橋店")
+        XCTAssertEqual(extract(["八百八町そば", "合計 900"]).title, "八百八町そば")
+        // 半角の数字ばかりの番号の行は、店名にしない（次の行の店名を使う）
+        XCTAssertEqual(extract(["0012345678", "まちの八百屋"]).title, "まちの八百屋")
+        XCTAssertFalse(extract(["12345678"]).isTitleFromReceipt)
+        XCTAssertFalse(extract(["0012-3456-78 R01"]).isTitleFromReceipt)
+        // 全角の電話番号も、半角にしてから店名から除く
+        XCTAssertFalse(extract(["０３－１２３４－５６７８"]).isTitleFromReceipt)
+        XCTAssertFalse(extract(["ＴＥＬ ０３－１２３４－５６７８"]).isTitleFromReceipt)
+        XCTAssertEqual(extract(["０６－１１１１－２２２２", "まちの八百屋"]).title, "まちの八百屋")
+        // 郵便番号・登録番号・レシート番号の行も今までどおり除く
+        XCTAssertFalse(extract(["〒160-0023"]).isTitleFromReceipt)
+        XCTAssertFalse(extract(["T1234567890123"]).isTitleFromReceipt)
+        XCTAssertFalse(extract(["レシートNo.0012"]).isTitleFromReceipt)
+    }
+
     /// 12：店名が無ければ「レシート」
     func testFallbackTitleIsReceipt() {
         let proposal = extract(["2026/11/02", "合計 500"])
