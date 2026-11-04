@@ -324,11 +324,12 @@ struct TodayView: View {
                         .frame(width: LifeSpacing.timelineNumeralWidth, alignment: .leading)
                         .accessibilityHidden(true)
                 }
+                // Build 19：予定は「自分／パートナー／共有」と登録した人の色（カレンダーと同じ意味）
                 LifeTaskRow(
                     title: item.title,
-                    detail: viewModel.timelineDetail(for: item),
+                    detail: viewModel.registrantDetail(viewModel.timelineDetail(for: item), for: item),
                     isCompleted: item.isCompleted,
-                    tint: item.kind.tint,
+                    tint: viewModel.registrant(for: item)?.tint ?? item.kind.tint,
                     isShared: viewModel.isShared(item),
                     onLater: { viewModel.startPostponing(item) }
                 ) {
@@ -342,9 +343,9 @@ struct TodayView: View {
     private func taskRow(_ item: LifeItem) -> some View {
         LifeTaskRow(
             title: item.title,
-            detail: viewModel.detailText(for: item),
+            detail: viewModel.registrantDetail(viewModel.detailText(for: item), for: item),
             isCompleted: item.isCompleted,
-            tint: item.kind.tint,
+            tint: viewModel.registrant(for: item)?.tint ?? item.kind.tint,
             isShared: viewModel.isShared(item),
             onLater: { viewModel.startPostponing(item) }
         ) {

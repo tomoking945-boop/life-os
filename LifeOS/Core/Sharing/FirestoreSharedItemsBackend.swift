@@ -36,11 +36,19 @@ final class FirestoreSharedItemsBackend: SharedItemsBackend {
                 return
             }
             guard let snapshot else { return }
+            // 登録した人（Build 19）：createdBy とサインインしている本人の UID を比べて「自分／パートナー／不明」にするだけ。
+            // UID は画面・ログ・端末の保存へ渡さない
+            let currentUID = Auth.auth().currentUser?.uid
             let result = snapshot.documents.compactMap { document -> SharedItemSnapshot? in
-                guard let item = SharedItemPayload.item(documentID: document.documentID, data: Self.plain(document.data())) else {
+                let data = document.data()
+                guard let item = SharedItemPayload.item(documentID: document.documentID, data: Self.plain(data)) else {
                     return nil
                 }
-                return SharedItemSnapshot(item: item, isConfirmed: !document.metadata.hasPendingWrites)
+                return SharedItemSnapshot(
+                    item: item,
+                    isConfirmed: !document.metadata.hasPendingWrites,
+                    registrant: ItemRegistrant.from(createdBy: data["createdBy"], currentUID: currentUID)
+                )
             }
             onChange(result)
         }

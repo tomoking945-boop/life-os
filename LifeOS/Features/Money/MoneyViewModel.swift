@@ -20,6 +20,9 @@ struct ExpenseDraft: Equatable, Identifiable {
     var receiptNotes: [String] = []
     /// レシートから作った下書きか（Build 18）
     private(set) var isFromReceipt = false
+    /// レシートで見つけた店名の候補（Build 19。最大5件）。確認画面で選ぶための一時的な候補。
+    /// 保存しない（保存するのはタイトル欄の1つだけ）。確認画面を閉じたら下書きごと手放す
+    private(set) var storeCandidates: [String] = []
 
     /// 新しい支出（保存先の初期値は「自分だけ」。入力の内容から共有を選ばない）
     init(newOn date: Date) {
@@ -40,6 +43,7 @@ struct ExpenseDraft: Equatable, Identifiable {
         isFromReceipt = true
         if let proposal {
             title = proposal.title
+            storeCandidates = Array(proposal.storeCandidates.prefix(ReceiptFieldExtractor.maxStoreCandidates))
             amountText = proposal.amount.map { String($0) } ?? ""
             category = proposal.category
             date = LifeCalendar.startOfDay(proposal.date)
@@ -48,6 +52,17 @@ struct ExpenseDraft: Equatable, Identifiable {
             title = ReceiptFieldExtractor.fallbackTitle
             receiptNotes = [failure ?? ReceiptImageError.unreadable.message]
         }
+    }
+
+    /// 店名の候補を選ぶ（Build 19）：タイトル欄へ入れる。候補に無い名前は入れない（手入力はタイトル欄で）
+    mutating func selectStoreCandidate(_ name: String) {
+        guard storeCandidates.contains(name) else { return }
+        title = name
+    }
+
+    /// 選ばれている候補（タイトル欄が候補と同じとき）
+    func isSelectedStoreCandidate(_ name: String) -> Bool {
+        trimmedTitle == name
     }
 
     /// 今ある支出の編集

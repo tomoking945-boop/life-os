@@ -180,7 +180,8 @@ struct CalendarView: View {
     private func dayCell(_ date: Date) -> some View {
         let isSelected = viewModel.isSelected(date)
         let isToday = viewModel.isToday(date)
-        let markerKinds = viewModel.markerKinds(on: date)
+        // Build 19：予定は登録した人の色（自分・パートナー・不明）、ほかはカテゴリー色。同じ色は1つ、最大3つ
+        let markers = viewModel.dayMarkers(on: date)
 
         return Button {
             withLifeAnimation(LifeMotion.quick, reduceMotion: reduceMotion) {
@@ -200,11 +201,11 @@ struct CalendarView: View {
                             Circle().stroke(LifeColors.accent, lineWidth: LifeSpacing.timelineLine)
                         }
                     }
-                // その日の項目の種類をカテゴリー色の小さな点で（数は読み上げのラベルで伝える）
+                // その日の項目を小さな点で（数は読み上げのラベルで伝える）
                 HStack(spacing: LifeSpacing.calendarDotGap) {
-                    ForEach(markerKinds, id: \.self) { kind in
+                    ForEach(markers, id: \.self) { marker in
                         Circle()
-                            .fill(kind.tint)
+                            .fill(marker.tint)
                             .frame(width: LifeSpacing.calendarDotDiameter, height: LifeSpacing.calendarDotDiameter)
                     }
                 }
@@ -277,7 +278,9 @@ struct CalendarView: View {
                             CalendarEventRow(
                                 time: viewModel.timeText(for: item),
                                 title: item.title,
-                                detail: viewModel.detailText(for: item)
+                                detail: viewModel.detailText(for: item),
+                                registrant: viewModel.registrant(for: item),
+                                isShared: viewModel.isShared(item)
                             )
                             CalendarEventEditButton(title: item.title) {
                                 viewModel.startEditingEvent(item)
@@ -289,7 +292,9 @@ struct CalendarView: View {
                             CalendarEventRow(
                                 time: viewModel.timeText(for: item),
                                 title: item.title,
-                                detail: viewModel.detailText(for: item)
+                                detail: viewModel.detailText(for: item),
+                                registrant: viewModel.registrant(for: item),
+                                isShared: viewModel.isShared(item)
                             )
                         }
                     }
@@ -350,28 +355,77 @@ struct CalendarEventDeleteButton: View {
 }
 
 /// 予定の行（チェックなし・時刻付き）。時刻はセリフ体（タイムラインの時刻と同じ）。
+/// Build 19：左に登録した人の色の点、補足の行に「自分／パートナー／共有」（色だけに頼らない）。共有マークも出す
 struct CalendarEventRow: View {
     let time: String?
     let title: String
     let detail: String
+    /// 最初に登録した人（nil なら出さない）
+    var registrant: ItemRegistrant? = nil
+    /// わが家で共有している予定か（共有マーク）
+    var isShared = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.sm) {
+            if let registrant {
+                Circle()
+                    .fill(registrant.tint)
+                    .frame(width: LifeSpacing.calendarDotDiameter * 2, height: LifeSpacing.calendarDotDiameter * 2)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[VerticalAlignment.center] + 4 }
+                    .accessibilityHidden(true)
+            }
             Text(time ?? "終日")
                 .font(LifeTypography.timelineTime)
                 .foregroundStyle(LifeColors.text)
             VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
-                Text(title)
-                    .font(LifeTypography.body)
-                    .foregroundStyle(LifeColors.text)
-                Text(detail)
-                    .font(LifeTypography.footnote)
-                    .foregroundStyle(LifeColors.secondaryText)
+                HStack(spacing: LifeSpacing.xs) {
+                    Text(title)
+                        .font(LifeTypography.body)
+                        .foregroundStyle(LifeColors.text)
+                    if isShared {
+                        HouseholdSharedMark()
+                    }
+                }
+                HStack(spacing: LifeSpacing.xs) {
+                    if let registrant {
+                        CalendarRegistrantBadge(registrant: registrant)
+                    }
+                    Text(detail)
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                }
             }
             Spacer(minLength: 0)
         }
         .frame(minHeight: LifeSpacing.minTapTarget)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// 予定を登録した人の小さな印（Build 19）：「自分／パートナー／共有」の文字＋その人の色の枠。
+/// 文字は本文の色で読みやすくし、色は枠と点だけに使う。VoiceOver は「自分が登録した予定」などと読む
+struct CalendarRegistrantBadge: View {
+    let registrant: ItemRegistrant
+
+    var body: some View {
+        Text(registrant.label)
+            .font(LifeTypography.caption)
+            .foregroundStyle(LifeColors.text)
+            .padding(.horizontal, LifeSpacing.xs)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(registrant.tint.opacity(0.22)))
+            .overlay(Capsule().stroke(registrant.tint, lineWidth: 1))
+            .accessibilityLabel(registrant.spokenLabel)
+    }
+}
+
+extension CalendarDayMarker {
+    /// 点の色（予定は登録した人、ほかはカテゴリー）
+    var tint: Color {
+        switch self {
+        case .registrant(let registrant): return registrant.tint
+        case .kind(let kind): return kind.tint
+        }
     }
 }
 

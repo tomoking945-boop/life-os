@@ -315,6 +315,41 @@ struct ExpenseEditorSheet: View {
                     }
                 }
 
+                // 店名の候補（Build 19）。レシートから開いたときだけ。タップでタイトル欄へ入れる
+                if draft.isFromReceipt, !draft.storeCandidates.isEmpty {
+                    Section {
+                        ForEach(draft.storeCandidates, id: \.self) { candidate in
+                            Button {
+                                draft.selectStoreCandidate(candidate)
+                            } label: {
+                                HStack(spacing: LifeSpacing.sm) {
+                                    Text(candidate)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .foregroundStyle(LifeColors.text)
+                                    Spacer(minLength: LifeSpacing.xs)
+                                    if draft.isSelectedStoreCandidate(candidate) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(LifeColors.primary)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .frame(minHeight: LifeSpacing.minTapTarget)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            // 省略して表示しても、VoiceOver は全文を読む
+                            .accessibilityLabel(candidate)
+                            .accessibilityHint("タイトルにします")
+                            .accessibilityAddTraits(draft.isSelectedStoreCandidate(candidate) ? [.isSelected] : [])
+                        }
+                    } header: {
+                        Text("店名候補")
+                    } footer: {
+                        Text("候補を選ぶか、上のタイトル欄に入力できます。")
+                    }
+                }
+
                 // レシートから作った候補（Build 18）。保存するまで家計簿には入らない
                 if draft.isFromReceipt {
                     Section {

@@ -29,6 +29,9 @@ struct ReceiptExtractionProposal: Equatable {
     var date: Date
     /// カテゴリー（確かな手掛かりが無ければ「その他」）
     var category: ExpenseCategory
+    /// 店名の候補（Build 19。上から順に最大5件・重複なし。最初の候補が title）。
+    /// 確認画面で選ぶための一時的な候補。保存・送信しない（確認画面を閉じたら手放す）
+    var storeCandidates: [String] = []
     /// 店名をレシートから読み取れたか
     var isTitleFromReceipt: Bool
     /// 日付をレシートから読み取れたか
@@ -65,12 +68,14 @@ enum ReceiptFieldExtractor {
         let normalized = lines.map(normalize).filter { !$0.isEmpty }
         let (amount, issue) = totalAmount(in: normalized)
         let foundDate = purchaseDate(in: normalized, calendar: calendar)
-        let foundTitle = storeName(in: normalized)
+        let candidates = storeNames(in: normalized)
+        let foundTitle = candidates.first
         return ReceiptExtractionProposal(
             title: foundTitle ?? fallbackTitle,
             amount: amount,
             date: foundDate ?? LifeCalendar.startOfDay(today),
             category: category(in: normalized, storeName: foundTitle),
+            storeCandidates: candidates,
             isTitleFromReceipt: foundTitle != nil,
             isDateFromReceipt: foundDate != nil,
             amountIssue: amount == nil ? (issue ?? .notFound) : nil
@@ -221,32 +226,54 @@ enum ReceiptFieldExtractor {
 
     // MARK: - 店名
 
-    /// 店名にしない行の言葉
+    /// 店名にしない行の言葉（Build 19：番号・伝票・取引・合計・小計・税・商品の行も除く）
     private static let notStoreName = [
         "TEL", "電話", "FAX", "〒", "住所", "登録番号", "登録NO", "インボイス", "適格",
         "ありがとう", "いらっしゃいませ", "ようこそ", "ご来店", "毎度", "お待ちして", "またのお越し",
         "領収", "レシート", "RECEIPT", "明細", "お客様", "控え", "営業時間", "年中無休", "定休",
-        "WWW", "HTTP", ".COM", ".JP", "アプリ", "公式", "ポイント", "担当", "レジ", "責任者", "NO.", "#"
+        "WWW", "HTTP", ".COM", ".JP", "アプリ", "公式", "ポイント", "担当", "レジ", "責任者", "NO.", "#",
+        "番号", "伝票", "取引", "合計", "小計", "税", "商品", "点数"
     ]
 
-    /// 店名（上の方の行から）。決められなければ nil
+    /// 店名の候補の最大の数（Build 19）
+    static let maxStoreCandidates = 5
+    /// 店名を探す行の範囲（レシートの上の方）
+    static let storeSearchLines = 10
+
+    /// 店名（いちばん確からしい候補＝上から最初の候補）。決められなければ nil
     static func storeName(in lines: [String]) -> String? {
-        for line in lines.prefix(8) {
-            let upper = line.uppercased()
-            // 日付・合計の行より下は店名を探さない
-            if !WarrantyFieldExtractor.dates(in: line).isEmpty
-                || longestLabel(in: upper, Labels.strongTotals + Labels.totals) != nil
-                || line.contains("¥") {
-                break
-            }
+        storeNames(in: lines).first
+    }
+
+    /// 店名の候補（Build 19）。レシートの上の方から、上から下の順に最大5件。同じ候補は1つだけ。
+    /// 日付・合計・金額・商品の明細の行より下は探さない。電話番号・郵便番号・住所・登録番号・
+    /// レシート番号・レジ番号・時刻・URL・あいさつ・合計・小計・税・商品の明細は候補にしない
+    static func storeNames(in lines: [String]) -> [String] {
+        var results: [String] = []
+        for line in lines.prefix(storeSearchLines) {
+            if isHeaderBoundary(line) { break }
             let candidate = line
                 .replacingOccurrences(of: #"^(店名|店舗名|店舗)\s*[:：]?\s*"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "*=-_~・|<>[]【】「」 ").union(.whitespaces))
-            if isStoreName(candidate) {
-                return String(candidate.prefix(maxTitleLength))
-            }
+            guard isStoreName(candidate) else { continue }
+            let name = String(candidate.prefix(maxTitleLength))
+            guard !results.contains(name) else { continue }
+            results.append(name)
+            if results.count == maxStoreCandidates { break }
         }
-        return nil
+        return results
+    }
+
+    /// レシートの上の部分（お店の情報）の終わりか：日付・合計の見出し・金額・商品の明細の行
+    private static func isHeaderBoundary(_ line: String) -> Bool {
+        let upper = line.uppercased()
+        if !WarrantyFieldExtractor.dates(in: line).isEmpty { return true }
+        if longestLabel(in: upper, Labels.strongTotals + Labels.totals) != nil { return true }
+        if line.contains("¥") { return true }
+        // 商品の明細（「牛乳 198」「牛乳 1,980円」「パン 2点」「@100」「×2」など）
+        if line.range(of: #"\S\s+(\d{1,3}(,\d{3})+|\d{2,})\s*円?$"#, options: .regularExpression) != nil { return true }
+        if line.range(of: #"(\d+\s*(点|個)$|@\s*\d|\s[x×]\s*\d)"#, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        return false
     }
 
     private static func isStoreName(_ text: String) -> Bool {
@@ -259,6 +286,8 @@ enum ReceiptFieldExtractor {
         let digits = text.unicodeScalars.filter { (48...57).contains($0.value) }.count
         guard Double(digits) / Double(text.count) <= 0.3 else { return false }
         guard text.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 2 else { return false }
+        // 時刻
+        if text.range(of: #"\d{1,2}:\d{2}"#, options: .regularExpression) != nil { return false }
         // 住所
         if text.range(of: #"(丁目|番地|\d+\s*-\s*\d+)"#, options: .regularExpression) != nil { return false }
         if text.range(of: #"(都|道|府|県).{0,6}(市|区|郡|町|村)"#, options: .regularExpression) != nil { return false }

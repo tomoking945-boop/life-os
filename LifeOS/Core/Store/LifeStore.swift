@@ -72,6 +72,8 @@ final class LifeStore {
     @ObservationIgnored private var personalConversionDeletesSent: Set<LifeItem.ID> = []
     /// いちばん最近届いた共有の一覧にあった UUID（画面に出さないものも含む）
     @ObservationIgnored private var lastHouseholdSnapshotIDs: Set<LifeItem.ID> = []
+    /// 共有項目を最初に登録した人（Build 19。起動中だけ。UID は持たない。life-store.json には保存しない）
+    private(set) var householdRegistrants: [LifeItem.ID: ItemRegistrant] = [:]
 
     /// 端末内に保存する形
     /// v2 で追加した項目は、以前の保存データには無いため Optional（無ければ Mock の例で始める）
@@ -598,6 +600,14 @@ final class LifeStore {
         return items.filter { !sharedIDs.contains($0.id) } + householdItems
     }
 
+    /// 最初に登録した人（Build 19）。端末の項目（自分だけ）は「自分」。
+    /// 共有の項目は Firestore の createdBy から決めた値（送信待ちの自分の作成は「自分」、分からなければ「不明」）
+    func registrant(of item: LifeItem) -> ItemRegistrant {
+        guard isHouseholdItem(item.id) else { return .me }
+        if let registrant = householdRegistrants[item.id] { return registrant }
+        return pendingHouseholdCreates[item.id] != nil ? .me : .unknown
+    }
+
     /// わが家の共有項目か（共有マークを出す）
     func isHouseholdItem(_ id: LifeItem.ID) -> Bool {
         householdItems.contains { $0.id == id }
@@ -670,6 +680,17 @@ final class LifeStore {
             householdItems = received
             householdUpdateCount += 1
         }
+        // 登録した人（Build 19）。送信待ちの自分の作成は「自分」。同じ内容なら書き込まない（描き直さない）
+        var registrants: [LifeItem.ID: ItemRegistrant] = [:]
+        for snapshot in snapshots where !hidden.contains(snapshot.item.id) {
+            registrants[snapshot.item.id] = snapshot.registrant
+        }
+        for id in pendingHouseholdCreates.keys where registrants[id] == nil || registrants[id] == .unknown {
+            registrants[id] = .me
+        }
+        if registrants != householdRegistrants {
+            householdRegistrants = registrants
+        }
         let confirmed = Set(snapshots.filter(\.isConfirmed).map(\.item.id))
         removeConvertedLocalItems(confirmed)
         // Build 17：前の起動で消せなかった共有の予定がまだサーバーにある：この起動で1回だけ、もう一度消す
@@ -696,6 +717,7 @@ final class LifeStore {
         // 送信待ちの作成の印も外す（結果が届けば、断られたものは householdCreateFailed で自分だけに残る）
         pendingHouseholdCreates = [:]
         lastHouseholdSnapshotIDs = []
+        if !householdRegistrants.isEmpty { householdRegistrants = [:] }
         guard !householdItems.isEmpty else { return }
         householdItems = []
     }

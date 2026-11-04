@@ -82,6 +82,12 @@ struct EventEditSession: Equatable {
     }
 }
 
+/// 日付のマスの下の小さな点（Build 19）。予定は登録した人の色、ほかはカテゴリー色
+enum CalendarDayMarker: Hashable {
+    case registrant(ItemRegistrant)
+    case kind(LifeItemKind)
+}
+
 /// 月表示の1マス（前月分の空白は date が nil）
 struct CalendarDayCell: Identifiable, Hashable {
     let id: Int
@@ -177,6 +183,22 @@ final class CalendarViewModel {
 
     /// 1日に出す点の数の上限
     static let maxMarkerCount = 3
+
+    /// 日付のマスの下の点（Build 19）。予定は登録した人の色（自分・パートナー・不明の順に1つずつ）、
+    /// そのあとに予定以外の種類のカテゴリー色。同じ色は1日に1つ、最大3つ。「すべて／自分／共有」の絞り込みに従う
+    func dayMarkers(on date: Date) -> [CalendarDayMarker] {
+        let items = store.items(on: date, scope: appState.effectiveScope)
+        let registrants = Set(items.filter { $0.kind == .event }.map { store.registrant(of: $0) })
+        let eventMarkers = ItemRegistrant.allCases.filter { registrants.contains($0) }.map(CalendarDayMarker.registrant)
+        let kinds = Set(items.map(\.kind))
+        let kindMarkers = LifeItemKind.allCases.filter { $0 != .event && kinds.contains($0) }.map(CalendarDayMarker.kind)
+        return Array((eventMarkers + kindMarkers).prefix(Self.maxMarkerCount))
+    }
+
+    /// 予定を最初に登録した人（Build 19。予定でなければ nil）。自分だけの予定は「自分」
+    func registrant(for item: LifeItem) -> ItemRegistrant? {
+        item.kind == .event ? store.registrant(of: item) : nil
+    }
 
     /// 選んだ日の大きな見出し（例：10月7日（水））
     var selectedDateHeadline: String { LifeFormatters.headerDate(selectedDate) }

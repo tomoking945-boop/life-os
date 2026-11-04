@@ -66,11 +66,19 @@ final class FakeSharedServer {
         clients.compactMap(\.backend).forEach { $0.emit() }
     }
 
-    fileprivate func confirmedSnapshots() -> [SharedItemSnapshot] {
+    /// サーバーの一覧。Build 19：見ている人（viewer）の UID と作成者（createdBy）を比べて「自分／パートナー／不明」を付ける
+    /// （本物の FirestoreSharedItemsBackend と同じ ItemRegistrant.from を使う）
+    fileprivate func confirmedSnapshots(viewer: String? = nil) -> [SharedItemSnapshot] {
         order.compactMap { id in
-            documents[id].flatMap { SharedItemPayload.item(documentID: id.uuidString, data: $0) }
-                .map { SharedItemSnapshot(item: $0, isConfirmed: true) }
+            guard let data = documents[id], let item = SharedItemPayload.item(documentID: id.uuidString, data: data) else { return nil }
+            return SharedItemSnapshot(item: item, isConfirmed: true, registrant: ItemRegistrant.from(createdBy: data["createdBy"], currentUID: viewer))
         }
+    }
+
+    /// 作成者だけを消す（Build 19：登録した人が分からない古い共有項目の代わり）
+    func removeCreator(of id: UUID) {
+        documents[id]?["createdBy"] = nil
+        broadcast()
     }
 }
 
@@ -162,11 +170,11 @@ final class FakeSharedItemsBackend: SharedItemsBackend {
 
     /// 端末から見える一覧（サーバーの内容＋まだ送っていない自分の作成）
     fileprivate func emit() {
-        var snapshots = server.confirmedSnapshots()
+        var snapshots = server.confirmedSnapshots(viewer: uid)
         for operation in pending {
             guard let local = operation.local, !snapshots.contains(where: { $0.item.id == operation.id }),
                   let item = SharedItemPayload.item(documentID: operation.id.uuidString, data: local) else { continue }
-            snapshots.append(SharedItemSnapshot(item: item, isConfirmed: false))
+            snapshots.append(SharedItemSnapshot(item: item, isConfirmed: false, registrant: ItemRegistrant.from(createdBy: local["createdBy"], currentUID: uid)))
         }
         onChange?(snapshots)
     }

@@ -142,6 +142,46 @@ struct SharedItemSnapshot: Equatable {
     let item: LifeItem
     /// サーバーで保存が確かめられたか（まだ送信待ちの自分の変更なら false）
     let isConfirmed: Bool
+    /// 最初に登録した人（Build 19。Firestore の createdBy から、受け取ったときに「自分／パートナー／不明」へ変えたもの。
+    /// UID そのものは持たない）
+    var registrant: ItemRegistrant = .unknown
+}
+
+/// 予定などを最初に登録した人（Build 19。docs/BUILD_19_RECEIPT_STORE_SELECTION_AND_CALENDAR_COLORS.md）。
+/// 画面の色分けと「自分／パートナー／共有」の表示に使う、起動中だけの情報（UID・メールアドレスは持たない。保存しない）
+enum ItemRegistrant: String, Equatable, Hashable, CaseIterable {
+    /// 自分（自分だけの予定・自分が登録した共有の予定）
+    case me
+    /// パートナー（パートナーが登録した共有の予定）
+    case partner
+    /// 登録した人が分からない共有の予定（古いデータ・サインインの情報が無いとき）
+    case unknown
+
+    /// 行に出す文字（色だけに頼らない）
+    var label: String {
+        switch self {
+        case .me: return "自分"
+        case .partner: return "パートナー"
+        case .unknown: return "共有"
+        }
+    }
+
+    /// VoiceOver で読む文
+    var spokenLabel: String {
+        switch self {
+        case .me: return "自分が登録した予定"
+        case .partner: return "パートナーが登録した予定"
+        case .unknown: return "共有の予定。登録した人は分かりません"
+        }
+    }
+
+    /// Firestore の createdBy と、サインインしている本人の UID から決める（比べるだけ。UID は返さない・保存しない）。
+    /// 最初に登録した人で決まる（あとから編集した人＝updatedBy では変えない）
+    static func from(createdBy: Any?, currentUID: String?) -> ItemRegistrant {
+        guard let creator = createdBy as? String, !creator.isEmpty,
+              let currentUID, !currentUID.isEmpty else { return .unknown }
+        return creator == currentUID ? .me : .partner
+    }
 }
 
 /// 共有項目の読み書きがうまくいかなかった理由（画面にはここの文言だけを出す）

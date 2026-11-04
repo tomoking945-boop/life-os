@@ -201,6 +201,19 @@ final class TodayViewModel {
 
     let focusCompletedMessage = "今日の大事なこと、完了。"
 
+    // MARK: - 予定を登録した人（Build 19）
+
+    /// 予定を最初に登録した人（予定でなければ nil）。カレンダーと同じ決まり（自分だけの予定は「自分」）
+    func registrant(for item: LifeItem) -> ItemRegistrant? {
+        item.kind == .event ? store.registrant(of: item) : nil
+    }
+
+    /// 予定の行の補足の前に「自分／パートナー／共有」を付ける（予定以外はそのまま）
+    func registrantDetail(_ detail: String?, for item: LifeItem) -> String? {
+        guard let registrant = registrant(for: item) else { return detail }
+        return [registrant.label, detail].compactMap { $0 }.joined(separator: "・")
+    }
+
     /// 行の補足（時刻・種類・担当）
     func detailText(for item: LifeItem) -> String? {
         var parts: [String] = []
