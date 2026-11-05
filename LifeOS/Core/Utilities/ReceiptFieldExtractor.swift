@@ -32,6 +32,12 @@ struct ReceiptExtractionProposal: Equatable {
     /// 店名の候補（Build 19。上から順に最大5件・重複なし。最初の候補が title）。
     /// 確認画面で選ぶための一時的な候補。保存・送信しない（確認画面を閉じたら手放す）
     var storeCandidates: [String] = []
+    /// 合計金額の候補（Build 20。順位の高い順に最大5件。小計は「選択非推奨」の参考）。一時的な候補。保存・送信しない
+    var amountCandidates: [ReceiptAmountCandidate] = []
+    /// 商品明細の候補（Build 20。確認用。保存・送信しない）
+    var lineItems: [ReceiptLineItem] = []
+    /// 読み取りの精度が低いかもしれない（文字が少ない・信頼度が低い。Build 20）
+    var isLowQuality = false
     /// 店名をレシートから読み取れたか
     var isTitleFromReceipt: Bool
     /// 日付をレシートから読み取れたか
@@ -42,6 +48,7 @@ struct ReceiptExtractionProposal: Equatable {
     /// 確認画面に出す一言（読み取れなかった項目）
     var notes: [String] {
         var notes: [String] = []
+        if isLowQuality { notes.append(ReceiptReadQuality.lowQualityMessage) }
         if let amountIssue { notes.append(amountIssue.message) }
         if !isDateFromReceipt { notes.append("日付を読み取れなかったため、今日にしました。") }
         if !isTitleFromReceipt { notes.append("お店の名前を読み取れなかったため、「レシート」にしました。") }
@@ -65,25 +72,36 @@ enum ReceiptFieldExtractor {
     static let maxTitleLength = 40
 
     static func extract(from lines: [String], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
-        let normalized = lines.map(normalize).filter { !$0.isEmpty }
-        let (amount, issue) = totalAmount(in: normalized)
-        let foundDate = purchaseDate(in: normalized, calendar: calendar)
-        let candidates = storeNames(in: normalized)
+        extract(from: lines.map { ReceiptRecognizedLine(text: $0) }, today: today, calendar: calendar)
+    }
+
+    static func extract(from lines: [WarrantyRecognizedLine], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
+        extract(from: lines.map { ReceiptRecognizedLine(text: $0.text, confidence: $0.confidence, box: $0.box) }, today: today, calendar: calendar)
+    }
+
+    /// 位置・信頼度つきの行から候補を作る（Build 20）。位置があれば、同じ高さの文字を1行にまとめ、
+    /// 店名・合計の候補の順位付けに位置・文字の大きさ・信頼度を使う。位置が無ければ、上から下の順の行として扱う
+    static func extract(from lines: [ReceiptRecognizedLine], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
+        let rows = ReceiptLayout.rows(from: lines)
+        let texts = rows.map(\.text)
+        let amountCandidates = self.amountCandidates(in: rows)
+        let (amount, issue) = selectedAmount(from: amountCandidates)
+        let foundDate = purchaseDate(in: texts, calendar: calendar)
+        let candidates = storeNames(in: rows)
         let foundTitle = candidates.first
         return ReceiptExtractionProposal(
             title: foundTitle ?? fallbackTitle,
             amount: amount,
             date: foundDate ?? LifeCalendar.startOfDay(today),
-            category: category(in: normalized, storeName: foundTitle),
+            category: category(in: texts, storeName: foundTitle),
             storeCandidates: candidates,
+            amountCandidates: Array(amountCandidates.prefix(maxAmountCandidates)),
+            lineItems: lineItems(in: rows),
+            isLowQuality: ReceiptReadQuality.isLow(lines),
             isTitleFromReceipt: foundTitle != nil,
             isDateFromReceipt: foundDate != nil,
             amountIssue: amount == nil ? (issue ?? .notFound) : nil
         )
-    }
-
-    static func extract(from lines: [WarrantyRecognizedLine], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
-        extract(from: lines.map(\.text), today: today, calendar: calendar)
     }
 
     // MARK: - 文字の整え
@@ -117,41 +135,91 @@ enum ReceiptFieldExtractor {
         ]
     }
 
-    /// 合計金額。決められないときは (nil, 理由)
+    /// 小計の見出し（Build 20：合計にはしないが「小計・選択非推奨」の参考候補にする）
+    static let subtotalLabels = ["小計", "SUBTOTAL", "SUB TOTAL", "SUB-TOTAL"]
+    /// 確認画面に出す合計金額の候補の最大の数（Build 20）
+    static let maxAmountCandidates = 5
+
+    /// 合計金額。決められないときは (nil, 理由)（文字だけの行。Build 20 から候補の順位付けと同じ決まり）
     static func totalAmount(in lines: [String]) -> (Int?, ReceiptAmountIssue?) {
-        var candidates: [(rank: Int, amount: Int)] = []
-        for (index, line) in lines.enumerated() {
-            let upper = line.uppercased()
-            guard !containsAny(upper, Labels.notTotal) else { continue }
-            let rank: Int
+        selectedAmount(from: amountCandidates(in: ReceiptLayout.rows(from: lines.map { ReceiptRecognizedLine(text: $0) })))
+    }
+
+    /// 合計金額の候補（Build 20）。順位の高い順・同じ「金額と見出し」は1つだけ。
+    ///
+    /// - 見出しの行の右側（同じ行）の金額を優先し、無ければ直下の「金額だけの行」を使う
+    /// - 強い見出し（総合計・お支払額など）＞ 合計 ＞ 小計（参考・選択非推奨）の順。同じ強さなら、レシートの下の方・
+    ///   同じ行・信頼度の高いものを上にする
+    /// - お預り・お釣り・税・値引き・点数・ポイント・カード番号・電話番号などの行は候補にしない
+    static func amountCandidates(in rows: [ReceiptRow]) -> [ReceiptAmountCandidate] {
+        var found: [ReceiptAmountCandidate] = []
+        let lastIndex = max(rows.count - 1, 1)
+        for (index, row) in rows.enumerated() {
+            let upper = row.text.uppercased()
+            let kind: ReceiptAmountCandidate.Kind
             let label: String
-            if let strong = longestLabel(in: upper, Labels.strongTotals) {
-                rank = 2
+            // レシートの中で一致した見出し（「SUBTOTAL」など。表示は「小計」にそろえる）
+            let matched: String
+            if let subtotal = matchedLabel(in: upper, subtotalLabels) {
+                // 小計（「対象」「税」など、ほかの合計ではない言葉が一緒なら使わない）
+                let others = Labels.notTotal.filter { !subtotalLabels.contains($0) }
+                guard !containsAny(upper.replacingOccurrences(of: subtotal.uppercased(), with: " "), others) else { continue }
+                kind = .subtotal
+                label = "小計"
+                matched = subtotal
+            } else if containsAny(upper, Labels.notTotal) {
+                continue
+            } else if let strong = matchedLabel(in: upper, Labels.strongTotals) {
+                kind = .strongTotal
                 label = strong
-            } else if let normal = longestLabel(in: upper, Labels.totals) {
-                rank = 1
+                matched = strong
+            } else if let normal = matchedLabel(in: upper, Labels.totals) {
+                kind = .total
                 label = normal
+                matched = normal
             } else {
                 continue
             }
-            guard let range = upper.range(of: label) else { continue }
+            guard let range = upper.range(of: matched.uppercased()) else { continue }
             let offset = upper.distance(from: upper.startIndex, to: range.upperBound)
-            let rest = String(line.dropFirst(offset))
-            if let amount = amounts(in: rest).last {
-                candidates.append((rank, amount))
-            } else if index + 1 < lines.count {
-                // 見出しの次の行が金額だけのとき（「合計」の下に「¥1,080」）
-                let next = lines[index + 1]
-                let nextUpper = next.uppercased()
-                guard !containsAny(nextUpper, Labels.notTotal),
-                      longestLabel(in: nextUpper, Labels.strongTotals + Labels.totals) == nil,
-                      isAmountOnly(next),
-                      let amount = amounts(in: next).last else { continue }
-                candidates.append((rank, amount))
+            let rest = String(row.text.dropFirst(offset))
+            var foundAmount = amounts(in: rest).last
+            var sourceRow = row
+            var isSameRow = true
+            if foundAmount == nil, index + 1 < rows.count {
+                // 見出しの直下の行が金額だけのとき（「合計」の下に「¥1,080」）
+                let next = rows[index + 1]
+                let nextUpper = next.text.uppercased()
+                if !containsAny(nextUpper, Labels.notTotal),
+                   matchedLabel(in: nextUpper, Labels.strongTotals + Labels.totals + subtotalLabels) == nil,
+                   isAmountOnly(next.text),
+                   let value = amounts(in: next.text).last {
+                    foundAmount = value
+                    sourceRow = next
+                    isSameRow = false
+                }
             }
+            guard let amount = foundAmount else { continue }
+            let position = row.box?.midY ?? Double(index) / Double(lastIndex)
+            let confidence = Double(min(row.confidence, sourceRow.confidence))
+            let score = kind.weight + position * 10 + confidence * 3 + (isSameRow ? 2 : 1)
+            found.append(ReceiptAmountCandidate(amount: amount, label: label, kind: kind, score: score))
         }
-        guard let topRank = candidates.map(\.rank).max() else { return (nil, .notFound) }
-        let values = Set(candidates.filter { $0.rank == topRank }.map(\.amount))
+        // 順位の高い順。同じ「金額と見出し」は、順位の高い方だけ
+        var results: [ReceiptAmountCandidate] = []
+        for candidate in found.enumerated().sorted(by: { ($0.element.score, -$0.offset) > ($1.element.score, -$1.offset) }).map(\.element)
+        where !results.contains(where: { $0.id == candidate.id }) {
+            results.append(candidate)
+        }
+        return results
+    }
+
+    /// 自動で金額欄に入れる合計（Build 18 と同じ決まり）。いちばん強い見出しの候補が1つの金額にそろうときだけ。
+    /// 小計は自動で入れない。強い候補で金額が違えば (nil, .ambiguous)、候補が無ければ (nil, .notFound)
+    static func selectedAmount(from candidates: [ReceiptAmountCandidate]) -> (Int?, ReceiptAmountIssue?) {
+        let recommended = candidates.filter(\.isRecommended)
+        guard let topKind = recommended.map(\.kind).max() else { return (nil, .notFound) }
+        let values = Set(recommended.filter { $0.kind == topKind }.map(\.amount))
         // 同じ見出しの強さで違う金額が複数あるときは、決めない（推測した金額を入れない）
         guard values.count == 1, let value = values.first else { return (nil, .ambiguous) }
         return (value, nil)
@@ -232,7 +300,9 @@ enum ReceiptFieldExtractor {
         "ありがとう", "いらっしゃいませ", "ようこそ", "ご来店", "毎度", "お待ちして", "またのお越し",
         "領収", "レシート", "RECEIPT", "明細", "お客様", "控え", "営業時間", "年中無休", "定休",
         "WWW", "HTTP", ".COM", ".JP", "アプリ", "公式", "ポイント", "担当", "レジ", "責任者", "NO.", "#",
-        "番号", "伝票", "取引", "合計", "小計", "税", "商品", "点数"
+        "番号", "伝票", "取引", "合計", "小計", "税", "商品", "点数",
+        // Build 20
+        "お預", "お釣", "おつり", "カード", "CARD", "会員", "支払", "現金", "CASH", "CHANGE"
     ]
 
     /// 店名の候補の最大の数（Build 19）
@@ -240,24 +310,57 @@ enum ReceiptFieldExtractor {
     /// 店名を探す行の範囲（レシートの上の方）
     static let storeSearchLines = 10
 
-    /// 店名（いちばん確からしい候補＝上から最初の候補）。決められなければ nil
+    /// 店名（いちばん確からしい候補）。決められなければ nil
     static func storeName(in lines: [String]) -> String? {
         storeNames(in: lines).first
     }
 
-    /// 店名の候補（Build 19）。レシートの上の方から、上から下の順に最大5件。同じ候補は1つだけ。
-    /// 日付・合計・金額・商品の明細の行より下は探さない。電話番号・郵便番号・住所・登録番号・
-    /// レシート番号・レジ番号・時刻・URL・あいさつ・合計・小計・税・商品の明細は候補にしない
+    /// 店名の候補（Build 19）。レシートの上の方から最大5件。同じ候補は1つだけ
     static func storeNames(in lines: [String]) -> [String] {
-        var results: [String] = []
-        for line in lines.prefix(storeSearchLines) {
-            if isHeaderBoundary(line) { break }
-            let candidate = line
+        storeNames(in: ReceiptLayout.rows(from: lines.map { ReceiptRecognizedLine(text: $0) }))
+    }
+
+    /// 店名らしい言葉（順位を少し上げる。Build 20）
+    static let storeLikeWords = ["店", "屋", "堂", "館", "商店", "薬局", "スーパー", "マート", "ストア", "ドラッグ", "STORE", "SHOP", "MART", "MARKET"]
+
+    /// 店名の候補（Build 19・20）。最大5件・同じ候補は1つだけ。
+    ///
+    /// - 日付・合計・金額・商品の明細の行より下は探さない。電話番号・郵便番号・住所・登録番号・レシート番号・レジ番号・
+    ///   担当・時刻・URL・あいさつ・合計・小計・税・お預り・お釣り・カード・会員・ポイント・商品の明細は候補にしない
+    /// - 位置が分かるとき（Build 20）：上にあるほど・周りより文字が大きいほど・信頼度が高いほど・「店名：」の近く・
+    ///   店名らしい言葉があるほど上の順位。位置が分からないときは、Build 19 と同じく上から下の順
+    static func storeNames(in rows: [ReceiptRow]) -> [String] {
+        let usesLayout = !rows.isEmpty && rows.allSatisfy { $0.box != nil }
+        let heights = rows.compactMap { $0.box?.height }.sorted()
+        let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
+        var scored: [(name: String, score: Double)] = []
+        var afterLabel = false
+        for row in rows.prefix(storeSearchLines) {
+            if isHeaderBoundary(row.text) { break }
+            let hasLabel = row.text.range(of: #"^(店名|店舗名|店舗)\s*[:：]?"#, options: .regularExpression) != nil
+            let candidate = row.text
                 .replacingOccurrences(of: #"^(店名|店舗名|店舗)\s*[:：]?\s*"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "*=-_~・|<>[]【】「」 ").union(.whitespaces))
+            let labelNearby = hasLabel || afterLabel
+            afterLabel = hasLabel && candidate.isEmpty
             guard isStoreName(candidate) else { continue }
             let name = String(candidate.prefix(maxTitleLength))
-            guard !results.contains(name) else { continue }
+            var score = 0.0
+            if usesLayout, let box = row.box {
+                score += (1 - box.midY) * 3
+                if medianHeight > 0 { score += min(box.height / medianHeight, 2) * 2 }
+                score += Double(row.confidence)
+                if labelNearby { score += 2 }
+                if containsAny(name.uppercased(), storeLikeWords) { score += 1 }
+            }
+            scored.append((name, score))
+        }
+        // 位置が分かるときは順位の高い順（同じ点数なら上から）。分からないときは上から下の順のまま
+        let ordered = usesLayout
+            ? scored.enumerated().sorted { ($0.element.score, -$0.offset) > ($1.element.score, -$1.offset) }.map(\.element.name)
+            : scored.map(\.name)
+        var results: [String] = []
+        for name in ordered where !results.contains(name) {
             results.append(name)
             if results.count == maxStoreCandidates { break }
         }
@@ -292,6 +395,136 @@ enum ReceiptFieldExtractor {
         if text.range(of: #"(丁目|番地|\d+\s*-\s*\d+)"#, options: .regularExpression) != nil { return false }
         if text.range(of: #"(都|道|府|県).{0,6}(市|区|郡|町|村)"#, options: .regularExpression) != nil { return false }
         return true
+    }
+
+    // MARK: - 商品明細（Build 20。確認用）
+
+    /// 商品明細の最大の数
+    static let maxLineItems = 50
+
+    /// 明細の終わり（この行から下は商品ではない）：合計・小計・支払いの行
+    private static let lineItemsEnd = [
+        "小計", "SUBTOTAL", "SUB TOTAL", "合計", "お会計", "TOTAL", "総合計", "お買上", "お買い上", "お支払", "ご請求", "請求額", "領収金額",
+        "お預", "預り", "預かり", "お釣", "おつり", "釣銭", "つり銭", "支払", "現金", "CASH", "CHANGE",
+        "クレジット", "電子マネー", "AMOUNT DUE"
+    ]
+
+    /// 商品にしない行の言葉（税・値引き・ポイント・カード・電話・住所・番号・担当・あいさつなど）
+    private static let notLineItem = [
+        "消費税", "内税", "外税", "税率", "税額", "対象", "TAX", "値引", "割引", "DISCOUNT", "クーポン",
+        "ポイント", "POINT", "カード", "CARD", "会員", "TEL", "電話", "FAX", "〒", "住所", "登録", "インボイス",
+        "レジ", "担当", "責任者", "NO.", "番号", "伝票", "取引", "領収", "レシート", "RECEIPT", "明細",
+        "WWW", "HTTP", ".COM", ".JP", "ありがとう", "いらっしゃいませ", "ご来店", "またのお越し", "営業時間",
+        "点数", "個数", "買上点", "ITEM", "QTY"
+    ]
+
+    /// 商品明細の候補（Build 20）。店名・住所・日時より下、小計・合計・支払いより上の行から作る。
+    ///
+    /// - 左の商品名と、同じ行（または直後の行）の右の金額を組み合わせる
+    /// - 数量・単価は「2点」「2個」「2 x 198」「2×198」「@198」「198円×2」「単198」の形のときだけ。読めなければ空
+    /// - 商品名が無く、数量・単価・金額だけの行は、直前の商品の空いている項目に入れる（上書きしない）
+    /// - 金額も単価も無い行は商品にしない。推測で作らない
+    static func lineItems(in rows: [ReceiptRow]) -> [ReceiptLineItem] {
+        var start = 0
+        var end = rows.count
+        for (index, row) in rows.enumerated() where containsAny(row.text.uppercased(), lineItemsEnd) {
+            end = index
+            break
+        }
+        // 日付・時刻の行（お店の情報の終わり）より下から
+        for index in 0..<end where !WarrantyFieldExtractor.dates(in: rows[index].text).isEmpty
+            || rows[index].text.range(of: #"\d{1,2}:\d{2}"#, options: .regularExpression) != nil {
+            start = index + 1
+        }
+        guard start < end else { return [] }
+        var items: [ReceiptLineItem] = []
+        for row in rows[start..<end] {
+            guard let parsed = parseLineItem(row.text) else { continue }
+            if parsed.name.isEmpty {
+                // 商品名の無い行：直前の商品の空いている項目だけを埋める
+                guard var last = items.popLast() else { continue }
+                if last.quantityText.isEmpty, let quantity = parsed.quantity { last.quantityText = String(quantity) }
+                if last.unitPriceText.isEmpty, let unitPrice = parsed.unitPrice { last.unitPriceText = String(unitPrice) }
+                if last.amountText.isEmpty, let amount = parsed.amount { last.amountText = String(amount) }
+                items.append(last)
+            } else {
+                items.append(ReceiptLineItem(name: parsed.name, quantity: parsed.quantity, unitPrice: parsed.unitPrice, amount: parsed.amount))
+            }
+        }
+        return Array(items.filter { $0.amount != nil || $0.unitPrice != nil }.prefix(maxLineItems))
+    }
+
+    /// 1行を「商品名・数量・単価・金額」に分ける。商品の行ではなければ nil
+    static func parseLineItem(_ text: String) -> (name: String, quantity: Int?, unitPrice: Int?, amount: Int?)? {
+        let upper = text.uppercased()
+        guard !containsAny(upper, notLineItem) else { return nil }
+        // 日付・時刻・電話番号・住所の行は商品にしない
+        if !WarrantyFieldExtractor.dates(in: text).isEmpty { return nil }
+        if text.range(of: #"\d{1,2}:\d{2}"#, options: .regularExpression) != nil { return nil }
+        if text.range(of: #"(丁目|番地|(都|道|府|県).{0,6}(市|区|郡|町|村))"#, options: .regularExpression) != nil { return nil }
+        var rest = text
+        var quantity: Int?
+        var unitPrice: Int?
+        let number = #"(¥?\s*\d{1,3}(?:,\d{3})+\s*円?|¥?\s*\d+\s*円?)"#
+        // 「2 x 198」「2×198」「198円×2」「¥198×2」
+        if let match = firstMatch(number + #"\s*(?:点|個|コ)?\s*[x×X＊]\s*"# + number, in: rest) {
+            let left = match.groups[0], right = match.groups[1]
+            let leftValue = ReceiptLineItem.number(from: left, max: SharedExpensePayload.maxAmount)
+            let rightValue = ReceiptLineItem.number(from: right, max: SharedExpensePayload.maxAmount)
+            let leftIsMoney = left.contains("¥") || left.contains("円")
+            let rightIsMoney = right.contains("¥") || right.contains("円")
+            if leftIsMoney, !rightIsMoney {
+                (unitPrice, quantity) = (leftValue, rightValue.flatMap { $0 <= 999 ? $0 : nil })
+            } else if rightIsMoney, !leftIsMoney {
+                (quantity, unitPrice) = (leftValue.flatMap { $0 <= 999 ? $0 : nil }, rightValue)
+            } else if let leftValue, leftValue <= 99 {
+                (quantity, unitPrice) = (leftValue, rightValue)
+            } else if let rightValue, rightValue <= 99 {
+                (unitPrice, quantity) = (leftValue, rightValue)
+            }
+            if quantity != nil || unitPrice != nil { rest = match.removed }
+        }
+        // 「@198」「単198」「単価198」
+        if unitPrice == nil, let match = firstMatch(#"(?:@|単価|単)\s*"# + number, in: rest) {
+            unitPrice = ReceiptLineItem.number(from: match.groups[0], max: SharedExpensePayload.maxAmount)
+            rest = match.removed
+        }
+        // 「2点」「2個」「2コ」（「6枚切」「3個入」は商品名の一部）
+        if quantity == nil, let match = firstMatch(#"(?<![\d,])(\d{1,3})\s*(?:点|個|コ)(?![入切])"#, in: rest) {
+            quantity = Int(match.groups[0])
+            rest = match.removed
+        }
+        // 右端の金額（空白か「¥」のあと。末尾の「※」「*」「軽」「外」「内」は税の印）
+        var amount: Int?
+        if let match = firstMatch(#"(?:^|\s|(?=¥))(¥?\s*\d{1,3}(?:,\d{3})+|¥?\s*\d+)\s*円?-?\s*[※*★軽外内非]*\s*$"#, in: rest) {
+            if let value = amounts(in: match.groups[0]).last {
+                amount = value
+                rest = match.removed
+            }
+        }
+        // 商品名：先頭の商品コード（4桁以上の数字）と印を取る
+        let name = rest
+            .replacingOccurrences(of: #"^\s*\d{4,}\s+"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "※*★・-_=|:：@×").union(.whitespaces))
+        let letters = name.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
+        if letters == 0 {
+            // 記号・数字だけの行は、数量・単価・金額があるときだけ（直前の商品の続き）
+            guard quantity != nil || unitPrice != nil || amount != nil else { return nil }
+            return ("", quantity, unitPrice, amount)
+        }
+        return (String(name.prefix(maxTitleLength)), quantity, unitPrice, amount)
+    }
+
+    /// 最初の一致（かっこの中身と、一致した部分を空白に置き換えた文字）
+    private static func firstMatch(_ pattern: String, in text: String) -> (groups: [String], removed: String)? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let nsText = text as NSString
+        guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: nsText.length)) else { return nil }
+        let groups = (1..<match.numberOfRanges).map { index -> String in
+            let range = match.range(at: index)
+            return range.location == NSNotFound ? "" : nsText.substring(with: range)
+        }
+        return (groups, nsText.replacingCharacters(in: match.range, with: " "))
     }
 
     // MARK: - カテゴリー
@@ -333,6 +566,11 @@ enum ReceiptFieldExtractor {
 
     private static func containsAny(_ upper: String, _ words: [String]) -> Bool {
         words.contains { upper.contains($0.uppercased()) }
+    }
+
+    /// いちばん長く一致した見出し（元の書き方のまま返す。Build 20）
+    private static func matchedLabel(in upper: String, _ labels: [String]) -> String? {
+        labels.sorted { $0.count > $1.count }.first { upper.contains($0.uppercased()) }
     }
 
     /// いちばん長く一致した見出し（「総合計」を「合計」より優先）

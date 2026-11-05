@@ -45,6 +45,7 @@
 - [予定の編集で保存先（自分だけ／わが家で共有）を変える（Build 17）](docs/BUILD_17_EVENT_DESTINATION_SWITCH.md)
 - [レシートを読み取って家計簿に入れる（Build 18）](docs/BUILD_18_RECEIPT_TO_BUDGET.md)
 - [レシートの店名候補を選ぶ・予定を登録した人の色で表示する（Build 19）](docs/BUILD_19_RECEIPT_STORE_SELECTION_AND_CALENDAR_COLORS.md)
+- [レシートの店名・合計金額の読み取り精度の改善と商品明細（確認用）（Build 20）](docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md)
 
 ## UIプロトタイプの動かし方
 

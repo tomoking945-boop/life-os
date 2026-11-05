@@ -453,9 +453,12 @@ final class Build18ReceiptFlowTests: XCTestCase {
         setup.viewModel.readReceipt(receiptImage, contentType: .png)
         await setup.viewModel.waitForReceiptReading()
         let draft = try XCTUnwrap(setup.viewModel.draft)
-        // 下書きに入るのは4つの候補と一言だけ（全文は持たない）
+        // 下書きに入るのは4つの候補と一言だけ（全文は持たない）。
+        // Build 20（2026-11-05）：確認用の商品明細（「食パン」など）は、確認画面のあいだだけ下書きに持つ仕様になったため、
+        // 下書きの確認から「食パン」を外した（保存しないことは、下の端末のファイルの確認と
+        // Build20ReceiptAccuracyAndLineItemPreviewTests の 29〜31 で確かめる）。docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md
         let draftText = Mirror(reflecting: draft).children.map { "\($0.value)" }.joined(separator: "\n")
-        for ocrOnly in ["いらっしゃいませ", "03-1234-5678", "T1234567890123", "お預り", "お釣り", "食パン"] {
+        for ocrOnly in ["いらっしゃいませ", "03-1234-5678", "T1234567890123", "お預り", "お釣り"] {
             XCTAssertFalse(draftText.contains(ocrOnly), ocrOnly)
         }
         XCTAssertTrue(setup.viewModel.save(draft))

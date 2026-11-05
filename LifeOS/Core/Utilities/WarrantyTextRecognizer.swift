@@ -59,7 +59,13 @@ enum WarrantyTextRecognizer {
         }
         return sorted.compactMap { observation in
             guard let candidate = observation.topCandidates(1).first else { return nil }
-            return WarrantyRecognizedLine(text: candidate.string, confidence: candidate.confidence)
+            // Build 20：位置も返す（Vision は左下が原点なので、左上が原点の値にする）。保証書の読み取りは使わない
+            let box = observation.boundingBox
+            return WarrantyRecognizedLine(
+                text: candidate.string,
+                confidence: candidate.confidence,
+                box: RecognizedTextBox(x: Double(box.minX), y: Double(1 - box.maxY), width: Double(box.width), height: Double(box.height))
+            )
         }
     }
 

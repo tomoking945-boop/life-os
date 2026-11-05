@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// Build 13（2026-11-01）：支出の追加・編集・削除、「すべて／自分／共有」、表示している範囲の今月の合計とカテゴリーの合計。
 /// Build 18（2026-11-02）：「レシートを読み取る」。カメラで撮る・写真から選ぶ → この iPhone の中で読み取る →
 /// 候補を入れた支出の追加画面で確認・修正 → 「保存」を押したときだけ支出になる（docs/BUILD_18_RECEIPT_TO_BUDGET.md）
+/// Build 20：カメラは、使えるときは iOS の書類スキャン（輪郭の検出・傾きの補正・切り抜き）。使えないときは今までのカメラ。
+/// 合計金額の候補・商品明細（確認用）を確認画面に出す（docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md）
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -16,6 +18,12 @@ struct MoneyView: View {
     /// 写真から選ぶ（1枚だけ）
     @State private var isShowingReceiptPhotoPicker = false
     @State private var receiptPhotoItem: PhotosPickerItem?
+    /// 書類スキャン（Build 20）
+    @State private var isShowingReceiptScanner = false
+    /// 書類スキャンで撮ったレシート（画面が閉じてから読み取りへ渡し、すぐに手放す）
+    @State private var scannedReceipt: CapturedReceipt?
+    /// 書類スキャンが失敗した（閉じたら今までのカメラを開く）
+    @State private var receiptScannerFailed = false
 
     private struct CapturedReceipt {
         let data: Data
@@ -69,7 +77,7 @@ struct MoneyView: View {
             isPresented: $viewModel.isChoosingReceiptSource,
             titleVisibility: .visible
         ) {
-            Button("カメラで撮る") { isShowingReceiptCamera = true }
+            Button("カメラで撮る") { startReceiptCamera() }
             Button("写真から選ぶ") { isShowingReceiptPhotoPicker = true }
             Button("キャンセル", role: .cancel) {}
         } message: {
@@ -80,6 +88,21 @@ struct MoneyView: View {
             WarrantyCameraView(guide: WarrantyCameraView.receiptGuide) { data, type in
                 capturedReceipt = CapturedReceipt(data: data, type: type)
             }
+        }
+        // 書類スキャン（Build 20）。結果は1回だけ受け取り、画面が閉じてから読み取りへ渡す
+        .fullScreenCover(isPresented: $isShowingReceiptScanner, onDismiss: finishReceiptScanner) {
+            ReceiptDocumentScannerView { outcome in
+                switch outcome {
+                case .scanned(let data):
+                    scannedReceipt = CapturedReceipt(data: data, type: .jpeg)
+                case .failed:
+                    receiptScannerFailed = true
+                case .cancelled:
+                    break
+                }
+                isShowingReceiptScanner = false
+            }
+            .ignoresSafeArea()
         }
         .photosPicker(
             isPresented: $isShowingReceiptPhotoPicker,
@@ -144,6 +167,32 @@ struct MoneyView: View {
             .lifeSurface(.floating, cornerRadius: LifeRadius.band)
             .padding(LifeSpacing.screenHorizontal)
             .accessibilityElement(children: .contain)
+        }
+    }
+
+    /// 「カメラで撮る」（Build 20）：書類スキャンを使えれば書類スキャン、使えなければ今までのカメラ
+    private func startReceiptCamera() {
+        guard viewModel.canStartReceiptScan else { return }
+        switch ReceiptCaptureMode.preferred() {
+        case .documentScanner:
+            isShowingReceiptScanner = true
+        case .camera:
+            isShowingReceiptCamera = true
+        }
+    }
+
+    /// 書類スキャンの画面が閉じたら：撮れたら読み取りへ渡す（すでに傾きを直しているので、範囲の検出はしない）。
+    /// 失敗したら今までのカメラを開く。キャンセルなら何もしない
+    private func finishReceiptScanner() {
+        if let scanned = scannedReceipt {
+            scannedReceipt = nil
+            receiptScannerFailed = false
+            viewModel.readReceipt(scanned.data, contentType: scanned.type, detectsDocument: false)
+        } else if receiptScannerFailed {
+            receiptScannerFailed = false
+            if ReceiptScanOutcome.failed.fallsBackToCamera, viewModel.canStartReceiptScan {
+                isShowingReceiptCamera = true
+            }
         }
     }
 
@@ -276,10 +325,13 @@ struct MoneyView: View {
 }
 
 /// 支出の追加・編集（タイトル・金額・カテゴリー・日付・保存先。編集では削除も）
+/// Build 20：レシートから開いたときは、合計金額の候補と商品明細（確認用）も出す
 struct ExpenseEditorSheet: View {
     let viewModel: MoneyViewModel
     @State private var draft: ExpenseDraft
     @State private var isConfirmingDelete = false
+    /// 商品明細（確認用）を開いているか（Build 20。はじめは閉じている）
+    @State private var isShowingLineItems = false
 
     init(viewModel: MoneyViewModel, draft: ExpenseDraft) {
         self.viewModel = viewModel
@@ -348,6 +400,16 @@ struct ExpenseEditorSheet: View {
                     } footer: {
                         Text("候補を選ぶか、上のタイトル欄に入力できます。")
                     }
+                }
+
+                // 合計金額の候補（Build 20）。レシートから開いたときだけ。タップで金額欄へ入れる
+                if draft.isFromReceipt, !draft.amountCandidates.isEmpty {
+                    amountCandidatesSection
+                }
+
+                // 商品明細（確認用。Build 20）。保存・共有しない
+                if draft.isFromReceipt {
+                    lineItemsSection
                 }
 
                 // レシートから作った候補（Build 18）。保存するまで家計簿には入らない
@@ -427,4 +489,131 @@ struct ExpenseEditorSheet: View {
     }
     .environment(appState)
     .environment(store)
+}
+
+// MARK: - 合計金額の候補・商品明細（Build 20）
+
+extension ExpenseEditorSheet {
+    /// 合計金額の候補（最大5件）。選んだ候補にチェック。金額欄はいつでも手入力できる。候補は保存しない
+    private var amountCandidatesSection: some View {
+        Section {
+            ForEach(draft.amountCandidates) { candidate in
+                Button {
+                    draft.selectAmountCandidate(candidate)
+                } label: {
+                    HStack(spacing: LifeSpacing.sm) {
+                        Text(candidate.displayText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(candidate.isRecommended ? LifeColors.text : LifeColors.secondaryText)
+                        Spacer(minLength: LifeSpacing.xs)
+                        if draft.isSelectedAmountCandidate(candidate) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(LifeColors.primary)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(candidate.spokenLabel)
+                .accessibilityHint("金額欄に入れます")
+                .accessibilityAddTraits(draft.isSelectedAmountCandidate(candidate) ? [.isSelected] : [])
+            }
+        } header: {
+            Text("合計金額の候補")
+        } footer: {
+            Text("候補を選ぶか、上の金額欄に入力できます。小計は合計ではないため、選ぶ前にレシートを確かめてください。")
+        }
+    }
+
+    /// 商品明細（確認用）。直す・消すことができる。保存・共有しない
+    private var lineItemsSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isShowingLineItems) {
+                if draft.lineItems.isEmpty {
+                    Text(ReceiptLineItemComparison.noItemsMessage)
+                        .foregroundStyle(LifeColors.secondaryText)
+                } else {
+                    ForEach($draft.lineItems) { $item in
+                        ReceiptLineItemRow(item: $item) {
+                            draft.removeLineItem(item.id)
+                        }
+                    }
+                }
+            } label: {
+                Text(draft.lineItems.isEmpty ? "商品明細" : "商品明細（\(draft.lineItems.count)件）")
+                    .foregroundStyle(LifeColors.text)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+            }
+            .accessibilityHint(isShowingLineItems ? "商品明細を閉じます" : "商品明細を開きます")
+            if !draft.lineItems.isEmpty {
+                Text(draft.lineItemComparison.message)
+                    .foregroundStyle(draft.lineItemComparison.isMismatch ? LifeColors.accent : LifeColors.text)
+                Text("商品明細の合計 \(LifeFormatters.yen(draft.lineItemsTotal))")
+                    .foregroundStyle(LifeColors.secondaryText)
+                    .accessibilityLabel("商品明細の合計 \(LifeFormatters.yenSpoken(draft.lineItemsTotal))")
+            }
+            Text("この商品明細は確認用で、今回は保存・共有されません")
+                .foregroundStyle(LifeColors.secondaryText)
+        } header: {
+            Text("商品明細（確認用）")
+        } footer: {
+            Text("一致しなくても支出は保存できます（値引き・税・軽減税率などで一致しないことがあります）。")
+        }
+    }
+}
+
+/// 商品明細の1行（Build 20）。タップで修正欄を開く。ごみ箱で一覧から外す（どちらも保存しない）
+struct ReceiptLineItemRow: View {
+    @Binding var item: ReceiptLineItem
+    let onDelete: () -> Void
+    @State private var isEditing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LifeSpacing.xs) {
+            HStack(spacing: LifeSpacing.sm) {
+                Button {
+                    isEditing.toggle()
+                } label: {
+                    Text(item.displayText)
+                        .foregroundStyle(LifeColors.text)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.spokenLabel)
+                .accessibilityHint(isEditing ? "修正欄を閉じます" : "この明細を修正します")
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(item.name.isEmpty ? "この" : item.name)の明細を削除")
+            }
+            if isEditing {
+                TextField("商品名", text: $item.name)
+                    .frame(minHeight: LifeSpacing.minTapTarget)
+                    .accessibilityLabel("商品名")
+                HStack(spacing: LifeSpacing.sm) {
+                    TextField("数量", text: $item.quantityText)
+                        .keyboardType(.numberPad)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                        .accessibilityLabel("数量")
+                    TextField("単価（円）", text: $item.unitPriceText)
+                        .keyboardType(.numberPad)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                        .accessibilityLabel("単価（円）")
+                    TextField("金額（円）", text: $item.amountText)
+                        .keyboardType(.numberPad)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                        .accessibilityLabel("金額（円）")
+                }
+            }
+        }
+    }
 }

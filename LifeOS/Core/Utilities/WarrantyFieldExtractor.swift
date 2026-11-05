@@ -5,6 +5,21 @@ struct WarrantyRecognizedLine: Hashable {
     var text: String
     /// 0〜1
     var confidence: Float = 1
+    /// 写真の中の位置（Build 20。左上が原点、0〜1 に正規化）。レシートの行のまとまり・順位付けに使う。
+    /// 保証書の読み取りは使わない（無くてもよい）。保存しない
+    var box: RecognizedTextBox? = nil
+}
+
+/// 文字の位置（左上が原点、写真の幅・高さを 1 とした値。Build 20）
+struct RecognizedTextBox: Hashable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    var midY: Double { y + height / 2 }
+    var maxX: Double { x + width }
+    var maxY: Double { y + height }
 }
 
 /// 読み取った文字から、保証書の入力候補を作る（spec 4「自動読み取り」）。

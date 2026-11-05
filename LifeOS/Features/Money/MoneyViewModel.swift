@@ -23,6 +23,14 @@ struct ExpenseDraft: Equatable, Identifiable {
     /// レシートで見つけた店名の候補（Build 19。最大5件）。確認画面で選ぶための一時的な候補。
     /// 保存しない（保存するのはタイトル欄の1つだけ）。確認画面を閉じたら下書きごと手放す
     private(set) var storeCandidates: [String] = []
+    /// 合計金額の候補（Build 20。最大5件。小計は「選択非推奨」の参考）。確認画面で選ぶための一時的な候補。
+    /// 保存しない（保存するのは金額欄の1つだけ）。確認画面を閉じたら下書きごと手放す
+    private(set) var amountCandidates: [ReceiptAmountCandidate] = []
+    /// 選んでいる合計金額の候補（Build 20）
+    private(set) var selectedAmountCandidateID: String?
+    /// 商品明細（Build 20。確認用）。確認画面で直す・消すことができる。保存・共有・送信しない。
+    /// 支出を保存する・閉じる・キャンセルすると、下書きごと手放す
+    var lineItems: [ReceiptLineItem] = []
 
     /// 新しい支出（保存先の初期値は「自分だけ」。入力の内容から共有を選ばない）
     init(newOn date: Date) {
@@ -45,6 +53,13 @@ struct ExpenseDraft: Equatable, Identifiable {
             title = proposal.title
             storeCandidates = Array(proposal.storeCandidates.prefix(ReceiptFieldExtractor.maxStoreCandidates))
             amountText = proposal.amount.map { String($0) } ?? ""
+            let candidates = Array(proposal.amountCandidates.prefix(ReceiptFieldExtractor.maxAmountCandidates))
+            amountCandidates = candidates
+            // 自動で入れた金額は、その金額の（選んでよい）いちばん上の候補にチェックを付ける
+            selectedAmountCandidateID = proposal.amount.flatMap { amount in
+                candidates.first { $0.isRecommended && $0.amount == amount }?.id
+            }
+            lineItems = Array(proposal.lineItems.prefix(ReceiptFieldExtractor.maxLineItems))
             category = proposal.category
             date = LifeCalendar.startOfDay(proposal.date)
             receiptNotes = proposal.notes
@@ -63,6 +78,33 @@ struct ExpenseDraft: Equatable, Identifiable {
     /// 選ばれている候補（タイトル欄が候補と同じとき）
     func isSelectedStoreCandidate(_ name: String) -> Bool {
         trimmedTitle == name
+    }
+
+    /// 合計金額の候補を選ぶ（Build 20）：金額欄へ入れる（小計も、利用者が選べば入れる）。候補に無いものは入れない
+    mutating func selectAmountCandidate(_ candidate: ReceiptAmountCandidate) {
+        guard amountCandidates.contains(where: { $0.id == candidate.id }) else { return }
+        amountText = String(candidate.amount)
+        selectedAmountCandidateID = candidate.id
+    }
+
+    /// 選ばれている合計金額の候補（金額欄を手で変えたら、どれも選ばれていない）
+    func isSelectedAmountCandidate(_ candidate: ReceiptAmountCandidate) -> Bool {
+        selectedAmountCandidateID == candidate.id && amount == candidate.amount
+    }
+
+    /// 商品明細の行を消す（Build 20。確認用の一覧から外すだけ）
+    mutating func removeLineItem(_ id: ReceiptLineItem.ID) {
+        lineItems.removeAll { $0.id == id }
+    }
+
+    /// 商品明細の合計とレシートの合計（金額欄）の比較（Build 20）。一致しなくても保存できる
+    var lineItemComparison: ReceiptLineItemComparison {
+        ReceiptLineItemComparison.compare(items: lineItems, receiptTotal: amount)
+    }
+
+    /// 商品明細の金額の合計（金額が読めた明細だけ）
+    var lineItemsTotal: Int {
+        lineItems.compactMap(\.amount).reduce(0, +)
     }
 
     /// 今ある支出の編集
@@ -334,7 +376,8 @@ final class MoneyViewModel {
     /// 写真を受け取って、端末の中で読み取る（1枚だけ）。読み取り中なら何もしない（二重に始めない）。
     /// 読み取りが終わったら、候補を入れた支出の追加画面を開く（保存するまで支出は作らない）。
     /// 写真が大きすぎる・形式が違う・読めないときも、手入力できる追加画面を開く
-    func readReceipt(_ data: Data, contentType: UTType? = nil) {
+    /// - Parameter detectsDocument: 写真の中のレシートの範囲を見つけて傾きを直すか（書類スキャンで撮ったものは直っているので false。Build 20）
+    func readReceipt(_ data: Data, contentType: UTType? = nil, detectsDocument: Bool = true) {
         guard !isReadingReceipt, draft == nil else { return }
         isChoosingReceiptSource = false
         if let error = ReceiptTextRecognizer.validate(data, contentType: contentType) {
@@ -346,7 +389,7 @@ final class MoneyViewModel {
         let generation = receiptGeneration
         let recognizer = receiptRecognizer
         receiptTask = Task { @MainActor [weak self] in
-            let lines = try? await recognizer.recognizeLines(in: data)
+            let lines = try? await recognizer.recognizeReceipt(in: data, detectsDocument: detectsDocument)
             guard let self, self.receiptGeneration == generation, !Task.isCancelled else { return }
             self.finishReceiptReading(lines: lines)
         }
@@ -377,16 +420,17 @@ final class MoneyViewModel {
         await task?.value
     }
 
-    private func finishReceiptReading(lines: [String]?) {
+    private func finishReceiptReading(lines: [ReceiptRecognizedLine]?) {
         receiptTask = nil
         isReadingReceipt = false
         openReceiptDraft(lines: lines, failure: .unreadable)
     }
 
-    /// 候補（または手入力用の空の下書き）で支出の追加画面を開く。読み取った文字はここで捨てる（下書きには4項目だけ）
-    private func openReceiptDraft(lines: [String]?, failure: ReceiptImageError) {
+    /// 候補（または手入力用の空の下書き）で支出の追加画面を開く。読み取った文字・位置・信頼度はここで捨てる
+    /// （下書きには4項目と、確認用の候補だけ。Build 20：合計の候補・商品明細も確認画面のあいだだけ持つ）
+    private func openReceiptDraft(lines: [ReceiptRecognizedLine]?, failure: ReceiptImageError) {
         let proposal = lines.flatMap { lines -> ReceiptExtractionProposal? in
-            let usable = lines.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let usable = lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return usable.isEmpty ? nil : ReceiptFieldExtractor.extract(from: usable, today: now)
         }
         draft = ExpenseDraft(receipt: proposal, today: now, failure: proposal == nil ? failure.message : nil)
