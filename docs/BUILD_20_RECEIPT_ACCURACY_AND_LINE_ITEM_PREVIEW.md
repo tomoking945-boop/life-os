@@ -242,6 +242,25 @@ Build 18 のテスト1件（21「写真・読み取った全文を保存しな�
 
 Mac での確認結果：未報告。
 
+### Xcode のテストのコンパイルエラーの修正（2026-11-05、池上さんの報告。`73ec0e7`）
+
+Mac で Xcode のテストを始めたところ、テストのファイル（`LifeOSTests/Build20ReceiptAccuracyAndLineItemPreviewTests.swift`）でコンパイルエラー1件と警告1件が出ました。アプリ本体・レシートの抽出の処理は変えず、テストの書き方だけを直しました。確かめる内容は弱めていません（削除・スキップもしていません）。
+
+| 場所 | 出たもの | 原因 | 直し方 |
+| --- | --- | --- | --- |
+| `testCandidatesAreReleasedAfterCancelOrSave` | エラー：`'async' call in an autoclosure that does not support concurrency` | `XCTAssertTrue(saved.viewModel.save(try await readDraft(saved)))` のように、`XCTAssertTrue` の中（autoclosure）で `await` を使っていた。autoclosure の中では `await` を使えない | 先に `let savedDraft = try await readDraft(saved)`・`let didSave = saved.viewModel.save(savedDraft)` を行い、そのあと `XCTAssertTrue(didSave)` で確かめる |
+| `testWarrantyOCRStillWorks` | 警告：`Main actor-isolated static property 'warrantyGuide' can not be referenced from a nonisolated autoclosure` | `WarrantyCameraView.warrantyGuide` は SwiftUI の View の値なので MainActor 扱い。MainActor ではないテストの `XCTAssertEqual` の中から直接読んでいた | テストを `@MainActor` にし、値を `let warrantyGuide = WarrantyCameraView.warrantyGuide` でローカル変数に取り出してから `XCTAssertEqual` で比べる。ほかの確認はすべて残す |
+
+変えていないもの：アプリ本体の仕様、レシートの抽出の処理、Firebase Messaging の既存の deprecated の警告、Xcode の Recommended Settings、Signing Team、Firebase（Rules・Functions・索引・Hosting）、Build 番号 20、Version 1.0。
+
+修正後の結果（この作業環境）：
+
+| テスト | 結果 |
+| --- | --- |
+| サーバーの単体テスト | **91件成功・失敗0・スキップ0**（再実行） |
+| 全 Swift ファイルの簡易の字句チェック | 問題なし |
+| Xcode のテスト・Release ビルド | **未実行**（この作業環境に Xcode が無い。Mac での再確認が必要） |
+
 ## 12. Release ビルド
 
 この作業環境では未確認（Xcode が無い）。Mac での結果：未報告。

@@ -614,7 +614,10 @@ final class Build20ReceiptDraftFlowTests: XCTestCase {
         XCTAssertEqual(setup.backend.writeCount, 0)
 
         let saved = makeSetup()
-        XCTAssertTrue(saved.viewModel.save(try await readDraft(saved)))
+        // XCTAssert の中（autoclosure）では await を使えないため、読み取りと保存を先に行ってから確かめる
+        let savedDraft = try await readDraft(saved)
+        let didSave = saved.viewModel.save(savedDraft)
+        XCTAssertTrue(didSave)
         XCTAssertNil(saved.viewModel.draft)
         XCTAssertEqual(held(saved.viewModel), [])
     }
@@ -743,6 +746,7 @@ final class Build20ImageAndRegressionTests: XCTestCase {
     }
 
     /// 38：保証書の文字の読み取りは今までどおり（位置は省略できる項目として足しただけ）
+    @MainActor
     func testWarrantyOCRStillWorks() async throws {
         let proposal = WarrantyFieldExtractor.extract(from: [
             WarrantyRecognizedLine(text: "型番 AB-123"),
@@ -751,7 +755,9 @@ final class Build20ImageAndRegressionTests: XCTestCase {
         XCTAssertEqual(proposal.fields.first { $0.kind == .modelNumber }?.value, "AB-123")
         XCTAssertEqual(proposal.fields.first { $0.kind == .purchaseDate }?.date, TestDates.make(2026, 10, 13))
         XCTAssertNil(WarrantyRecognizedLine(text: "型番 AB-123").box)
-        XCTAssertEqual(WarrantyCameraView.warrantyGuide, "保証書・レシート・製品ラベルを枠いっぱいに")
+        // SwiftUI の View の値（MainActor）は、XCTAssert の外でローカル変数に取り出してから比べる
+        let warrantyGuide = WarrantyCameraView.warrantyGuide
+        XCTAssertEqual(warrantyGuide, "保証書・レシート・製品ラベルを枠いっぱいに")
         let editor = try build20Source("LifeOS/Features/Documents/Warranty/WarrantyEditorView.swift")
         XCTAssertTrue(editor.contains("WarrantyCameraView { data, type in"))
         _ = try? await WarrantyTextRecognizer.proposal(for: [WarrantyTestImages.text(["型番 AB-123"])])
