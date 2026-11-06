@@ -1,6 +1,6 @@
 # Build 20：レシートの店名・合計金額の読み取り精度の改善と、商品明細（確認用）
 
-2026-11-05。ブランチ `build20-receipt-accuracy-and-line-item-preview`（`origin/main` の `883f0d8` から）。main にはまだ入れていません。
+2026-11-05。ブランチ `build20-receipt-accuracy-and-line-item-preview`（`origin/main` の `883f0d8` から）。作ったときは main に入れず、Mac での確認（2026-11-06）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の11「Mac での確認結果」）。
 Firebase（Functions・Firestore のルール・索引・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -240,7 +240,7 @@ Build 18 のテスト1件（21「写真・読み取った全文を保存しな�
 | サーバーの合計 | 256 | — | 単体の91件だけ実行 |
 | Swift（Xcode） | **641**（601＋40） | 実行できなかった（Xcode が無い） | **未実行・未確認**（全 Swift ファイルの簡易の字句チェックだけ実行。問題なし。店名・合計・明細の抽出の決まりは、別に書いた確認用の写しで、テストの入力と期待値を突き合わせた） |
 
-Mac での確認結果：未報告。
+Mac での確認結果：下の「Mac での確認結果（2026-11-06）」。
 
 ### Xcode のテストのコンパイルエラーの修正（2026-11-05、池上さんの報告。`73ec0e7`）
 
@@ -261,9 +261,29 @@ Mac で Xcode のテストを始めたところ、テストのファイル（`Li
 | 全 Swift ファイルの簡易の字句チェック | 問題なし |
 | Xcode のテスト・Release ビルド | **未実行**（この作業環境に Xcode が無い。Mac での再確認が必要） |
 
+### Mac での確認結果（2026-11-06、池上さんの報告。`6ca8ad8`）
+
+**最初の Xcode の実行（`73ec0e7`）**
+
+- 新しいテストのファイルで **コンパイルエラー1件**（`testCandidatesAreReleasedAfterCancelOrSave`：autoclosure の中の `await`）と **MainActor の警告1件**（`testWarrantyOCRStillWorks`：`WarrantyCameraView.warrantyGuide`）が出て、テストを始められなかった
+- `6ca8ad8` で **テストの書き方だけ** を直した（上の表。アプリ本体・抽出の処理・確かめる内容は変えていない）
+
+**修正後（`6ca8ad8`）**
+
+| 確認 | 結果 |
+| --- | --- |
+| ターミナルの全テスト（単体91・Rules 93・Functions 46・アカウント削除26） | **256件成功・失敗0・スキップ0** |
+| Xcode のテスト | **Test Succeeded・失敗0**（実行件数・スキップ数：未報告。予定は641件） |
+| Release ビルド | **成功** |
+| 実機でのレシートの確認（下の13の14項目） | **未実施** |
+
+- この確認のあと、池上さんの指示で main へ取り込んだ（fast-forward。rebase・force push はしていない）
+- Firebase へのデプロイ・TestFlight へのアップロード・Console の変更：していない
+- Xcode で手動で設定した Signing Team などは commit に含めていない
+
 ## 12. Release ビルド
 
-この作業環境では未確認（Xcode が無い）。Mac での結果：未報告。
+この作業環境では未確認（Xcode が無い）。**Mac で成功**（2026-11-06、池上さんの報告。`6ca8ad8`。上の11「Mac での確認結果」）。
 
 ## 13. 実機での確認手順（Build 20。家計簿をわが家で共有している iPhone で）
 
@@ -292,7 +312,7 @@ Mac で Xcode のテストを始めたところ、テストのファイル（`Li
 13. **アプリが重くならない**：大きな写真・続けて何枚か読み取っても、固まらない・落ちない
 14. **保証書OCRが壊れていない**：書類の画面の保証書で、撮影・文字の読み取り・写真の保存が今までどおり
 
-結果：未報告（推測しない）。
+結果：**未実施**（2026-11-06 時点、池上さんの報告）。14項目それぞれの結果・試したレシートの枚数は未報告（推測しない）。
 
 ## 14. Firebase の再公開
 
