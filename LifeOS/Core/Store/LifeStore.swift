@@ -60,6 +60,13 @@ final class LifeStore {
     var pendingSharedExpenseCreateCount: Int { pendingSharedExpenseCreates.count }
     /// 共有の支出の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
     @ObservationIgnored private(set) var householdExpenseUpdateCount = 0
+    /// 自分だけの支出の商品明細（2026-11-08 Build 21）。支出の ID ごと。端末の life-store.json に保存する
+    /// （明細ID・商品名・数量・単価・金額・表示順だけ。レシートの写真・全文・候補・信頼度・位置は持たない）
+    private(set) var expenseLineItems: [Expense.ID: [ExpenseLineItem]] = [:]
+    /// わが家で共有の支出の商品明細（Build 21）。Firestore から受け取る。端末の life-store.json には保存しない
+    private(set) var householdExpenseLineItems: [Expense.ID: [ExpenseLineItem]] = [:]
+    /// 共有の作成の結果がまだ届いていない支出の明細（空・古い一覧が届いても、結果が届くまでは消さない）
+    @ObservationIgnored private var pendingSharedLineItems: [Expense.ID: [ExpenseLineItem]] = [:]
     /// 共有項目の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
     @ObservationIgnored private(set) var householdUpdateCount = 0
 
@@ -95,6 +102,8 @@ final class LifeStore {
         var warrantyAttachments: [WarrantyAttachment]?
         // Build 17 で追加：「自分だけ」へ変えている途中の予定の UUID（以前の保存データには無いため Optional）
         var personalConversionIDs: [UUID]?
+        // Build 21 で追加：自分だけの支出の商品明細（以前の保存データには無いため Optional。読めない記録は飛ばす）
+        var expenseLineItems: ExpenseLineItemRecords?
     }
 
     /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
@@ -160,6 +169,8 @@ final class LifeStore {
             )
             // Build 17：「自分だけ」へ変えている途中の予定（前回の起動で、共有の予定の削除が確かめられなかったもの）
             store.pendingPersonalConversions = Set(snapshot.personalConversionIDs ?? [])
+            // Build 21：自分だけの支出の商品明細（以前の保存データには無い＝明細なし。支出そのものは変えない）
+            store.expenseLineItems = Self.loadedLineItems(snapshot.expenseLineItems, personalIDs: Set(store.expenses.map(\.id)))
         } else if startEmptyIfNoSavedData {
             store = LifeStore.empty()
         } else {
@@ -195,7 +206,8 @@ final class LifeStore {
                 warrantyAttachments: warrantyAttachments,
                 personalConversionIDs: pendingPersonalConversions.isEmpty
                     ? nil
-                    : pendingPersonalConversions.sorted { $0.uuidString < $1.uuidString }
+                    : pendingPersonalConversions.sorted { $0.uuidString < $1.uuidString },
+                expenseLineItems: lineItemRecordsForSaving()
             ),
             to: Self.fileName
         )
@@ -254,6 +266,7 @@ final class LifeStore {
         frequentPurchases = MockData.frequentPurchases()
         habits = MockData.habits()
         suggestionDecisions = []
+        expenseLineItems = [:]
         save()
     }
 
@@ -1086,21 +1099,41 @@ final class LifeStore {
     /// - Returns: 共有の保存を始めたら true
     @discardableResult
     func addExpense(_ expense: Expense, destination: SaveDestination) -> Bool {
+        addExpense(expense, destination: destination, lineItems: [])
+    }
+
+    /// 支出を、商品明細と一緒に足す（Build 21）。明細は形を確かめてから保存する（正しくなければ明細は保存しない）。
+    /// 同じ ID の支出がすでにあれば何もしない（同じ保存をくり返しても2件にしない）
+    /// - Returns: 共有の保存を始めたら true
+    @discardableResult
+    func addExpense(_ expense: Expense, destination: SaveDestination, lineItems: [ExpenseLineItem]) -> Bool {
+        guard !expenses.contains(where: { $0.id == expense.id }),
+              !householdExpenses.contains(where: { $0.id == expense.id }) else { return false }
+        let items = Self.validLineItems(lineItems)
         guard destination == .household,
               let sync = expenseSync,
               sync.expenseSharingBlock == nil,
-              SharedExpensePayload.canShare(expense),
-              !expenses.contains(where: { $0.id == expense.id }),
-              !householdExpenses.contains(where: { $0.id == expense.id }) else {
-            add(expense)
+              SharedExpensePayload.canShare(expense) else {
+            add(expense, lineItems: items)
             return false
         }
         var shared = expense
         shared.ownership = .shared
         householdExpenses.append(shared)
         pendingSharedExpenseCreates[shared.id] = shared
-        sync.createSharedExpense(shared, convertingPersonal: false)
+        if !items.isEmpty {
+            householdExpenseLineItems[shared.id] = items
+            pendingSharedLineItems[shared.id] = items
+        }
+        sync.createSharedExpense(shared, convertingPersonal: false, lineItems: items)
         return true
+    }
+
+    /// 「自分だけ」の支出を、商品明細と一緒に足す（端末の中だけ。1回の保存で両方を書く）
+    private func add(_ expense: Expense, lineItems: [ExpenseLineItem]) {
+        expenses.append(Self.personalExpense(expense))
+        if !lineItems.isEmpty { expenseLineItems[expense.id] = lineItems }
+        save()
     }
 
     /// 支出を変える（自分だけの支出は端末だけ、共有の支出は Firestore だけ）
@@ -1129,6 +1162,8 @@ final class LifeStore {
     func deleteExpense(_ id: Expense.ID) -> Bool {
         if expenses.contains(where: { $0.id == id }) {
             expenses.removeAll { $0.id == id }
+            // Build 21：その支出の商品明細も一緒に消す（明細だけを残さない）
+            expenseLineItems[id] = nil
             save()
             return true
         }
@@ -1136,7 +1171,10 @@ final class LifeStore {
               let sync = expenseSync, sync.canEditSharedExpenses else { return false }
         householdExpenses.removeAll { $0.id == id }
         pendingSharedExpenseCreates[id] = nil
-        sync.deleteSharedExpense(shared, keepingPersonalCopy: false)
+        pendingSharedLineItems[id] = nil
+        let items = householdExpenseLineItems.removeValue(forKey: id) ?? []
+        // 共有の明細を先に消してから支出を消す（SharedExpensesService）
+        sync.deleteSharedExpense(shared, keepingPersonalCopy: false, lineItems: items)
         return true
     }
 
@@ -1156,19 +1194,29 @@ final class LifeStore {
             shared.ownership = .shared
             householdExpenses.append(shared)
             pendingSharedExpenseCreates[id] = shared
-            sync.createSharedExpense(shared, convertingPersonal: true)
+            // Build 21：商品明細も一緒に共有へ移す（端末の明細は、共有の保存が確かめられてから片付ける。重ならない）
+            let items = expenseLineItems[id] ?? []
+            if !items.isEmpty {
+                householdExpenseLineItems[id] = items
+                pendingSharedLineItems[id] = items
+            }
+            sync.createSharedExpense(shared, convertingPersonal: true, lineItems: items)
             return true
         case .personal:
             guard !expenses.contains(where: { $0.id == id }),
                   let shared = householdExpenses.first(where: { $0.id == id }),
                   let sync = expenseSync, sync.canEditSharedExpenses else { return false }
-            // 1. 先に端末へ「自分だけ」として保存する
+            // 1. 先に端末へ「自分だけ」として保存する（Build 21：商品明細も一緒に。明細ID は変えない）
+            let items = householdExpenseLineItems[id] ?? []
             expenses.append(Self.personalExpense(shared))
+            if !items.isEmpty { expenseLineItems[id] = items }
             save()
-            // 2. そのあとで共有の支出を消す
+            // 2. そのあとで共有の明細と支出を消す
             householdExpenses.removeAll { $0.id == id }
+            householdExpenseLineItems[id] = nil
             pendingSharedExpenseCreates[id] = nil
-            sync.deleteSharedExpense(shared, keepingPersonalCopy: true)
+            pendingSharedLineItems[id] = nil
+            sync.deleteSharedExpense(shared, keepingPersonalCopy: true, lineItems: items)
             return true
         }
     }
@@ -1189,32 +1237,42 @@ final class LifeStore {
     /// 共有の支出の表示を消す（退出・わが家の削除・サインアウトのとき）。端末の個人の支出は消さない
     func clearHouseholdExpenses() {
         pendingSharedExpenseCreates = [:]
+        clearHouseholdLineItems()
         guard !householdExpenses.isEmpty else { return }
         householdExpenses = []
     }
 
     /// 共有の支出の作成が断られた：新しく作った支出は「自分だけ」として端末に残す（消さない・2件にしない）。
     /// 変換なら端末の支出がそのまま残っている
-    func sharedExpenseCreateFailed(_ expense: Expense, convertingPersonal: Bool) {
+    func sharedExpenseCreateFailed(_ expense: Expense, convertingPersonal: Bool, lineItems: [ExpenseLineItem] = []) {
         pendingSharedExpenseCreates[expense.id] = nil
+        pendingSharedLineItems[expense.id] = nil
         householdExpenses.removeAll { $0.id == expense.id }
+        householdExpenseLineItems[expense.id] = nil
         guard !convertingPersonal, !expenses.contains(where: { $0.id == expense.id }) else { return }
         expenses.append(Self.personalExpense(expense))
+        // Build 21：商品明細も「自分だけ」として残す（失わない）
+        let items = Self.validLineItems(lineItems)
+        if !items.isEmpty { expenseLineItems[expense.id] = items }
         save()
     }
 
     /// 共有の支出の作成がサーバーで受け付けられた。変換なら、ここで初めて端末の支出を片付ける
     func finishSharedExpenseCreate(_ id: Expense.ID, convertingPersonal: Bool) {
         pendingSharedExpenseCreates[id] = nil
+        pendingSharedLineItems[id] = nil
         guard convertingPersonal, expenses.contains(where: { $0.id == id }) else { return }
         expenses.removeAll { $0.id == id }
+        // Build 21：端末の商品明細も片付ける（共有の方に同じ明細がある。2件にしない）
+        expenseLineItems[id] = nil
         save()
     }
 
     /// 共有 → 自分だけの変更に失敗した：端末の写しを片付け、共有のまま残す
-    func sharedExpenseConversionFailed(_ expense: Expense) {
+    func sharedExpenseConversionFailed(_ expense: Expense, lineItems: [ExpenseLineItem] = []) {
         if expenses.contains(where: { $0.id == expense.id }) {
             expenses.removeAll { $0.id == expense.id }
+            expenseLineItems[expense.id] = nil
             save()
         }
         if !householdExpenses.contains(where: { $0.id == expense.id }) {
@@ -1222,6 +1280,121 @@ final class LifeStore {
             shared.ownership = .shared
             householdExpenses.append(shared)
         }
+        // Build 21：共有の明細を元に戻す（失わない）
+        if !lineItems.isEmpty, householdExpenseLineItems[expense.id] == nil {
+            householdExpenseLineItems[expense.id] = lineItems
+        }
+    }
+
+    // MARK: - 支出の商品明細（2026-11-08 Build 21。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）
+
+    /// 支出の商品明細（表示順。無ければ空）。自分だけの支出は端末の明細、共有の支出は Firestore の明細
+    func lineItems(for id: Expense.ID) -> [ExpenseLineItem] {
+        if expenses.contains(where: { $0.id == id }) {
+            return expenseLineItems[id] ?? []
+        }
+        return householdExpenseLineItems[id] ?? []
+    }
+
+    /// 支出の商品明細を置き換える（詳細画面の修正・削除から）。形を確かめ、表示順を振り直す。
+    /// - 自分だけの支出：端末に保存できなければ元に戻す（元の内容を失わない）
+    /// - 共有の支出：Firestore へ送る。断られたら元に戻す（SharedExpensesService が sharedLineItemsSaveFailed を呼ぶ）
+    @discardableResult
+    func setLineItems(_ items: [ExpenseLineItem], for id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError> {
+        let normalized: [ExpenseLineItem]
+        switch ExpenseLineItemRules.normalized(items) {
+        case .success(let value): normalized = value
+        case .failure(let error): return .failure(error)
+        }
+        if expenses.contains(where: { $0.id == id }) {
+            let previous = expenseLineItems[id]
+            expenseLineItems[id] = normalized.isEmpty ? nil : normalized
+            guard save() else {
+                expenseLineItems[id] = previous
+                return .failure(.storageFailed)
+            }
+            return .success(normalized)
+        }
+        guard let shared = householdExpenses.first(where: { $0.id == id }) else { return .failure(.expenseNotFound) }
+        guard let sync = expenseSync, sync.canEditSharedExpenses else { return .failure(.notEditable) }
+        let previous = householdExpenseLineItems[id] ?? []
+        householdExpenseLineItems[id] = normalized.isEmpty ? nil : normalized
+        if pendingSharedLineItems[id] != nil || pendingSharedExpenseCreates[id] != nil {
+            pendingSharedLineItems[id] = normalized.isEmpty ? nil : normalized
+        }
+        sync.saveSharedLineItems(normalized, for: shared, previous: previous)
+        return .success(normalized)
+    }
+
+    /// 明細1件を直す（明細ID・表示順は変えない）
+    @discardableResult
+    func updateLineItem(_ item: ExpenseLineItem, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError> {
+        var items = lineItems(for: id)
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return .failure(.lineItemNotFound) }
+        items[index] = item
+        return setLineItems(items, for: id)
+    }
+
+    /// 明細1件を消す（支出そのものは消さない）
+    @discardableResult
+    func deleteLineItem(_ itemID: ExpenseLineItem.ID, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError> {
+        var items = lineItems(for: id)
+        guard items.contains(where: { $0.id == itemID }) else { return .failure(.lineItemNotFound) }
+        items.removeAll { $0.id == itemID }
+        return setLineItems(items, for: id)
+    }
+
+    /// Firestore から届いた共有の明細の一覧で入れ替える（同じ一覧なら入れ替えない。書き戻さない）
+    func applySharedLineItemsSnapshot(_ snapshots: [SharedExpenseLineItemsSnapshot]) {
+        var received: [Expense.ID: [ExpenseLineItem]] = [:]
+        for snapshot in snapshots where !snapshot.items.isEmpty {
+            received[snapshot.expenseID] = snapshot.items
+        }
+        for (id, items) in pendingSharedLineItems where received[id] == nil {
+            received[id] = items
+        }
+        if received != householdExpenseLineItems {
+            householdExpenseLineItems = received
+        }
+    }
+
+    /// 共有の明細の表示を消す（退出・わが家の削除・サインアウト・読めなくなったとき）。端末の明細は消さない
+    func clearHouseholdLineItems() {
+        pendingSharedLineItems = [:]
+        if !householdExpenseLineItems.isEmpty { householdExpenseLineItems = [:] }
+    }
+
+    /// 共有の明細の変更が断られた：元の明細に戻す
+    func sharedLineItemsSaveFailed(_ id: Expense.ID, restoring previous: [ExpenseLineItem]) {
+        guard householdExpenses.contains(where: { $0.id == id }) else { return }
+        householdExpenseLineItems[id] = previous.isEmpty ? nil : previous
+        if pendingSharedLineItems[id] != nil { pendingSharedLineItems[id] = previous.isEmpty ? nil : previous }
+    }
+
+    /// 保存してよい明細（形が正しくなければ空＝明細は保存しない）
+    static func validLineItems(_ items: [ExpenseLineItem]) -> [ExpenseLineItem] {
+        guard case .success(let normalized) = ExpenseLineItemRules.normalized(items) else { return [] }
+        return normalized
+    }
+
+    /// 端末に保存する明細の記録（自分だけの支出の分だけ。支出の ID の順）
+    private func lineItemRecordsForSaving() -> ExpenseLineItemRecords? {
+        let personalIDs = Set(expenses.map(\.id))
+        let records = expenseLineItems
+            .filter { personalIDs.contains($0.key) && !$0.value.isEmpty }
+            .sorted { $0.key.uuidString < $1.key.uuidString }
+            .map { ExpenseLineItemRecords.Record(expenseID: $0.key, items: $0.value) }
+        return records.isEmpty ? nil : ExpenseLineItemRecords(records: records)
+    }
+
+    /// 端末のファイルから読んだ明細（形の正しいものだけ。その支出が端末にあるものだけ）
+    private static func loadedLineItems(_ saved: ExpenseLineItemRecords?, personalIDs: Set<Expense.ID>) -> [Expense.ID: [ExpenseLineItem]] {
+        var result: [Expense.ID: [ExpenseLineItem]] = [:]
+        for record in saved?.records ?? [] where personalIDs.contains(record.expenseID) && result[record.expenseID] == nil {
+            let items = validLineItems(record.items.sorted { $0.sortOrder < $1.sortOrder })
+            if !items.isEmpty { result[record.expenseID] = items }
+        }
+        return result
     }
 
     // MARK: - リスト

@@ -463,7 +463,9 @@ final class Build18ReceiptFlowTests: XCTestCase {
         }
         XCTAssertTrue(setup.viewModel.save(draft))
         let file = try String(contentsOf: temporaryDirectory.appendingPathComponent(LifeStore.fileName), encoding: .utf8)
-        for ocrOnly in ["いらっしゃいませ", "03-1234-5678", "T1234567890123", "お預り", "牛乳", "食パン"] {
+        // Build 21（2026-11-08）：確認画面に残っている商品明細（「牛乳」「食パン」）は、支出と一緒に保存する仕様になったため、
+        // 端末のファイルの確認から外した（docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）。読み取った全文（あいさつ・電話・登録番号・お預り）は今までどおり書かない
+        for ocrOnly in ["いらっしゃいませ", "03-1234-5678", "T1234567890123", "お預り"] {
             XCTAssertFalse(file.contains(ocrOnly), "端末のファイルに読み取った全文を書かない：\(ocrOnly)")
         }
         XCTAssertFalse(file.contains(receiptImage.base64EncodedString().prefix(40)), "写真を書かない")

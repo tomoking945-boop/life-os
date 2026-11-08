@@ -105,7 +105,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`]) {
+  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`, `groups/${GROUP}/expenseLineItems`]) {
     await clearCollection(path);
   }
   for (const user of [alice, bob, carol]) {
@@ -741,6 +741,22 @@ describe('共有更新の通知', () => {
       const text = JSON.stringify(message);
       assert.ok(!text.includes('ランチ') && !text.includes('1200') && !text.includes('4800'), '支出の名前・金額を送らない');
     }
+  });
+
+  it('Build 21：共有の支出の商品明細（expenseLineItems）の追加・変更・削除では、通知も通知の記録も作らない（商品名・金額を送らない）', async () => {
+    await addMembersAndDevices();
+    const id = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+    await db.doc(`groups/${GROUP}/expenses/${id}`).set({
+      schemaVersion: 1, title: 'スーパー', amount: 698, category: 'food', date: Timestamp.now(),
+      createdBy: alice.uid, updatedBy: alice.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    const ref = db.doc(`groups/${GROUP}/expenseLineItems/${id}`);
+    await ref.set({ schemaVersion: 1, rows: ['E621E1F8-C36C-495A-93FC-0C247A3E6E5F\t牛乳\t\t\t198'] });
+    await ref.set({ schemaVersion: 1, rows: ['E621E1F8-C36C-495A-93FC-0C247A3E6E5F\t低脂肪牛乳\t1\t200\t200'] });
+    await ref.delete();
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0, '商品明細では通知しない');
+    assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
   });
 
   it('Build 8：予定・家事は通知しない。名前の変更は通知する', async () => {

@@ -557,7 +557,11 @@ final class Build20ReceiptDraftFlowTests: XCTestCase {
         XCTAssertTrue(setup.viewModel.save(draft))
         let file = try String(contentsOf: temporaryDirectory.appendingPathComponent(LifeStore.fileName), encoding: .utf8)
         XCTAssertTrue(file.contains("まちの八百屋"), "選んだタイトルだけ保存する")
-        for notSaved in ["テスト運営株式会社", "牛乳", "修正した牛乳", "ティッシュ", "選択非推奨", "小計", "lineItems", "amountCandidates", "storeCandidates", "浅草", "03-1234-5678"] {
+        // Build 21（2026-11-08）：確認画面に残っている商品明細は、支出と一緒に保存する仕様になった
+        // （docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）。そのため「牛乳」「修正した牛乳」「ティッシュ」「lineItems」を
+        // 保存しないものの確認から外し、直した明細が保存されることを確かめる。候補・読み取った全文は今までどおり保存しない
+        XCTAssertTrue(file.contains("修正した牛乳"), "Build 21：確かめた（直した）商品明細は保存する")
+        for notSaved in ["テスト運営株式会社", "選択非推奨", "小計", "amountCandidates", "storeCandidates", "浅草", "03-1234-5678", "confidence", "boundingBox"] {
             XCTAssertFalse(file.contains(notSaved), notSaved)
         }
         let saved = try XCTUnwrap(store.expenses.first)
@@ -831,7 +835,8 @@ final class Build20ImageAndRegressionTests: XCTestCase {
             ".frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)",
             ".frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget, alignment: .leading)",
             "Text(\"商品明細（確認用）\")",
-            "Text(\"この商品明細は確認用で、今回は保存・共有されません\")",
+            // Build 21（2026-11-08）：商品明細を保存する仕様になったため、案内の文を差し替えた
+            "Text(\"ここに残っている商品明細は、支出と一緒に保存されます（あとから支出の詳細で見返し・修正できます）。わが家で共有にした支出の明細は、わが家のメンバーにも表示されます。\")",
             "Text(ReceiptLineItemComparison.noItemsMessage)",
             "Text(\"合計金額の候補\")",
             "DisclosureGroup(isExpanded: $isShowingLineItems)"
@@ -844,7 +849,12 @@ final class Build20ImageAndRegressionTests: XCTestCase {
     func testBuildNumberIs20() throws {
         let project = try build20Source("LifeOS.xcodeproj/project.pbxproj")
         let lines = project.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }, Array(repeating: "CURRENT_PROJECT_VERSION = 20;", count: 4))
+        // Build 21（2026-11-08）で 21 に上げたため、「4か所がそろっていて 20 以上」を確かめる（Build 15・17・18・19 と同じ扱い）
+        let versions = lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }
+        XCTAssertEqual(versions.count, 4)
+        XCTAssertEqual(Set(versions).count, 1, "アプリ／テスト、Debug／Release の4か所が同じ")
+        let number = Int(versions.first?.replacingOccurrences(of: "CURRENT_PROJECT_VERSION = ", with: "").replacingOccurrences(of: ";", with: "") ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(number, 20)
         XCTAssertEqual(lines.filter { $0.hasPrefix("MARKETING_VERSION =") }, Array(repeating: "MARKETING_VERSION = 1.0;", count: 4))
         XCTAssertEqual(lines.filter { $0.hasPrefix("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption =") }, Array(repeating: "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;", count: 2))
         XCTAssertTrue(try build20Source("docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md").contains("Build 16 は欠番"))

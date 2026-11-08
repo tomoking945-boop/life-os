@@ -107,6 +107,17 @@ struct ExpenseDraft: Equatable, Identifiable {
         lineItems.compactMap(\.amount).reduce(0, +)
     }
 
+    /// 保存する商品明細と、保存されない明細の理由（Build 21）。確認画面に残っている明細だけを保存する
+    /// （消した明細は入らない。商品名が空・金額が正しくない・51件目以降は保存しない）
+    var lineItemPreparation: ExpenseLineItemPreparation {
+        ExpenseLineItemRules.prepare(lineItems)
+    }
+
+    /// 保存されない明細の理由（画面に出す。Build 21）
+    var lineItemProblems: [ExpenseLineItemProblem] {
+        lineItemPreparation.problems
+    }
+
     /// 今ある支出の編集
     init(editing expense: Expense) {
         id = expense.id
@@ -150,6 +161,11 @@ struct ExpenseDraft: Equatable, Identifiable {
     }
 }
 
+/// 詳細画面で開く支出（Build 21）
+struct ExpenseDetailTarget: Identifiable, Hashable {
+    let id: Expense.ID
+}
+
 /// カテゴリーごとの合計（表示している範囲・その月）
 struct ExpenseCategoryTotal: Equatable, Identifiable {
     let category: ExpenseCategory
@@ -171,6 +187,10 @@ final class MoneyViewModel {
     var draft: ExpenseDraft?
     /// 削除の確認を出している支出
     var pendingDeletion: Expense?
+    /// 詳細画面で開いている支出（Build 21。開いていなければ nil）
+    var detailTarget: ExpenseDetailTarget?
+    /// 詳細画面の「支出を編集」：詳細画面が閉じてから編集画面を開く支出
+    @ObservationIgnored private var editAfterDetail: Expense.ID?
 
     // MARK: レシートの読み取り（Build 18）
 
@@ -337,7 +357,13 @@ final class MoneyViewModel {
         }
         let destination = canChoose(draft.destination, in: draft) ? draft.destination : draft.originalDestination
         if draft.isNew {
-            repository.addExpense(expense, destination: destination == .household && sharingBlock == nil ? .household : .personal)
+            // Build 21：レシートから開いたときは、確認画面に残っている商品明細も一緒に保存する（正しい明細だけ）
+            let lineItems = draft.isFromReceipt ? draft.lineItemPreparation.items : []
+            repository.addExpense(
+                expense,
+                destination: destination == .household && sharingBlock == nil ? .household : .personal,
+                lineItems: lineItems
+            )
             self.draft = nil
             return true
         }
@@ -434,6 +460,76 @@ final class MoneyViewModel {
             return usable.isEmpty ? nil : ReceiptFieldExtractor.extract(from: usable, today: now)
         }
         draft = ExpenseDraft(receipt: proposal, today: now, failure: proposal == nil ? failure.message : nil)
+    }
+
+    // MARK: - 支出の詳細・商品明細（Build 21。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）
+
+    /// 支出をタップしたとき：詳細画面を開く
+    func showDetail(_ expense: Expense) {
+        guard draft == nil else { return }
+        detailTarget = ExpenseDetailTarget(id: expense.id)
+    }
+
+    func closeDetail() {
+        detailTarget = nil
+    }
+
+    /// 詳細画面の「支出を編集」：詳細画面を閉じ、閉じ終わってから編集画面を開く（画面を重ねない）
+    func editFromDetail() {
+        guard let id = detailTarget?.id else { return }
+        editAfterDetail = id
+        detailTarget = nil
+    }
+
+    /// 詳細画面が閉じたとき（MoneyView の onDismiss）
+    func detailDidClose() {
+        guard let id = editAfterDetail else { return }
+        editAfterDetail = nil
+        if let expense = expense(id: id) { startEditing(expense) }
+    }
+
+    /// 支出の商品明細（表示順）。明細の無い支出（古い支出・手入力の支出）は空
+    func lineItems(for expense: Expense) -> [ExpenseLineItem] {
+        repository.lineItems(for: expense.id)
+    }
+
+    /// 商品明細の金額の合計
+    func lineItemsTotal(for expense: Expense) -> Int {
+        lineItems(for: expense).reduce(0) { $0 + $1.amount }
+    }
+
+    /// 商品明細の合計と支出の金額（レシートの合計）の比較
+    func lineItemComparison(for expense: Expense) -> ReceiptLineItemComparison {
+        ReceiptLineItemComparison.compare(saved: lineItems(for: expense), receiptTotal: expense.amount)
+    }
+
+    /// 明細を直せるか（自分だけの支出はいつも。共有の支出は、わが家に参加しているとき）
+    func canEditLineItems(_ expense: Expense) -> Bool {
+        !expense.isShared || repository.canEditSharedExpenses
+    }
+
+    /// 保存先の表示（色だけに頼らず、文字で出す）
+    func destinationLabel(for expense: Expense) -> String {
+        expense.isShared ? "わが家で共有" : "自分だけ"
+    }
+
+    /// 明細1件を直す。直せなければ、理由（画面に出す）を返す。元の明細は失わない
+    func updateLineItem(_ original: ExpenseLineItem, in expense: Expense, name: String, quantityText: String, unitPriceText: String, amountText: String) -> String? {
+        guard canEditLineItems(expense) else { return ExpenseLineItemSaveError.notEditable.message }
+        switch ExpenseLineItemRules.edited(original, name: name, quantityText: quantityText, unitPriceText: unitPriceText, amountText: amountText) {
+        case .failure(let error):
+            return error.message
+        case .success(let item):
+            if case .failure(let error) = repository.updateLineItem(item, in: expense.id) { return error.message }
+            return nil
+        }
+    }
+
+    /// 明細1件を消す（支出そのものは消さない）。消せなければ、理由を返す
+    func deleteLineItem(_ item: ExpenseLineItem, in expense: Expense) -> String? {
+        guard canEditLineItems(expense) else { return ExpenseLineItemSaveError.notEditable.message }
+        if case .failure(let error) = repository.deleteLineItem(item.id, in: expense.id) { return error.message }
+        return nil
     }
 
     // MARK: - 削除（Build 13）

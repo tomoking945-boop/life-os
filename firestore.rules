@@ -16,6 +16,10 @@ rules_version = '2';
 //   新しく作れるのは、わが家の設定で「家計簿」（money）がオンのときだけ。決まった項目だけ（レシート・メモ・予算は置けない）。
 //   作成者・作成日時・schemaVersion は変えられない。オフにしたあとも、すでにある支出の変更・削除はできる
 //   （docs/BUILD_13_SHARED_HOUSEHOLD_BUDGET_AND_EVENT_DELETE.md）
+// - 共有の支出の商品明細（2026-11-08 Build 21）：groups/{groupID}/expenseLineItems/{expenseID}（支出1件に文書1つ）。
+//   メンバーだけが読み書きでき、支出がある（または同じ書き込みで作る）ときだけ置ける。決まった2項目だけ・明細は最大50件・
+//   1件ごとの形（明細ID・商品名1〜80文字・数量・単価・金額）を確かめる。共有の支出は、商品明細が残っているあいだは消せない
+//   （明細だけが残らない）。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
 service cloud.firestore {
@@ -217,7 +221,91 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.schemaVersion == resource.data.schemaVersion;
 
-        // 削除：メンバーなら（家計簿をオフにしたあとも）
+        // 削除：メンバーなら（家計簿をオフにしたあとも）。
+        // Build 21：商品明細（expenseLineItems）が残っているあいだは消せない。アプリは明細を先に（または同じ書き込みで）消す
+        allow delete: if isMember(groupID)
+          && !existsAfter(/databases/$(database)/documents/groups/$(groupID)/expenseLineItems/$(expenseID));
+      }
+
+      // 共有の支出の商品明細（2026-11-08 Build 21）。支出1件につき文書1つ（文書の ID は支出の UUID）。
+      // rows の1件は「明細ID・商品名・数量・単価・金額」を区切り文字（制御文字）でつないだ文字列。並び順が表示順。
+      // 1件ずつの形を正規表現で確かめる（ルールには繰り返しが無いため、50件分を並べて書く）
+      match /expenseLineItems/{expenseID} {
+        // 1件の形：明細ID（UUID）・商品名（制御文字を除く1〜80文字）・数量（空、または 0 より大きく 10000 未満・小数3桁まで）・
+        // 単価（空、または 0〜999,999,999 の整数）・金額（0〜999,999,999 の整数）
+        function lineItemRow(rows, index) {
+          return rows.size() <= index
+            || rows[index].matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}[[:cntrl:]][^[:cntrl:]]{1,80}[[:cntrl:]]([1-9][0-9]{0,3}([.][0-9]{1,3})?|0[.][0-9]{0,2}[1-9])?[[:cntrl:]](0|[1-9][0-9]{0,8})?[[:cntrl:]](0|[1-9][0-9]{0,8})$');
+        }
+
+        function validLineItems(data) {
+          return data.keys().hasOnly(['schemaVersion', 'rows'])
+            && data.keys().hasAll(['schemaVersion', 'rows'])
+            && data.schemaVersion == 1
+            && data.rows is list
+            && data.rows.size() >= 1
+            && data.rows.size() <= 50
+            && lineItemRow(data.rows, 0)
+            && lineItemRow(data.rows, 1)
+            && lineItemRow(data.rows, 2)
+            && lineItemRow(data.rows, 3)
+            && lineItemRow(data.rows, 4)
+            && lineItemRow(data.rows, 5)
+            && lineItemRow(data.rows, 6)
+            && lineItemRow(data.rows, 7)
+            && lineItemRow(data.rows, 8)
+            && lineItemRow(data.rows, 9)
+            && lineItemRow(data.rows, 10)
+            && lineItemRow(data.rows, 11)
+            && lineItemRow(data.rows, 12)
+            && lineItemRow(data.rows, 13)
+            && lineItemRow(data.rows, 14)
+            && lineItemRow(data.rows, 15)
+            && lineItemRow(data.rows, 16)
+            && lineItemRow(data.rows, 17)
+            && lineItemRow(data.rows, 18)
+            && lineItemRow(data.rows, 19)
+            && lineItemRow(data.rows, 20)
+            && lineItemRow(data.rows, 21)
+            && lineItemRow(data.rows, 22)
+            && lineItemRow(data.rows, 23)
+            && lineItemRow(data.rows, 24)
+            && lineItemRow(data.rows, 25)
+            && lineItemRow(data.rows, 26)
+            && lineItemRow(data.rows, 27)
+            && lineItemRow(data.rows, 28)
+            && lineItemRow(data.rows, 29)
+            && lineItemRow(data.rows, 30)
+            && lineItemRow(data.rows, 31)
+            && lineItemRow(data.rows, 32)
+            && lineItemRow(data.rows, 33)
+            && lineItemRow(data.rows, 34)
+            && lineItemRow(data.rows, 35)
+            && lineItemRow(data.rows, 36)
+            && lineItemRow(data.rows, 37)
+            && lineItemRow(data.rows, 38)
+            && lineItemRow(data.rows, 39)
+            && lineItemRow(data.rows, 40)
+            && lineItemRow(data.rows, 41)
+            && lineItemRow(data.rows, 42)
+            && lineItemRow(data.rows, 43)
+            && lineItemRow(data.rows, 44)
+            && lineItemRow(data.rows, 45)
+            && lineItemRow(data.rows, 46)
+            && lineItemRow(data.rows, 47)
+            && lineItemRow(data.rows, 48)
+            && lineItemRow(data.rows, 49);
+        }
+
+        allow read: if isMember(groupID);
+
+        // 作成・更新：メンバーだけ・文書の ID は支出の UUID・その支出がある（同じ書き込みで作る場合も含む）・決まった形だけ
+        allow create, update: if isMember(groupID)
+          && expenseID.matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$')
+          && existsAfter(/databases/$(database)/documents/groups/$(groupID)/expenses/$(expenseID))
+          && validLineItems(request.resource.data);
+
+        // 削除：メンバーなら（明細を全部消したとき・支出を消す前・自分だけへ変えるとき）
         allow delete: if isMember(groupID);
       }
 

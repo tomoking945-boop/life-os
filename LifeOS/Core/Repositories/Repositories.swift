@@ -97,6 +97,16 @@ protocol ExpenseRepository: AnyObject {
     @discardableResult func updateExpense(_ updated: Expense) -> Bool
     @discardableResult func deleteExpense(_ id: Expense.ID) -> Bool
     @discardableResult func changeExpenseDestination(_ id: Expense.ID, to destination: SaveDestination) -> Bool
+
+    // MARK: 支出の商品明細（2026-11-08 Build 21）
+    /// 支出を、確かめた商品明細と一緒に足す（同じ ID の支出がすでにあれば何もしない）
+    @discardableResult func addExpense(_ expense: Expense, destination: SaveDestination, lineItems: [ExpenseLineItem]) -> Bool
+    /// 支出の商品明細（表示順。無ければ空）
+    func lineItems(for id: Expense.ID) -> [ExpenseLineItem]
+    /// 明細1件を直す
+    @discardableResult func updateLineItem(_ item: ExpenseLineItem, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError>
+    /// 明細1件を消す（支出そのものは消さない）
+    @discardableResult func deleteLineItem(_ itemID: ExpenseLineItem.ID, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError>
 }
 
 /// リスト（行きたい場所・観たいもの など）

@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 /// 候補を入れた支出の追加画面で確認・修正 → 「保存」を押したときだけ支出になる（docs/BUILD_18_RECEIPT_TO_BUDGET.md）
 /// Build 20：カメラは、使えるときは iOS の書類スキャン（輪郭の検出・傾きの補正・切り抜き）。使えないときは今までのカメラ。
 /// 合計金額の候補・商品明細（確認用）を確認画面に出す（docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md）
+/// Build 21：確認画面に残っている商品明細を支出と一緒に保存する。支出をタップすると詳細画面を開き、
+/// 商品明細を見返し・直し・消すことができる（docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -126,6 +128,12 @@ struct MoneyView: View {
                     .presentationDetents([.large])
                     .lifeSheetPresentation()
             }
+        }
+        // 支出の詳細（Build 21）。「支出を編集」は詳細を閉じてから編集画面を開く（画面を重ねない）
+        .sheet(item: $viewModel.detailTarget, onDismiss: { viewModel.detailDidClose() }) { target in
+            ExpenseDetailSheet(viewModel: viewModel, expenseID: target.id)
+                .presentationDetents([.large])
+                .lifeSheetPresentation()
         }
         .alert(
             "この支出を削除しますか？",
@@ -288,7 +296,7 @@ struct MoneyView: View {
             } else {
                 LifeRuledList(viewModel.expenses) { expense in
                     Button {
-                        viewModel.startEditing(expense)
+                        viewModel.showDetail(expense)
                     } label: {
                         HStack(spacing: LifeSpacing.sm) {
                             LifeCategoryDot(color: LifeCategoryColors.warmGold)
@@ -305,7 +313,7 @@ struct MoneyView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("編集します")
+                    .accessibilityHint("詳細を開きます（商品明細を見返せます）")
                     .contextMenu {
                         if viewModel.canDelete(expense) {
                             Button(role: .destructive) {
@@ -407,7 +415,7 @@ struct ExpenseEditorSheet: View {
                     amountCandidatesSection
                 }
 
-                // 商品明細（確認用。Build 20）。保存・共有しない
+                // 商品明細（確認用。Build 20）。Build 21 から、ここに残っている明細を支出と一緒に保存する
                 if draft.isFromReceipt {
                     lineItemsSection
                 }
@@ -528,7 +536,7 @@ extension ExpenseEditorSheet {
         }
     }
 
-    /// 商品明細（確認用）。直す・消すことができる。保存・共有しない
+    /// 商品明細（確認用）。直す・消すことができる。Build 21：残っている明細（正しいものだけ）を支出と一緒に保存する
     private var lineItemsSection: some View {
         Section {
             DisclosureGroup(isExpanded: $isShowingLineItems) {
@@ -555,7 +563,13 @@ extension ExpenseEditorSheet {
                     .foregroundStyle(LifeColors.secondaryText)
                     .accessibilityLabel("商品明細の合計 \(LifeFormatters.yenSpoken(draft.lineItemsTotal))")
             }
-            Text("この商品明細は確認用で、今回は保存・共有されません")
+            // Build 21：保存されない明細と理由（商品名が空・金額が正しくない・51件目以降）。色だけに頼らず、印と文字で出す
+            ForEach(draft.lineItemProblems) { problem in
+                Label(problem.message, systemImage: "exclamationmark.circle")
+                    .foregroundStyle(LifeColors.text)
+                    .accessibilityLabel(problem.message)
+            }
+            Text("ここに残っている商品明細は、支出と一緒に保存されます（あとから支出の詳細で見返し・修正できます）。わが家で共有にした支出の明細は、わが家のメンバーにも表示されます。")
                 .foregroundStyle(LifeColors.secondaryText)
         } header: {
             Text("商品明細（確認用）")
@@ -565,7 +579,7 @@ extension ExpenseEditorSheet {
     }
 }
 
-/// 商品明細の1行（Build 20）。タップで修正欄を開く。ごみ箱で一覧から外す（どちらも保存しない）
+/// 商品明細の1行（Build 20）。タップで修正欄を開く。ごみ箱で一覧から外す（外した明細は保存しない。Build 21）
 struct ReceiptLineItemRow: View {
     @Binding var item: ReceiptLineItem
     let onDelete: () -> Void

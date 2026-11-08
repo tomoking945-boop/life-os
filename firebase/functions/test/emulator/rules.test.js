@@ -1067,3 +1067,161 @@ describe('Build 14：カレンダーから共有する予定（groups/{groupID}/
     await assertSucceeds(setDoc(doc(bob, `groups/${GROUP}/items/todo-done`), { ...sharedItem('bob'), isCompleted: true, assigneeUID: 'alice' }));
   });
 });
+
+// MARK: - Build 21：共有の支出の商品明細（2026-11-08）。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md
+
+describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLineItems）', () => {
+  const ID1 = 'E621E1F8-C36C-495A-93FC-0C247A3E6E5F';
+  const ID2 = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+  const ITEM1 = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+  const ITEM2 = '16FD2706-8BAF-433B-82EB-8C7FADA847DA';
+  const TAB = '\t';
+  const row = (...parts) => parts.join(TAB);
+  /** アプリが作る1件（明細ID・商品名・数量・単価・金額） */
+  const milk = row(ITEM1, '牛乳', '', '', '198');
+  const tissue = row(ITEM2, 'ティッシュ', '2', '250', '500');
+  const lineItems = (rows = [milk, tissue], overrides = {}) => ({ schemaVersion: 1, rows, ...overrides });
+  const expensePath = (id) => `groups/${GROUP}/expenses/${id}`;
+  const itemsPath = (id) => `groups/${GROUP}/expenseLineItems/${id}`;
+  /** n 件の正しい行（明細ID は件ごとに変える） */
+  const manyRows = (n) => Array.from({ length: n }, (_, i) => row(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, `商品${i + 1}`, '', '', String(i)));
+
+  function expense(uid, overrides = {}) {
+    return {
+      schemaVersion: 1, title: 'スーパー', amount: 698, category: 'food',
+      date: Timestamp.fromDate(new Date('2026-11-08T00:00:00+09:00')),
+      createdBy: uid, updatedBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  /** 支出と商品明細を同じ書き込みで作る（アプリの「わが家で共有」の保存・自分だけからの変更と同じ） */
+  async function createWithItems(db, uid, id = ID1, rows = [milk, tissue]) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, expensePath(id)), expense(uid));
+    batch.set(doc(db, itemsPath(id)), lineItems(rows));
+    return batch.commit();
+  }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: ['todo', 'shopping', 'money'] });
+    });
+  });
+
+  it('テスト10：メンバーは支出と一緒に明細を作れ、オーナーとパートナーの両方が読める（50件まで）', async () => {
+    await assertSucceeds(createWithItems(as('alice'), 'alice'));
+    const read = await getDoc(doc(as('bob'), itemsPath(ID1)));
+    assert.deepEqual(read.data().rows, [milk, tissue]);
+    assert.equal((await getDocs(collection(as('alice'), `groups/${GROUP}/expenseLineItems`))).size, 1);
+    // パートナーが作った支出の明細もオーナーが読める。50件ちょうどまで置ける
+    await assertSucceeds(createWithItems(as('bob'), 'bob', ID2, manyRows(50)));
+    assert.equal((await getDoc(doc(as('alice'), itemsPath(ID2)))).data().rows.length, 50);
+  });
+
+  it('テスト11：サインインしていない人・メンバーでない人・退出した人は、読めず、作れず、変えられず、消せない', async () => {
+    await assertSucceeds(createWithItems(as('alice'), 'alice'));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    const mallory = as('mallory');
+    for (const db of [anon, mallory]) {
+      await assertFails(getDoc(doc(db, itemsPath(ID1))));
+      await assertFails(getDocs(collection(db, `groups/${GROUP}/expenseLineItems`)));
+      await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems([milk])));
+      await assertFails(deleteDoc(doc(db, itemsPath(ID1))));
+    }
+    await assertFails(getDocs(collectionGroup(as('bob'), 'expenseLineItems')));
+    await assertFails(getDocs(collection(as('bob'), `groups/${OTHER_GROUP}/expenseLineItems`)));
+    await removeMemberAsServer('bob');
+    await assertFails(getDoc(doc(as('bob'), itemsPath(ID1))));
+    await assertFails(setDoc(doc(as('bob'), itemsPath(ID1)), lineItems([milk])));
+    await assertFails(deleteDoc(doc(as('bob'), itemsPath(ID1))));
+  });
+
+  it('支出が無いところには明細を作れない（明細だけが残らない）。文書の ID は支出の UUID だけ', async () => {
+    await assertFails(setDoc(doc(as('alice'), itemsPath(ID1)), lineItems()));
+    for (const id of ['expense-1', 'abc']) {
+      await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/expenseLineItems/${id}`), lineItems()), id);
+    }
+    // 支出のあとなら作れる（別々の書き込みでも、同じ書き込みでも）
+    await assertSucceeds(setDoc(doc(as('alice'), expensePath(ID1)), expense('alice')));
+    await assertSucceeds(setDoc(doc(as('bob'), itemsPath(ID1)), lineItems()));
+    // 支出の下（サブコレクション）には置けない（これまでどおり）
+    await assertFails(setDoc(doc(as('bob'), `${expensePath(ID1)}/lineItems/x`), lineItems()));
+  });
+
+  it('テスト3・12：決まっていない項目・51件・0件・形の違う行は拒否', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), expensePath(ID1)), expense('alice')));
+    const db = as('bob');
+    for (const extra of [{ ocrText: '全文' }, { receiptImage: 'x' }, { candidates: ['¥698'] }, { confidence: 0.9 }, { createdBy: 'bob' }, { email: 'a@example.com' }]) {
+      await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems([milk], extra)), JSON.stringify(extra));
+    }
+    await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems(manyRows(51))), '51件');
+    await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems([])), '0件');
+    await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems([milk], { schemaVersion: 2 })), 'schemaVersion');
+    await assertFails(setDoc(doc(db, itemsPath(ID1)), { schemaVersion: 1 }), 'rows が無い');
+    await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems('牛乳')), 'rows がリストでない');
+    for (const bad of [
+      row(ITEM1, '', '', '', '198'),
+      row(ITEM1, 'あ'.repeat(81), '', '', '198'),
+      row(ITEM1, '牛乳', '0', '', '198'),
+      row(ITEM1, '牛乳', '-1', '', '198'),
+      row(ITEM1, '牛乳', '', '-1', '198'),
+      row(ITEM1, '牛乳', '', '', '1000000000'),
+      row(ITEM1, '牛乳', '', '', ''),
+      row(ITEM1, '牛乳', '', '', '198', 'メモ'),
+      row('item-1', '牛乳', '', '', '198'),
+      { name: '牛乳', amount: 198 },
+    ]) {
+      // 50件の中の最後（50件目）に1件だけ混ぜても拒否する
+      await assertFails(setDoc(doc(db, itemsPath(ID1)), lineItems([...manyRows(49), bad])), JSON.stringify(bad));
+    }
+    await assertSucceeds(setDoc(doc(db, itemsPath(ID1)), lineItems([milk, row(ITEM2, 'あ'.repeat(80), '1.5', '0', '0')])));
+  });
+
+  it('テスト13：明細が残っているあいだは支出を消せない。明細を先に消すか、同じ書き込みで消せば消せる', async () => {
+    await assertSucceeds(createWithItems(as('alice'), 'alice'));
+    // 古いアプリ（Build 20）と同じ「支出だけを消す」は断られる（明細だけが残らない）
+    await assertFails(deleteDoc(doc(as('bob'), expensePath(ID1))));
+    assert.equal((await getDoc(doc(as('bob'), expensePath(ID1)))).exists(), true);
+    // 明細を先に消してから支出を消す（アプリの順番）
+    await assertSucceeds(deleteDoc(doc(as('bob'), itemsPath(ID1))));
+    await assertSucceeds(deleteDoc(doc(as('bob'), expensePath(ID1))));
+    // 同じ書き込みで両方を消す
+    await assertSucceeds(createWithItems(as('alice'), 'alice', ID2));
+    const batch = writeBatch(as('alice'));
+    batch.delete(doc(as('alice'), itemsPath(ID2)));
+    batch.delete(doc(as('alice'), expensePath(ID2)));
+    await assertSucceeds(batch.commit());
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      assert.equal((await getDocs(collection(db, `groups/${GROUP}/expenseLineItems`))).size, 0, '明細だけが残らない');
+      assert.equal((await getDocs(collection(db, `groups/${GROUP}/expenses`))).size, 0);
+    });
+  });
+
+  it('テスト15・16・17：同じ支出の明細は文書1つ（くり返しても重ならない）。修正・1件の削除・全部の削除ができる', async () => {
+    await assertSucceeds(createWithItems(as('alice'), 'alice'));
+    await assertSucceeds(setDoc(doc(as('alice'), itemsPath(ID1)), lineItems()));
+    await assertSucceeds(setDoc(doc(as('alice'), itemsPath(ID1)), lineItems()));
+    assert.equal((await getDocs(collection(as('bob'), `groups/${GROUP}/expenseLineItems`))).size, 1);
+    // パートナーが1件を直す・1件を消す
+    await assertSucceeds(setDoc(doc(as('bob'), itemsPath(ID1)), lineItems([row(ITEM1, '低脂肪牛乳', '1', '200', '200'), tissue])));
+    await assertSucceeds(setDoc(doc(as('bob'), itemsPath(ID1)), lineItems([tissue])));
+    assert.deepEqual((await getDoc(doc(as('alice'), itemsPath(ID1)))).data().rows, [tissue]);
+    // 最後の1件を消す＝明細の文書を消す
+    await assertSucceeds(deleteDoc(doc(as('alice'), itemsPath(ID1))));
+    // 共有から自分だけへ：同じ書き込みで、明細と支出を消す（端末へは先に保存している）
+    await assertSucceeds(createWithItems(as('bob'), 'bob', ID2));
+    const batch = writeBatch(as('bob'));
+    batch.delete(doc(as('bob'), itemsPath(ID2)));
+    batch.delete(doc(as('bob'), expensePath(ID2)));
+    await assertSucceeds(batch.commit());
+  });
+
+  it('支出そのものの決まりは変わらない（9項目だけ・明細の項目を支出に足せない）', async () => {
+    await assertFails(setDoc(doc(as('alice'), expensePath(ID1)), expense('alice', { rows: [milk] })));
+    await assertFails(setDoc(doc(as('alice'), expensePath(ID1)), expense('alice', { lineItems: [milk] })));
+    await assertSucceeds(setDoc(doc(as('alice'), expensePath(ID1)), expense('alice')));
+    // 明細の無い支出は、これまでどおりメンバーが消せる
+    await assertSucceeds(deleteDoc(doc(as('bob'), expensePath(ID1))));
+  });
+});

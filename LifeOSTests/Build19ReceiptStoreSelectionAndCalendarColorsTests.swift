@@ -211,7 +211,9 @@ final class Build19StoreCandidateFlowTests: XCTestCase {
         XCTAssertNil(setup.viewModel.draft, "確認画面を閉じたら候補ごと手放す")
         let file = try String(contentsOf: temporaryDirectory.appendingPathComponent(LifeStore.fileName), encoding: .utf8)
         XCTAssertTrue(file.contains("三越 日本橋店"), "選んだタイトルだけ保存する")
-        for notSaved in ["まちの八百屋", "八百八町そば 本店", "いらっしゃいませ", "03-1234-5678", "大根", "storeCandidates"] {
+        // Build 21（2026-11-08）：確認画面に残っている商品明細（「大根」）は、支出と一緒に保存する仕様になったため外した
+        // （docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）。店名の候補・読み取った全文は今までどおり保存しない
+        for notSaved in ["まちの八百屋", "八百八町そば 本店", "いらっしゃいませ", "03-1234-5678", "storeCandidates"] {
             XCTAssertFalse(file.contains(notSaved), notSaved)
         }
         let saved = try XCTUnwrap(store.expenses.first)

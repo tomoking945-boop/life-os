@@ -575,6 +575,68 @@ describe('Build 13：共有の支出（groups/{groupID}/expenses）', () => {
   });
 });
 
+describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLineItems）', () => {
+  async function householdWithPartner() {
+    const [owner, partner] = [newID('o'), newID('p')];
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'shopping', 'money'] });
+    const { url } = await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    await householdStore.acceptInvite({ db, FieldValue, uid: partner, token: new URL(url).searchParams.get('token') });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    return { owner, partner, groupID };
+  }
+
+  /** 支出と、その商品明細（アプリと同じ形：明細ID・商品名・数量・単価・金額をタブでつないだ行） */
+  async function seedExpenseWithItems(groupID, expenseID, createdBy) {
+    await db.doc(`groups/${groupID}/expenses/${expenseID}`).set({
+      schemaVersion: 1, title: 'スーパー', amount: 698, category: 'food', date: T(0),
+      createdBy, updatedBy: createdBy, createdAt: T(0), updatedAt: T(0),
+    });
+    await db.doc(`groups/${groupID}/expenseLineItems/${expenseID}`).set({
+      schemaVersion: 1,
+      rows: ['7C9E6679-7425-40DE-944B-E07FC1F90AE7\t牛乳\t\t\t198', '16FD2706-8BAF-433B-82EB-8C7FADA847DA\tティッシュ\t2\t250\t500'],
+    });
+  }
+
+  it('パートナーが退出しても、共有の支出と商品明細はわが家に残る（明細も変えない）', async () => {
+    const { partner, groupID } = await householdWithPartner();
+    await seedExpenseWithItems(groupID, 'items-1', partner);
+    await householdStore.leaveHousehold({ db, FieldValue, uid: partner });
+    assert.ok(await exists(`groups/${groupID}/expenses/items-1`));
+    assert.equal((await data(`groups/${groupID}/expenseLineItems/items-1`)).rows.length, 2);
+  });
+
+  it('パートナーのアカウントが削除されても、共有の商品明細はわが家に残る（ほかの場所へ写さない）', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await seedExpenseWithItems(groupID, 'items-2', partner);
+    await seedUser(partner);
+    await cleanup(partner);
+    assert.ok(await exists(`groups/${groupID}/expenseLineItems/items-2`));
+    assert.ok(!(await subcollections(`users/${owner}`)).includes('expenseLineItems'));
+    assert.equal((await db.collection('expenseLineItems').limit(1).get()).size, 0);
+  });
+
+  it('テスト14：1人のわが家を削除すると（deleteHousehold）、共有の支出も商品明細も残らない', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedExpenseWithItems(groupID, 'items-3', owner);
+    await householdStore.deleteHousehold({ db, FieldValue, uid: owner });
+    assert.equal((await db.collection(`groups/${groupID}/expenseLineItems`).get()).size, 0);
+    assert.equal((await db.collection(`groups/${groupID}/expenses`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+
+  it('テスト14：1人のわが家のオーナーのアカウントが削除されると、共有の商品明細も残らない', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedExpenseWithItems(groupID, 'items-4', owner);
+    await cleanup(owner);
+    assert.equal((await db.collection(`groups/${groupID}/expenseLineItems`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+});
+
 describe('削除トリガー（Auth Emulator で利用者を削除）', () => {
   let dave;
   before(async () => {

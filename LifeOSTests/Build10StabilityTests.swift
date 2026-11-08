@@ -78,7 +78,10 @@ final class SharedListenerLifecycleTests: XCTestCase {
             checked += 1
             let name = url.lastPathComponent
             // 2026-11-01（Build 13）：共有の支出の見張りは、別の窓口（FirestoreSharedExpensesBackend）と別のサービス（SharedExpenses）が持つ
-            if name != "FirestoreSharedItemsBackend.swift" && name != "FirestoreSharedExpensesBackend.swift" {
+            // 2026-11-08（Build 21）：共有の支出の商品明細の見張りも、別の窓口（FirestoreSharedExpenseLineItemsBackend）が持ち、
+            // サービス（SharedExpenses）が始める（画面は持たない）
+            if name != "FirestoreSharedItemsBackend.swift" && name != "FirestoreSharedExpensesBackend.swift"
+                && name != "FirestoreSharedExpenseLineItemsBackend.swift" {
                 XCTAssertFalse(text.contains("addSnapshotListener"), name)
             }
             if name != "HouseholdItems.swift" && name != "SharedExpenses.swift" {

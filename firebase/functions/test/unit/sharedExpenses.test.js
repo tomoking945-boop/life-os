@@ -51,7 +51,10 @@ describe('Build 13：共有の支出と Functions', () => {
     assert.match(block, /keys\(\)\.hasOnly\(\[\s*'schemaVersion', 'title', 'amount', 'category', 'date', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'\s*\]\)/);
     assert.match(block, /'money' in get\(/);
     assert.match(block, /allow read: if isMember\(groupID\);/);
-    assert.match(block, /allow delete: if isMember\(groupID\);/);
+    // Build 21（2026-11-08）：支出の削除は「メンバーなら」に加えて「商品明細（expenseLineItems）が残っていない」ときだけ
+    // （明細だけが残らないように。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）。支出の部分だけを見て確かめる
+    const expenseOnly = block.slice(0, block.indexOf('match /expenseLineItems/{expenseID}'));
+    assert.match(expenseOnly, /allow delete: if isMember\(groupID\)\s*&& !existsAfter\(\/databases\/\$\(database\)\/documents\/groups\/\$\(groupID\)\/expenseLineItems\/\$\(expenseID\)\);/);
     assert.match(block, /data\.amount <= 999999999/);
     for (const word of ['receipt', 'memo', 'budget', 'email']) assert.ok(!block.includes(word), word);
   });
