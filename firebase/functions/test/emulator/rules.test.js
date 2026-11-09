@@ -1187,9 +1187,11 @@ describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLi
     await assertSucceeds(deleteDoc(doc(as('bob'), expensePath(ID1))));
     // 同じ書き込みで両方を消す
     await assertSucceeds(createWithItems(as('alice'), 'alice', ID2));
-    const batch = writeBatch(as('alice'));
-    batch.delete(doc(as('alice'), itemsPath(ID2)));
-    batch.delete(doc(as('alice'), expensePath(ID2)));
+    // as() は呼ぶたびに別の Firestore を作るため、1つの書き込み（batch）の参照は同じ Firestore から作る
+    const aliceDb = as('alice');
+    const batch = writeBatch(aliceDb);
+    batch.delete(doc(aliceDb, itemsPath(ID2)));
+    batch.delete(doc(aliceDb, expensePath(ID2)));
     await assertSucceeds(batch.commit());
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
@@ -1211,10 +1213,17 @@ describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLi
     await assertSucceeds(deleteDoc(doc(as('alice'), itemsPath(ID1))));
     // 共有から自分だけへ：同じ書き込みで、明細と支出を消す（端末へは先に保存している）
     await assertSucceeds(createWithItems(as('bob'), 'bob', ID2));
-    const batch = writeBatch(as('bob'));
-    batch.delete(doc(as('bob'), itemsPath(ID2)));
-    batch.delete(doc(as('bob'), expensePath(ID2)));
+    // 1つの書き込み（batch）の参照は同じ Firestore から作る（as() は呼ぶたびに別の Firestore）
+    const bobDb = as('bob');
+    const batch = writeBatch(bobDb);
+    batch.delete(doc(bobDb, itemsPath(ID2)));
+    batch.delete(doc(bobDb, expensePath(ID2)));
     await assertSucceeds(batch.commit());
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      assert.equal((await getDoc(doc(db, itemsPath(ID2)))).exists(), false, '明細だけが残らない');
+      assert.equal((await getDoc(doc(db, expensePath(ID2)))).exists(), false);
+    });
   });
 
   it('支出そのものの決まりは変わらない（9項目だけ・明細の項目を支出に足せない）', async () => {

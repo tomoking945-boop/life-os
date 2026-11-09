@@ -257,7 +257,33 @@ Build 20 の iPhone で、**明細のある共有の支出を消そうとする�
 | Rules Emulator・Functions Emulator・アカウント削除 | **未実行**（この作業環境では Firestore Emulator を取得できない） |
 | Swift（Xcode） | **未実行**（この作業環境に Xcode が無い）。全 Swift ファイルの簡易の字句チェック（かっこ・文字列・コメントの対応）だけ実行：問題なし |
 
-Mac での確認結果：未報告。
+Mac での確認結果：下の「Mac での最初の確認（2026-11-10）」。
+
+### Mac での最初の確認（2026-11-10、池上さんの報告。`8ffaf88`）
+
+| テスト | 結果 |
+| --- | --- |
+| 単体 | 103件成功・失敗0・スキップ0 |
+| Rules | **100件中98件成功・2件失敗** |
+| Functions・アカウント削除 | **未実行**（Rules のテストで止まったため） |
+| Xcode・Release ビルド | 未報告 |
+
+失敗した2件（どちらも `FirebaseError: Provided document reference is from a different Firestore instance.`）：
+
+1. `test/emulator/rules.test.js:1180`「テスト13：明細が残っているあいだは支出を消せない。明細を先に消すか、同じ書き込みで消せば消せる」
+2. `test/emulator/rules.test.js:1201`「テスト15・16・17：同じ支出の明細は文書1つ（くり返しても重ならない）。修正・1件の削除・全部の削除ができる」
+
+**原因**：テストの書き方の誤り（Rules・アプリのコードの問題ではない）。テストのヘルパー `as(uid)` は、呼ぶたびに `testEnv.authenticatedContext(uid).firestore()` で **新しい Firestore を作る**。2件とも最後の「同じ書き込みで明細と支出を消す」ところで、`writeBatch(as('alice'))` と `doc(as('alice'), …)` のように `as()` を別々に呼んでいた。そのため、batch と、batch に入れた文書の参照が別の Firestore になり、Firestore の SDK が書き込みの前に断っていた（ルールの判定まで届いていない）。同じファイルのほかの batch（`createWithItems` など）は、1つの Firestore（`db`）から作っていたので問題なかった。
+
+**修正（テストだけ）**：2件とも、batch を作る Firestore を一度だけ作り（`const aliceDb = as('alice')`・`const bobDb = as('bob')`）、batch とその中の文書の参照をすべてそこから作るようにした。オーナー・パートナー・未認証・ルール無効の管理用の参照は混ぜていない。
+
+- 確かめる内容は弱めていない：「明細のある支出を単独では消せない」「明細を先に消せば消せる」「同じ書き込みで明細と支出を消せる」「くり返しても明細の文書は1つ」「修正・1件の削除・全部の削除」をそのまま確かめる
+- テスト15・16・17 には、同じ書き込みで消したあとに、明細も支出も残っていないこと（ルール無効の管理用の参照で読む）の確認を足した（テスト13 と同じ確認）
+- アプリ（Swift）は batch を使わず、同じ `Firestore.firestore()` から明細と支出を順に書くので、同じ問題は無い。Rules も変えていない
+- ログの `PERMISSION_DENIED` は、断られることを確かめるテストの正常な出力（Rules は緩めていない）
+- `npm audit fix` は実行していない
+
+修正後の結果（この作業環境）：単体 **103件成功・失敗0・スキップ0**。Rules・Functions・アカウント削除は **未実行**（この作業環境では Firestore Emulator を取得できない）。Mac での再確認が必要（予定：単体103・Rules 100・Functions 47・アカウント削除30、合計280件）。
 
 ## Release ビルド
 
