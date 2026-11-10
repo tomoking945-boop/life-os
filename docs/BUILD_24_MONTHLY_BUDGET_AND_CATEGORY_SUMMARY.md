@@ -250,12 +250,16 @@ Build 23 以前のアプリは予算の場所を読み書きしないので、�
 - Build 番号は24、Version は1.0のまま
 - 修正のあとの Mac での結果：**未報告**
 
-### Mac での2回目の確認と修正（2026-11-10、池上さんの報告。`b028532`）
+### 2回目のXcode確認で見つかったテストコードのコンパイルエラー（2026-11-10、池上さんの報告。`b028532`）
 
+- 修正の commit：`7da3728`（池上さんが Mac から送った commit。この記録の見出しは、そのあとの文書だけの commit で整えた）
 - Xcode のテストを組み立てると、`Build24MonthlyBudgetAndCategorySummaryTests.swift` の `testScopesAreNotMixed` で `Errors thrown from here are not handled` が1件出ました
 - 原因：テスト内で `try build24Source(...)` を使っていましたが、テスト関数の宣言に `throws` がありませんでした
 - 修正：`func testScopesAreNotMixed() throws` に変更しました。確かめる内容、アプリ本体、データの形、Rules、Functions は変えていません
 - 同じテストファイルを確認し、`try` を使っているのに `throws` がないテストは、ほかにありませんでした
+  （テスト関数ごとに `try`・`throws` の有無を機械的に調べた。ほかのテストファイルでは `WarrantyTests.testSizeAndTypeLimits` だけが当てはまったが、
+  `try` は `XCTAssertNoThrow(...)`・`XCTAssertThrowsError(...)` の中にあり、`throws` は要らない正しい書き方）
+- アプリのコード・テストの中身（確かめる内容）は変えていません。テストの削除・スキップ・弱める変更もしていません。Build 番号は24、Version は1.0のまま
 - 修正のあとの Mac での結果：**未報告**
 
 Mac での確認結果：**未報告**。
