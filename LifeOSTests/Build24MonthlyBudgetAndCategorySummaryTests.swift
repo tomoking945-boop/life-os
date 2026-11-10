@@ -562,7 +562,7 @@ final class Build24AggregationTests: XCTestCase {
     }
 
     /// 20・21・22：自分だけの予算は自分だけの支出、共有の予算は共有の支出。「すべて」でも予算を混ぜない（2枚のカード）
-    func testScopesAreNotMixed() {
+    func testScopesAreNotMixed() throws {
         let device = makeDevice()
         device.addPersonal("自分のランチ", 1000, .diningOut)
         device.addShared("共有のスーパー", 3000, .food)

@@ -250,6 +250,14 @@ Build 23 以前のアプリは予算の場所を読み書きしないので、�
 - Build 番号は24、Version は1.0のまま
 - 修正のあとの Mac での結果：**未報告**
 
+### Mac での2回目の確認と修正（2026-11-10、池上さんの報告。`b028532`）
+
+- Xcode のテストを組み立てると、`Build24MonthlyBudgetAndCategorySummaryTests.swift` の `testScopesAreNotMixed` で `Errors thrown from here are not handled` が1件出ました
+- 原因：テスト内で `try build24Source(...)` を使っていましたが、テスト関数の宣言に `throws` がありませんでした
+- 修正：`func testScopesAreNotMixed() throws` に変更しました。確かめる内容、アプリ本体、データの形、Rules、Functions は変えていません
+- 同じテストファイルを確認し、`try` を使っているのに `throws` がないテストは、ほかにありませんでした
+- 修正のあとの Mac での結果：**未報告**
+
 Mac での確認結果：**未報告**。
 
 ## 実機確認手順（Build 24。わが家で家計簿を共有している2台で）
