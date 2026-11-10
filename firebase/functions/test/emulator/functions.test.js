@@ -105,7 +105,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`, `groups/${GROUP}/expenseLineItems`]) {
+  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`, `groups/${GROUP}/expenseLineItems`, `groups/${GROUP}/monthlyBudgets`]) {
     await clearCollection(path);
   }
   for (const user of [alice, bob, carol]) {
@@ -756,6 +756,17 @@ describe('共有更新の通知', () => {
     await ref.delete();
     await sleep(3000);
     assert.equal((await sentMessages()).length, 0, '商品明細では通知しない');
+    assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
+  });
+
+  it('Build 24：わが家の月の予算の設定・変更・解除では、通知も通知の記録も作らない（予算・金額を送らない）', async () => {
+    await addMembersAndDevices();
+    const ref = db.doc(`groups/${GROUP}/monthlyBudgets/2026-11`);
+    await ref.set({ schemaVersion: 1, monthKey: '2026-11', totalAmount: 120000, categoryAmounts: { food: 40000 }, updatedBy: alice.uid, updatedAt: FieldValue.serverTimestamp() });
+    await ref.set({ schemaVersion: 1, monthKey: '2026-11', totalAmount: 150000, categoryAmounts: {}, updatedBy: alice.uid, updatedAt: FieldValue.serverTimestamp() });
+    await ref.delete();
+    await sleep(3000);
+    assert.equal((await sentMessages()).length, 0, '予算では通知しない');
     assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
   });
 

@@ -6,7 +6,9 @@ import Observation
 // - 共有するのは、利用者が「わが家で共有」を選んだ支出の明細だけ。保存先は Firestore の groups/{groupID}/expenses/{expenseID}
 //   （共有 ToDo・買い物の items とは別のコレクション。形も別）
 // - 送るのは：schemaVersion・タイトル・金額・カテゴリー・日付・作成者・更新者・作成日時・更新日時だけ
-// - 送らないもの：月の予算・レシートの画像・メモ・メールアドレス・端末の情報・個人の支出・保証書・予定
+// - 送らないもの：レシートの画像・メモ・メールアドレス・端末の情報・個人の支出・保証書・予定（支出の文書には予算を入れない）
+// - Build 24（2026-11-10）：わが家の共有予算は、支出とは別の groups/{groupID}/monthlyBudgets/{YYYY-MM}（SharedMonthlyBudgets.swift）。
+//   自分だけの予算は端末の中だけ（送らない）
 // - 個人の支出は、これまでどおり端末の中（life-store.json）だけ。共有の支出は端末に保存しない（起動中だけ持ち、Firestore から読み直す）
 // - 文書の ID は支出の UUID（同じ操作をくり返しても1件のまま）
 // - 共有の支出の通知は作らない（Functions の通知は items だけ）
@@ -135,6 +137,10 @@ protocol HouseholdExpenseSyncing: AnyObject {
     func deleteSharedExpense(_ expense: Expense, keepingPersonalCopy: Bool, lineItems: [ExpenseLineItem])
     /// 共有の支出の商品明細を置き換える（Build 21。空なら明細の文書を消す）。失敗したら previous に戻す
     func saveSharedLineItems(_ items: [ExpenseLineItem], for expense: Expense, previous: [ExpenseLineItem])
+    /// わが家の予算を保存できるか（保存先があるか。Build 24）
+    var canShareBudgets: Bool { get }
+    /// わが家の予算を置く・消す（Build 24。plan が nil なら解除）。失敗したら previous に戻す
+    func saveSharedBudget(_ plan: MonthlyBudgetPlan?, for month: BudgetMonth, previous: MonthlyBudgetPlan?)
 }
 
 // MARK: - わが家の共有の支出をまとめる
@@ -169,6 +175,10 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
     @ObservationIgnored private var observation: RepositoryObservation?
     /// 商品明細の見張り（Build 21。支出の見張りとは別。常に最大1つ）
     @ObservationIgnored private var lineItemsObservation: RepositoryObservation?
+    /// わが家の予算の保存先（Build 24。無ければ、わが家の予算は使えない）
+    @ObservationIgnored private let budgetsBackend: SharedMonthlyBudgetsBackend?
+    /// わが家の予算の見張り（Build 24。支出・明細の見張りとは別。常に最大1つ）
+    @ObservationIgnored private var budgetsObservation: RepositoryObservation?
     /// 作成の結果を待っている支出（支出と明細の両方の結果がそろってから片付ける。Build 21）
     @ObservationIgnored private var pendingCreates: [Expense.ID: PendingCreate] = [:]
     /// 削除の結果を待っている支出（Build 21）
@@ -180,10 +190,15 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
     var activeLineItemsListenerCount: Int { lineItemsObservation == nil ? 0 : 1 }
     /// 商品明細を共有できるか（保存先があるか）
     var canShareLineItems: Bool { lineItemsBackend != nil }
+    /// わが家の予算の見張りの数（確認用。常に最大1つ）
+    var activeBudgetsListenerCount: Int { budgetsObservation == nil ? 0 : 1 }
+    /// わが家の予算を保存できるか（Build 24）
+    var canShareBudgets: Bool { budgetsBackend != nil }
 
-    init(backend: SharedExpensesBackend?, lineItemsBackend: SharedExpenseLineItemsBackend? = nil) {
+    init(backend: SharedExpensesBackend?, lineItemsBackend: SharedExpenseLineItemsBackend? = nil, budgetsBackend: SharedMonthlyBudgetsBackend? = nil) {
         self.backend = backend
         self.lineItemsBackend = lineItemsBackend
+        self.budgetsBackend = budgetsBackend
     }
 
     var isAvailable: Bool { backend != nil }
@@ -209,10 +224,13 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
         observation = nil
         lineItemsObservation?.cancel()
         lineItemsObservation = nil
+        budgetsObservation?.cancel()
+        budgetsObservation = nil
         pendingCreates = [:]
         pendingDeletes = [:]
         groupID = newGroupID
         store?.clearHouseholdExpenses()
+        store?.clearHouseholdBudgets()
         guard let backend, let newGroupID else {
             status = .off
             return
@@ -240,6 +258,17 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
             self.lastFailure = failure
             if failure == .permissionDenied {
                 self.store?.clearHouseholdLineItems()
+            }
+        })
+        // わが家の予算（Build 24）。予算の見張りが失敗しても、支出の表示はそのまま（予算だけを消す）
+        budgetsObservation = budgetsBackend?.listen(groupID: newGroupID, onChange: { [weak self] snapshots in
+            guard let self, self.groupID == newGroupID else { return }
+            self.store?.applySharedBudgetSnapshot(snapshots)
+        }, onError: { [weak self] failure in
+            guard let self, self.groupID == newGroupID else { return }
+            self.lastFailure = failure
+            if failure == .permissionDenied {
+                self.store?.clearHouseholdBudgets()
             }
         })
     }
@@ -397,6 +426,30 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
         }
     }
 
+    func saveSharedBudget(_ plan: MonthlyBudgetPlan?, for month: BudgetMonth, previous: MonthlyBudgetPlan?) {
+        guard canEditSharedExpenses, let budgetsBackend, let groupID else {
+            store?.sharedBudgetSaveFailed(month, restoring: previous)
+            notice = "わが家の予算を保存できませんでした。元の内容に戻しました。"
+            return
+        }
+        let completion: (SharedItemsFailure?) -> Void = { [weak self] failure in
+            guard let self, let failure else { return }
+            // 断られた：元の予算に戻す（失わない）
+            self.lastFailure = failure
+            self.store?.sharedBudgetSaveFailed(month, restoring: previous)
+            self.notice = "わが家の予算を保存できませんでした（\(failure.reason)）。元の内容に戻しました。"
+        }
+        if let plan {
+            guard let fields = SharedMonthlyBudgetPayload.fields(for: plan, month: month) else {
+                store?.sharedBudgetSaveFailed(month, restoring: previous)
+                return
+            }
+            budgetsBackend.set(groupID: groupID, month: month, fields: fields, completion: completion)
+        } else {
+            budgetsBackend.delete(groupID: groupID, month: month, completion: completion)
+        }
+    }
+
     /// 作成の結果を待っている支出（Build 21）
     private struct PendingCreate {
         let expense: Expense
@@ -428,7 +481,11 @@ extension SharedExpensesService {
     static let live: SharedExpensesService = {
         #if canImport(FirebaseFirestore) && canImport(FirebaseAuth)
         if FirebaseBootstrap.result == .configured {
-            return SharedExpensesService(backend: FirestoreSharedExpensesBackend(), lineItemsBackend: FirestoreSharedExpenseLineItemsBackend())
+            return SharedExpensesService(
+                backend: FirestoreSharedExpensesBackend(),
+                lineItemsBackend: FirestoreSharedExpenseLineItemsBackend(),
+                budgetsBackend: FirestoreSharedMonthlyBudgetsBackend()
+            )
         }
         #endif
         return SharedExpensesService(backend: nil)

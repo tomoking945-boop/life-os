@@ -49,6 +49,7 @@
 - [商品明細を支出と一緒に保存し、あとから見返す（Build 21）](docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md)
 - [キーボードを閉じやすくする・レシートの数字の読み取りを正確にする（Build 22）](docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md)
 - [家計簿の検索・商品の購入履歴・過去の参考価格（Build 23）](docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md)
+- [月の予算・カテゴリー別の予算・今日画面の MONEY（Build 24）](docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md)
 
 ## UIプロトタイプの動かし方
 

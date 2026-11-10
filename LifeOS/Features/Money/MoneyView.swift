@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 /// 商品明細を見返し・直し・消すことができる（docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）
 /// Build 23：画面上部の検索欄で、店名・支出のタイトル・商品名から支出を探す（端末に読み込んである支出と明細だけを調べる）。
 /// すべて／自分／共有・月・カテゴリーで絞り込める（docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md）
+/// Build 24：上部に月の予算のカード（自分だけ／わが家で共有を別々に）と月の切り替え。カテゴリー別の予算は縦の一覧
+/// （docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md）
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -55,7 +57,7 @@ struct MoneyView: View {
                 if viewModel.isSearching {
                     searchResultsSection
                 } else {
-                    summaryCard
+                    budgetSection
                     VStack(spacing: LifeSpacing.sm) {
                         LifeButton("支出を追加", systemImage: "plus") {
                             viewModel.startAdding()
@@ -142,6 +144,12 @@ struct MoneyView: View {
                     .presentationDetents([.large])
                     .lifeSheetPresentation()
             }
+        }
+        // 月の予算の入力（Build 24）。保存するまで予算は変わらない
+        .sheet(item: $viewModel.budgetDraft) { draft in
+            MonthlyBudgetEditorSheet(viewModel: viewModel, draft: draft)
+                .presentationDetents([.large])
+                .lifeSheetPresentation()
         }
         // 支出の詳細（Build 21）。「支出を編集」は詳細を閉じてから編集画面を開く（画面を重ねない）
         .sheet(item: $viewModel.detailTarget, onDismiss: { viewModel.detailDidClose() }) { target in
@@ -404,34 +412,61 @@ struct MoneyView: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    // MARK: - 今月
+    // MARK: - 月の予算（Build 24）
 
-    /// カードに入れず、大きなセリフ体の数字と細い線で見せる
-    private var summaryCard: some View {
+    /// 月の切り替えと、予算のカード（「すべて」は自分だけ・わが家で共有の2枚。足して1つにしない）
+    private var budgetSection: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-            HStack(spacing: LifeSpacing.xs) {
-                LifeCategoryDot(color: LifeCategoryColors.warmGold)
-                LifeSectionTitle(viewModel.summaryTitle)
+            monthSwitcher
+            ForEach(viewModel.budgetSummaries) { summary in
+                MonthlyBudgetCard(viewModel: viewModel, summary: summary)
             }
+        }
+    }
 
-            Text(LifeFormatters.yen(viewModel.spent))
-                .font(LifeTypography.bigNumeral)
+    /// 前の月・次の月・今月に戻る（44pt 以上。表示している月を文字で出す）
+    private var monthSwitcher: some View {
+        VStack(spacing: 0) {
+            monthSwitcherRow
+            if !viewModel.isShowingCurrentMonth {
+                Button("今月に戻る") { viewModel.showCurrentMonth() }
+                    .font(LifeTypography.footnote)
+                    .frame(minWidth: LifeSpacing.minTapTarget * 2, minHeight: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+            }
+        }
+    }
+
+    private var monthSwitcherRow: some View {
+        HStack(spacing: LifeSpacing.xs) {
+            Button {
+                viewModel.showPreviousMonth()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .foregroundStyle(LifeColors.text)
+                    .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canShowPreviousMonth)
+            .accessibilityLabel("前の月")
+            Spacer(minLength: LifeSpacing.xs)
+            Text(viewModel.displayedMonthTitle)
+                .font(LifeTypography.headline)
                 .foregroundStyle(LifeColors.text)
-                .accessibilityLabel("\(viewModel.summaryTitle) \(LifeFormatters.yenSpoken(viewModel.spent))")
-
-            ProgressView(value: viewModel.usageRatio)
-                .tint(LifeCategoryColors.warmGold)
-                .accessibilityLabel("予算の使用率")
-                .accessibilityValue(viewModel.usagePercentText)
-
-            VStack(alignment: .leading, spacing: 0) {
-                LifeDivider()
-                LifeMoneyRow(title: "予算", amount: viewModel.budget)
-                LifeDivider()
-                LifeMoneyRow(title: "残り", amount: viewModel.remaining)
-                LifeDivider()
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: LifeSpacing.xs)
+            Button {
+                viewModel.showNextMonth()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(LifeColors.text)
+                    .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                    .contentShape(Rectangle())
             }
-            .padding(.top, LifeSpacing.xs)
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canShowNextMonth)
+            .accessibilityLabel("次の月")
         }
     }
 
@@ -453,12 +488,7 @@ struct MoneyView: View {
                 }
                 .padding(.vertical, LifeSpacing.xxs)
             }
-            // 今月のカテゴリーごとの合計（表示している範囲）
-            if !viewModel.categoryTotals.isEmpty {
-                LifeRuledList(viewModel.categoryTotals) { total in
-                    LifeMoneyRow(title: total.category.label, amount: total.amount)
-                }
-            }
+            // Build 24：カテゴリーごとの合計は、上の予算のカードに「カテゴリー別」として出す（ここでは支出一覧の絞り込みだけ）
         }
     }
 

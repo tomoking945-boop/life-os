@@ -141,6 +141,7 @@ final class NoFirestoreWritesTests: XCTestCase {
         var cacheRepairText: String?
         var expensesBackendText: String?
         var lineItemsBackendText: String?
+        var budgetsBackendText: String?
         let forbidden = ["import FirebaseFirestore", "Firestore.firestore(", ".setData(", ".addDocument(", ".updateData("]
         // 2026-10-28（Build 7）：Firestore を使ってよいのは、わが家の共有 ToDo・買い物の窓口のファイルだけ
         // 2026-10-28（Build 8）：共有の通知の端末の文書（自分の users/{uid}/devices）の窓口も
@@ -152,6 +153,8 @@ final class NoFirestoreWritesTests: XCTestCase {
         let expensesBackendFile = "FirestoreSharedExpensesBackend.swift"
         // 2026-11-08（Build 21）：わが家の共有の支出の商品明細（groups/{groupID}/expenseLineItems だけ。下で確かめる）
         let lineItemsBackendFile = "FirestoreSharedExpenseLineItemsBackend.swift"
+        // 2026-11-10（Build 24）：わが家の共有予算（groups/{groupID}/monthlyBudgets だけ。下で確かめる）
+        let budgetsBackendFile = "FirestoreSharedMonthlyBudgetsBackend.swift"
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             swiftFiles += 1
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -175,12 +178,16 @@ final class NoFirestoreWritesTests: XCTestCase {
                 lineItemsBackendText = text
                 continue
             }
+            if url.lastPathComponent == budgetsBackendFile {
+                budgetsBackendText = text
+                continue
+            }
             for word in forbidden where text.contains(word) {
                 offenders.append("\(url.lastPathComponent): \(word)")
             }
         }
         try XCTSkipIf(swiftFiles == 0, "アプリのソースを読めない環境のため、確認を省きます")
-        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift・FirestoreDeviceRegistry.swift・FirestoreLocalCacheRepair.swift・FirestoreSharedExpensesBackend.swift・FirestoreSharedExpenseLineItemsBackend.swift だけ")
+        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift・FirestoreDeviceRegistry.swift・FirestoreLocalCacheRepair.swift・FirestoreSharedExpensesBackend.swift・FirestoreSharedExpenseLineItemsBackend.swift・FirestoreSharedMonthlyBudgetsBackend.swift だけ")
 
         // 共有の支出の窓口（Build 13）：groups/{groupID}/expenses だけ。文書の ID は支出の UUID。一括・グループまたぎ・ログなし
         let expensesBackend = try XCTUnwrap(expensesBackendText, "FirestoreSharedExpensesBackend.swift が見つからない")
@@ -204,6 +211,20 @@ final class NoFirestoreWritesTests: XCTestCase {
             XCTAssertFalse(lineItemsBackend.contains(word), "商品明細の窓口：\(word)")
         }
         XCTAssertEqual(lineItemsBackend.components(separatedBy: "FirestoreAccessGate.shared.whenOpen").count - 1, 3, "見張り・置く・消すは片付けを待つ")
+
+        // わが家の共有予算の窓口（Build 24）：groups/{groupID}/monthlyBudgets だけ。文書の ID は月のキー（YYYY-MM）。
+        // 書くのは決まった項目と、本人の UID（updatedBy）・サーバーの時刻（updatedAt）だけ。一括・グループまたぎ・ログなし
+        let budgetsBackend = try XCTUnwrap(budgetsBackendText, "FirestoreSharedMonthlyBudgetsBackend.swift が見つからない")
+        XCTAssertEqual(Self.matches(of: #"\.collection\("([^"]+)"\)"#, in: budgetsBackend), ["groups", "monthlyBudgets"], "使うコレクション")
+        XCTAssertTrue(budgetsBackend.contains("document(month.key)"), "文書の ID は月のキー")
+        XCTAssertTrue(budgetsBackend.contains("data[\"updatedBy\"] = uid"))
+        XCTAssertTrue(budgetsBackend.contains("data[\"updatedAt\"] = FieldValue.serverTimestamp()"))
+        for word in [".addDocument(", ".updateData(", "collectionGroup", "WriteBatch", ".batch()", "runTransaction", "\"items\"", "\"users\"", "\"expenses\"",
+                     "\"expenseLineItems\"", "createdBy", "email", "fcmToken", "displayName",
+                     "print(", "NSLog", "os_log", "Logger(", "localizedDescription"] {
+            XCTAssertFalse(budgetsBackend.contains(word), "共有予算の窓口：\(word)")
+        }
+        XCTAssertEqual(budgetsBackend.components(separatedBy: "FirestoreAccessGate.shared.whenOpen").count - 1, 3, "見張り・置く・消すは片付けを待つ")
 
         // 片付けの処理：サーバーには書かない・聞かない。端末の中の共有項目を読み、止めて、端末の中の保存を消すだけ
         let repair = try XCTUnwrap(cacheRepairText, "FirestoreLocalCacheRepair.swift が見つからない")

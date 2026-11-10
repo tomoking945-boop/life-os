@@ -716,39 +716,53 @@ struct TodayView: View {
 
     // MARK: - MONEY：大きな数字
 
+    /// Build 24：「お金」の画面と同じ数え方（今の範囲の今日・今月の支出と、予算の一言）。タップで「お金」の画面を開く
     private var moneySection: some View {
-        VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-            HStack(spacing: LifeSpacing.xs) {
-                LifeCategoryDot(color: LifeCategoryColors.warmGold)
-                Text("MONEY")
-                    .font(LifeTypography.label)
-                    .tracking(LifeTypography.labelTracking)
+        Button {
+            viewModel.openMoney()
+        } label: {
+            VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                HStack(spacing: LifeSpacing.xs) {
+                    LifeCategoryDot(color: LifeCategoryColors.warmGold)
+                    Text("MONEY")
+                        .font(LifeTypography.label)
+                        .tracking(LifeTypography.labelTracking)
+                        .foregroundStyle(LifeColors.secondaryText)
+                    Spacer(minLength: LifeSpacing.xs)
+                    Image(systemName: "chevron.right")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.xl) {
+                        todayMoney
+                        monthMoney
+                    }
+                    VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+                        todayMoney
+                        monthMoney
+                    }
+                }
+
+                if let ratio = viewModel.budgetRatio {
+                    ProgressView(value: ratio)
+                        .tint(LifeCategoryColors.warmGold)
+                }
+                Text(viewModel.budgetText)
+                    .font(LifeTypography.caption)
                     .foregroundStyle(LifeColors.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .accessibilityHidden(true)
-
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.xl) {
-                    todayMoney
-                    monthMoney
-                }
-                VStack(alignment: .leading, spacing: LifeSpacing.sm) {
-                    todayMoney
-                    monthMoney
-                }
-            }
-
-            ProgressView(value: viewModel.budgetRatio)
-                .tint(LifeCategoryColors.warmGold)
-                .accessibilityLabel("今月の予算")
-                .accessibilityValue("\(LifeFormatters.yenSpoken(viewModel.monthSpending))使用、予算\(LifeFormatters.yenSpoken(viewModel.monthlyBudget))")
-            Text(viewModel.budgetText)
-                .font(LifeTypography.caption)
-                .foregroundStyle(LifeColors.secondaryText)
-                .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("お金")
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.moneySpokenLabel)
+        .accessibilityHint("お金の画面を開きます")
+        .accessibilityAddTraits(.isButton)
     }
 
     private var todayMoney: some View {

@@ -20,6 +20,9 @@ rules_version = '2';
 //   メンバーだけが読み書きでき、支出がある（または同じ書き込みで作る）ときだけ置ける。決まった2項目だけ・明細は最大50件・
 //   1件ごとの形（明細ID・商品名1〜80文字・数量・単価・金額）を確かめる。共有の支出は、商品明細が残っているあいだは消せない
 //   （明細だけが残らない）。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md
+// - わが家の月の予算（2026-11-10 Build 24）：groups/{groupID}/monthlyBudgets/{YYYY-MM}。メンバーだけが読み書きでき、
+//   新しく作れるのは「家計簿」がオンのときだけ。決まった6項目・決まったカテゴリー・金額の範囲・カテゴリーの合計は月の予算以下。
+//   自分だけの予算は置けない（アプリが送らない）。docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
 service cloud.firestore {
@@ -310,6 +313,68 @@ service cloud.firestore {
       }
 
       // notificationLog など、ここに書かれていない場所はすべて拒否（Functions は管理者として書く）
+
+      // わが家の月の予算（2026-11-10 Build 24）。groups/{groupID}/monthlyBudgets/{YYYY-MM}（月ごとに文書1つ。文書の ID は月のキー）。
+      // メンバーだけが読み書きでき（オーナーもパートナーも変えられる）、新しく作れるのは、わが家の設定で「家計簿」（money）がオンのときだけ
+      // （オフにしたあとも、すでにある予算の変更・解除はできる。共有の支出と同じ）。決まった6項目だけ・決まったカテゴリーだけ・
+      // 金額は整数（月の予算 1〜999,999,999、カテゴリー 0〜999,999,999）・カテゴリーの合計は月の予算以下・
+      // 変えた人は本人・変えた日時はサーバーの時刻。自分だけの予算はアプリが送らない（ここに置き場所は無い）。
+      // docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md
+      match /monthlyBudgets/{monthKey} {
+        function validCategoryAmount(amounts, category) {
+          return !(category in amounts)
+            || (amounts[category] is int && amounts[category] >= 0 && amounts[category] <= 999999999);
+        }
+
+        function validMonthlyBudget(data) {
+          return data.keys().hasOnly(['schemaVersion', 'monthKey', 'totalAmount', 'categoryAmounts', 'updatedBy', 'updatedAt'])
+            && data.keys().hasAll(['schemaVersion', 'monthKey', 'totalAmount', 'categoryAmounts', 'updatedBy', 'updatedAt'])
+            && data.schemaVersion == 1
+            && data.monthKey == monthKey
+            && data.totalAmount is int
+            && data.totalAmount >= 1
+            && data.totalAmount <= 999999999
+            && data.categoryAmounts is map
+            && data.categoryAmounts.keys().hasOnly(['food', 'dailyGoods', 'diningOut', 'transport', 'subscription', 'other'])
+            && validCategoryAmount(data.categoryAmounts, 'food')
+            && validCategoryAmount(data.categoryAmounts, 'dailyGoods')
+            && validCategoryAmount(data.categoryAmounts, 'diningOut')
+            && validCategoryAmount(data.categoryAmounts, 'transport')
+            && validCategoryAmount(data.categoryAmounts, 'subscription')
+            && validCategoryAmount(data.categoryAmounts, 'other')
+            && data.categoryAmounts.get('food', 0) + data.categoryAmounts.get('dailyGoods', 0) + data.categoryAmounts.get('diningOut', 0)
+              + data.categoryAmounts.get('transport', 0) + data.categoryAmounts.get('subscription', 0) + data.categoryAmounts.get('other', 0)
+              <= data.totalAmount
+            && data.updatedBy == request.auth.uid
+            && data.updatedAt == request.time;
+        }
+
+        // 月のキーの形（2000年1月〜2099年12月）
+        function validMonthKey() {
+          return monthKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$');
+        }
+
+        // わが家の設定で「家計簿」がオンか（groups の sharedKinds。変えられるのは updateHousehold だけ）
+        function budgetSharingIsOn() {
+          return 'money' in get(/databases/$(database)/documents/groups/$(groupID)).data.get('sharedKinds', []);
+        }
+
+        allow read: if isMember(groupID);
+
+        // 作成：メンバーだけ・家計簿がオンのときだけ・決まった形だけ
+        allow create: if isMember(groupID)
+          && validMonthKey()
+          && validMonthlyBudget(request.resource.data)
+          && budgetSharingIsOn();
+
+        // 更新：メンバーだけ・決まった形だけ（家計簿をオフにしたあとも変えられる）
+        allow update: if isMember(groupID)
+          && validMonthKey()
+          && validMonthlyBudget(request.resource.data);
+
+        // 削除（予算の解除）：メンバーなら（家計簿をオフにしたあとも）
+        allow delete: if isMember(groupID);
+      }
     }
 
     // accountDeletions（アカウント削除の整理の作業記録）・memberships（1人1つのわが家の記録）など、

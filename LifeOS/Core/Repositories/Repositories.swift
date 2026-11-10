@@ -106,6 +106,16 @@ protocol ExpenseRepository: AnyObject {
     /// 複数の支出の商品明細をまとめて（Build 23。検索・購入履歴用。明細の無い支出は入らない）。
     /// 1件ずつの lineItems(for:) と同じ決まり（自分だけの支出は端末の明細、共有の支出はわが家の明細）
     func lineItemsByExpense(_ ids: [Expense.ID]) -> [Expense.ID: [ExpenseLineItem]]
+
+    // MARK: 月の予算（2026-11-10 Build 24）
+    /// その月の予算（未設定なら nil）。自分だけは端末、わが家で共有は Firestore の予算
+    func monthlyBudget(for month: BudgetMonth, scope: BudgetScope) -> MonthlyBudgetPlan?
+    /// 月の予算を置く・解除する（nil なら解除）。保存できなければ理由（元の予算のまま）
+    @discardableResult func setMonthlyBudget(_ plan: MonthlyBudgetPlan?, for month: BudgetMonth, scope: BudgetScope) -> BudgetInputError?
+    /// 新しく、わが家の予算を作れない理由（作れるなら nil）
+    var householdBudgetBlock: ExpenseSharingBlock? { get }
+    /// すでにある、わが家の予算を変える・解除できるか
+    var canEditHouseholdBudgets: Bool { get }
     /// 明細1件を直す
     @discardableResult func updateLineItem(_ item: ExpenseLineItem, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError>
     /// 明細1件を消す（支出そのものは消さない）

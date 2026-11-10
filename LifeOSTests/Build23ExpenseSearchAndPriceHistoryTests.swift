@@ -778,7 +778,12 @@ final class Build23CompatibilityTests: XCTestCase {
     func testBuildNumberIs23() throws {
         let project = try build23Source("LifeOS.xcodeproj/project.pbxproj")
         let lines = project.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }, Array(repeating: "CURRENT_PROJECT_VERSION = 23;", count: 4))
+        // Build 24（2026-11-10）で 24 に上げたため、「4か所がそろっていて 23 以上」を確かめる（Build 15・17〜22 と同じ扱い）
+        let versions = lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }
+        XCTAssertEqual(versions.count, 4)
+        XCTAssertEqual(Set(versions).count, 1, "アプリ／テスト、Debug／Release の4か所が同じ")
+        let number = Int(versions.first?.replacingOccurrences(of: "CURRENT_PROJECT_VERSION = ", with: "").replacingOccurrences(of: ";", with: "") ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(number, 23)
         XCTAssertEqual(lines.filter { $0.hasPrefix("MARKETING_VERSION =") }, Array(repeating: "MARKETING_VERSION = 1.0;", count: 4))
         XCTAssertEqual(lines.filter { $0.hasPrefix("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption =") }, Array(repeating: "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;", count: 2))
         XCTAssertTrue(try build23Source("docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md").contains("Build 16 は欠番"))

@@ -69,6 +69,10 @@ final class LifeStore {
     @ObservationIgnored private var pendingSharedLineItems: [Expense.ID: [ExpenseLineItem]] = [:]
     /// 共有項目の一覧を実際に入れ替えた回数（確認用。同じ一覧が届いても増えない）
     @ObservationIgnored private(set) var householdUpdateCount = 0
+    /// 自分だけの月の予算（2026-11-10 Build 24）。月のキー（YYYY-MM）ごと。端末の life-store.json にだけ保存する（送らない）
+    private(set) var personalMonthlyBudgets: [String: MonthlyBudgetPlan] = [:]
+    /// わが家の共有予算（Build 24）。Firestore から受け取る。端末の life-store.json には保存しない
+    private(set) var householdMonthlyBudgets: [String: MonthlyBudgetPlan] = [:]
 
     /// 「わが家で共有」から「自分だけ」へ変えている途中の予定の UUID（Build 17）。
     /// 端末の life-store.json にも保存する（UUID だけ。外へは送らない）。共有の予定の削除がサーバーで確かめられるまで、
@@ -104,6 +108,8 @@ final class LifeStore {
         var personalConversionIDs: [UUID]?
         // Build 21 で追加：自分だけの支出の商品明細（以前の保存データには無いため Optional。読めない記録は飛ばす）
         var expenseLineItems: ExpenseLineItemRecords?
+        // Build 24 で追加：自分だけの月の予算（以前の保存データには無いため Optional＝予算は未設定。読めない記録は飛ばす）
+        var monthlyBudgets: MonthlyBudgetRecords?
     }
 
     /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
@@ -171,6 +177,8 @@ final class LifeStore {
             store.pendingPersonalConversions = Set(snapshot.personalConversionIDs ?? [])
             // Build 21：自分だけの支出の商品明細（以前の保存データには無い＝明細なし。支出そのものは変えない）
             store.expenseLineItems = Self.loadedLineItems(snapshot.expenseLineItems, personalIDs: Set(store.expenses.map(\.id)))
+            // Build 24：自分だけの月の予算（以前の保存データには無い＝どの月も未設定。以前の「予算」の値は月の予算にしない）
+            store.personalMonthlyBudgets = snapshot.monthlyBudgets?.budgets ?? [:]
         } else if startEmptyIfNoSavedData {
             store = LifeStore.empty()
         } else {
@@ -207,7 +215,8 @@ final class LifeStore {
                 personalConversionIDs: pendingPersonalConversions.isEmpty
                     ? nil
                     : pendingPersonalConversions.sorted { $0.uuidString < $1.uuidString },
-                expenseLineItems: lineItemRecordsForSaving()
+                expenseLineItems: lineItemRecordsForSaving(),
+                monthlyBudgets: personalMonthlyBudgets.isEmpty ? nil : MonthlyBudgetRecords(budgets: personalMonthlyBudgets)
             ),
             to: Self.fileName
         )
@@ -267,6 +276,7 @@ final class LifeStore {
         habits = MockData.habits()
         suggestionDecisions = []
         expenseLineItems = [:]
+        personalMonthlyBudgets = [:]
         save()
     }
 
@@ -1407,6 +1417,82 @@ final class LifeStore {
             if !items.isEmpty { result[record.expenseID] = items }
         }
         return result
+    }
+
+    // MARK: - 月の予算（2026-11-10 Build 24。docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md）
+
+    /// その月の予算（未設定なら nil）。自分だけは端末の予算、わが家で共有は Firestore の予算
+    func monthlyBudget(for month: BudgetMonth, scope: BudgetScope) -> MonthlyBudgetPlan? {
+        switch scope {
+        case .personal: return personalMonthlyBudgets[month.key]
+        case .household: return householdMonthlyBudgets[month.key]
+        }
+    }
+
+    /// 新しく、わが家の予算を作れない理由（作れるなら nil。家計簿の共有がオフ・わが家に参加していない など）
+    var householdBudgetBlock: ExpenseSharingBlock? {
+        guard let expenseSync else { return .notConnected }
+        if !expenseSync.canShareBudgets { return .notConnected }
+        return expenseSync.expenseSharingBlock
+    }
+
+    /// すでにある、わが家の予算を変える・解除できるか（わが家に参加していれば、家計簿がオフでもできる。支出と同じ）
+    var canEditHouseholdBudgets: Bool {
+        guard let expenseSync else { return false }
+        return expenseSync.canShareBudgets && expenseSync.canEditSharedExpenses
+    }
+
+    /// 月の予算を置く・解除する（plan が nil なら解除）。保存できなければ理由を返す（元の予算のまま）。
+    /// - 自分だけ：端末に保存する（送らない）。保存できなければ元に戻す
+    /// - わが家で共有：Firestore へ送る。断られたら元に戻す（SharedExpensesService が sharedBudgetSaveFailed を呼ぶ）
+    @discardableResult
+    func setMonthlyBudget(_ plan: MonthlyBudgetPlan?, for month: BudgetMonth, scope: BudgetScope) -> BudgetInputError? {
+        guard month.isStorable else { return .invalidMonth }
+        if let plan, let error = plan.validationError { return error }
+        let key = month.key
+        switch scope {
+        case .personal:
+            let previous = personalMonthlyBudgets[key]
+            guard previous != plan else { return nil }
+            personalMonthlyBudgets[key] = plan
+            guard save() else {
+                personalMonthlyBudgets[key] = previous
+                return .saveFailed
+            }
+            return nil
+        case .household:
+            guard let expenseSync else { return .notEditable(ExpenseSharingBlock.notConnected.message) }
+            let previous = householdMonthlyBudgets[key]
+            if previous == nil, plan != nil, let block = householdBudgetBlock {
+                return .notEditable(block.message)
+            }
+            guard canEditHouseholdBudgets else { return .notEditable(ExpenseSharingBlock.notJoined.message) }
+            guard previous != plan else { return nil }
+            householdMonthlyBudgets[key] = plan
+            expenseSync.saveSharedBudget(plan, for: month, previous: previous)
+            return nil
+        }
+    }
+
+    /// Firestore から届いた、わが家の予算の一覧で入れ替える（同じ一覧なら入れ替えない。書き戻さない）
+    func applySharedBudgetSnapshot(_ snapshots: [SharedMonthlyBudgetSnapshot]) {
+        var received: [String: MonthlyBudgetPlan] = [:]
+        for snapshot in snapshots where received[snapshot.month.key] == nil {
+            received[snapshot.month.key] = snapshot.plan
+        }
+        if received != householdMonthlyBudgets {
+            householdMonthlyBudgets = received
+        }
+    }
+
+    /// わが家の予算の表示を消す（退出・わが家の削除・サインアウト・読めなくなったとき）。自分だけの予算は消さない
+    func clearHouseholdBudgets() {
+        if !householdMonthlyBudgets.isEmpty { householdMonthlyBudgets = [:] }
+    }
+
+    /// わが家の予算の保存が断られた：元の予算に戻す
+    func sharedBudgetSaveFailed(_ month: BudgetMonth, restoring previous: MonthlyBudgetPlan?) {
+        householdMonthlyBudgets[month.key] = previous
     }
 
     // MARK: - リスト

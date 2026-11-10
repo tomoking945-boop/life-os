@@ -1234,3 +1234,128 @@ describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLi
     await assertSucceeds(deleteDoc(doc(as('bob'), expensePath(ID1))));
   });
 });
+
+describe('Build 24：わが家の月の予算（groups/{groupID}/monthlyBudgets）', () => {
+  const MONTH = '2026-11';
+  const budgetPath = (key = MONTH, group = GROUP) => `groups/${group}/monthlyBudgets/${key}`;
+  /** アプリ（SharedMonthlyBudgetPayload）が作る形。変えた人は本人・変えた日時はサーバーの時刻 */
+  function budget(uid, overrides = {}, key = MONTH) {
+    return {
+      schemaVersion: 1, monthKey: key, totalAmount: 120000, categoryAmounts: { food: 40000, dailyGoods: 0 },
+      updatedBy: uid, updatedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  async function setMoney(on) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: on ? ['todo', 'shopping', 'money'] : ['todo', 'shopping'] });
+    });
+  }
+
+  beforeEach(async () => {
+    await setMoney(true);
+  });
+
+  it('テスト3・4：オーナーが保存した予算をパートナーが読める。パートナーも変えられる（変えた人は本人）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice')));
+    const read = await getDoc(doc(as('bob'), budgetPath()));
+    assert.equal(read.data().totalAmount, 120000);
+    assert.deepEqual(read.data().categoryAmounts, { food: 40000, dailyGoods: 0 });
+    await assertSucceeds(setDoc(doc(as('bob'), budgetPath()), budget('bob', { totalAmount: 150000 })));
+    assert.equal((await getDoc(doc(as('alice'), budgetPath()))).data().totalAmount, 150000);
+    assert.equal((await getDocs(collection(as('alice'), `groups/${GROUP}/monthlyBudgets`))).size, 1);
+    // 別人を「変えた人」にできない
+    await assertFails(setDoc(doc(as('bob'), budgetPath()), budget('alice')));
+    // 変えた日時は端末の時刻にできない
+    await assertFails(setDoc(doc(as('bob'), budgetPath()), budget('bob', { updatedAt: Timestamp.now() })));
+  });
+
+  it('テスト5・39：サインインしていない人・メンバーでない人・退出した人は、読めず、作れず、変えられず、消せない', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice')));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    for (const db of [anon, as('mallory')]) {
+      await assertFails(getDoc(doc(db, budgetPath())));
+      await assertFails(getDocs(collection(db, `groups/${GROUP}/monthlyBudgets`)));
+      await assertFails(setDoc(doc(db, budgetPath()), budget('mallory')));
+      await assertFails(deleteDoc(doc(db, budgetPath())));
+    }
+    await removeMemberAsServer('bob');
+    await assertFails(getDoc(doc(as('bob'), budgetPath())));
+    await assertFails(getDocs(collection(as('bob'), `groups/${GROUP}/monthlyBudgets`)));
+    await assertFails(setDoc(doc(as('bob'), budgetPath()), budget('bob')));
+    await assertFails(deleteDoc(doc(as('bob'), budgetPath())));
+  });
+
+  it('テスト6：ほかのわが家の予算は読めず、書けない（まとめての読み取りもできない）', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), budgetPath(MONTH, OTHER_GROUP)), { ...budget('mallory'), updatedAt: Timestamp.now() });
+    });
+    await assertFails(getDoc(doc(as('alice'), budgetPath(MONTH, OTHER_GROUP))));
+    await assertFails(getDocs(collection(as('alice'), `groups/${OTHER_GROUP}/monthlyBudgets`)));
+    await assertFails(setDoc(doc(as('alice'), budgetPath(MONTH, OTHER_GROUP)), budget('alice')));
+    await assertFails(getDocs(collectionGroup(as('alice'), 'monthlyBudgets')));
+  });
+
+  it('テスト7：月のキーの形（YYYY-MM・2000〜2099年）と、文書の ID と monthKey が同じこと', async () => {
+    for (const key of ['2026-13', '2026-00', '2026-1', '1999-12', '2100-01', 'abcd-ef', '2026-11-01']) {
+      await assertFails(setDoc(doc(as('alice'), budgetPath(key)), budget('alice', {}, key)));
+    }
+    await assertFails(setDoc(doc(as('alice'), budgetPath('2026-12')), budget('alice', {}, '2026-11')), '文書の ID と違う月');
+    for (const key of ['2026-01', '2026-12', '2028-02', '2000-01', '2099-12']) {
+      await assertSucceeds(setDoc(doc(as('alice'), budgetPath(key)), budget('alice', {}, key)));
+    }
+  });
+
+  it('テスト8・9：金額の下限・上限。負の数・小数・文字は拒否（未設定と 0 円は別）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice', { totalAmount: 1, categoryAmounts: {} })));
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice', { totalAmount: 999999999, categoryAmounts: { food: 999999999 } })));
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice', { categoryAmounts: { food: 0 } })), 'カテゴリーは 0 円も設定できる');
+    for (const totalAmount of [0, -1, 1000000000, 1.5, '120000', null]) {
+      await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { totalAmount, categoryAmounts: {} })), `月の予算 ${totalAmount}`);
+    }
+    for (const amount of [-1, 1000000000, 1.5, '1000', null, true]) {
+      await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { categoryAmounts: { food: amount } })), `カテゴリー ${amount}`);
+    }
+    await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { categoryAmounts: [40000] })), 'カテゴリーは map だけ');
+  });
+
+  it('テスト10・11：決まっていない項目・決まっていないカテゴリーは拒否。項目が足りなくても拒否', async () => {
+    for (const extra of [{ createdAt: serverTimestamp() }, { createdBy: 'alice' }, { email: 'a@example.com' }, { personalBudget: 1000 }, { memo: 'メモ' }]) {
+      await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', extra)), Object.keys(extra)[0]);
+    }
+    for (const missing of ['schemaVersion', 'monthKey', 'totalAmount', 'categoryAmounts', 'updatedBy', 'updatedAt']) {
+      const data = budget('alice');
+      delete data[missing];
+      await assertFails(setDoc(doc(as('alice'), budgetPath()), data), missing);
+    }
+    await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { schemaVersion: 2 })));
+    await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { categoryAmounts: { travel: 1000 } })), '決まっていないカテゴリー');
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice', {
+      categoryAmounts: { food: 1, dailyGoods: 1, diningOut: 1, transport: 1, subscription: 1, other: 1 },
+    })), '6つのカテゴリーすべて');
+  });
+
+  it('テスト12：カテゴリーの予算の合計は月の予算以下（同じなら通る・超えれば拒否）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice', { totalAmount: 100000, categoryAmounts: { food: 60000, other: 40000 } })));
+    await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', { totalAmount: 100000, categoryAmounts: { food: 60000, other: 40001 } })));
+    await assertFails(setDoc(doc(as('alice'), budgetPath()), budget('alice', {
+      totalAmount: 999999999,
+      categoryAmounts: { food: 999999999, dailyGoods: 999999999, diningOut: 999999999, transport: 999999999, subscription: 999999999, other: 999999999 },
+    })), '大きな合計でも数えられる（あふれない）');
+  });
+
+  it('テスト14・家計簿オフ：家計簿がオフなら新しく作れない。すでにある予算は変えられ、解除できる（共有の支出と同じ）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), budgetPath()), budget('alice')));
+    await setMoney(false);
+    await assertFails(setDoc(doc(as('alice'), budgetPath('2026-12')), budget('alice', {}, '2026-12')), '新しい月は作れない');
+    await assertSucceeds(setDoc(doc(as('bob'), budgetPath()), budget('bob', { totalAmount: 90000, categoryAmounts: {} })));
+    await assertSucceeds(deleteDoc(doc(as('bob'), budgetPath())));
+    assert.equal((await getDoc(doc(as('alice'), budgetPath()))).exists(), false);
+  });
+
+  it('予算の決まりは、ほかの場所の権限を広げない（支出・明細に予算の形を書けない）', async () => {
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/expenses/E621E1F8-C36C-495A-93FC-0C247A3E6E5F`), budget('alice')));
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/expenseLineItems/E621E1F8-C36C-495A-93FC-0C247A3E6E5F`), budget('alice')));
+    await assertFails(setDoc(doc(as('alice'), `users/alice/monthlyBudgets/${MONTH}`), budget('alice')), '自分だけの予算の置き場所は無い');
+  });
+});

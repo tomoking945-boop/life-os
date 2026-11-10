@@ -207,6 +207,13 @@ final class MoneyViewModel {
     /// カテゴリーで絞り込む（nil はすべて）
     var searchCategory: ExpenseCategory?
 
+    // MARK: 月の予算（Build 24）
+
+    /// 表示している月（予算と実績。はじめは今月）
+    var displayedMonth: BudgetMonth
+    /// 予算の入力の画面（開いていなければ nil。保存するまで予算は変わらない）
+    var budgetDraft: MonthlyBudgetDraft?
+
     // MARK: レシートの読み取り（Build 18）
 
     /// 「カメラで撮る／写真から選ぶ」を出している
@@ -230,10 +237,15 @@ final class MoneyViewModel {
         self.appState = appState
         self.now = now
         self.receiptRecognizer = receiptRecognizer
+        self.displayedMonth = BudgetMonth(date: now)
     }
 
     func refreshNow(_ date: Date = LifeCalendar.now) {
-        if !LifeCalendar.isSameDay(date, now) { now = date }
+        guard !LifeCalendar.isSameDay(date, now) else { return }
+        // 今月を見ていたら、月が変わったときも今月を見る（ほかの月を見ているときは、そのまま）
+        let wasShowingCurrentMonth = displayedMonth == BudgetMonth(date: now)
+        now = date
+        if wasShowingCurrentMonth { displayedMonth = BudgetMonth(date: date) }
     }
 
     // MARK: - 表示の範囲（すべて／自分／共有。Build 13）
@@ -253,16 +265,16 @@ final class MoneyViewModel {
         repository.visibleExpenses(scope: effectiveScope)
     }
 
-    /// 表示している範囲の、今月の支出
+    /// 表示している範囲の、表示している月の支出（支出の日付で数える。Build 24 から月を切り替えられる。はじめは今月）
     private var monthExpenses: [Expense] {
-        let month = LifeCalendar.startOfMonth(now)
-        return scopedExpenses.filter { LifeCalendar.startOfMonth($0.date) == month }
+        MonthlyBudgetCalculator.expenses(scopedExpenses, in: displayedMonth)
     }
 
-    // MARK: - 今月のまとめ（表示している範囲の合計。予算は端末の設定）
+    // MARK: - 表示している月のまとめ（表示している範囲の合計）
 
-    var spent: Int { monthExpenses.reduce(0) { $0 + $1.amount } }
-    /// 月の予算（端末の中だけ。Firestore へは送らない）
+    var spent: Int { monthExpenses.reduce(0) { MonthlyBudgetCalculator.saturatingAdd($0, $1.amount) } }
+    /// 以前（Build 13〜23）の端末の「予算」の値（設定の画面は無く、見本の値か 0）。Build 24 から画面には出さない。
+    /// 月の予算は budgetSummary(for:)（自分だけ・わが家で共有を別々に）
     var budget: Int { repository.budget.budget }
     var remaining: Int { budget - spent }
     var usageRatio: Double {
@@ -284,11 +296,154 @@ final class MoneyViewModel {
     }
 
     var summaryTitle: String {
+        let month = isShowingCurrentMonth ? "今月" : displayedMonth.title
         switch effectiveScope {
-        case .all: return "今月の支出"
-        case .mine: return "今月の支出（自分）"
-        case .shared: return "今月の支出（共有）"
+        case .all: return "\(month)の支出"
+        case .mine: return "\(month)の支出（自分）"
+        case .shared: return "\(month)の支出（共有）"
         }
+    }
+
+    // MARK: - 月の予算（Build 24。docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md）
+
+    /// 今月を見ているか
+    var isShowingCurrentMonth: Bool { displayedMonth == BudgetMonth(date: now) }
+
+    /// 「今月」または「2026年10月」
+    var displayedMonthTitle: String { isShowingCurrentMonth ? "今月（\(displayedMonth.title)）" : displayedMonth.title }
+
+    func showPreviousMonth() {
+        let previous = displayedMonth.previous
+        guard previous.isStorable else { return }
+        displayedMonth = previous
+    }
+
+    func showNextMonth() {
+        let next = displayedMonth.next
+        guard next.isStorable else { return }
+        displayedMonth = next
+    }
+
+    func showCurrentMonth() {
+        displayedMonth = BudgetMonth(date: now)
+    }
+
+    var canShowPreviousMonth: Bool { displayedMonth.previous.isStorable }
+    var canShowNextMonth: Bool { displayedMonth.next.isStorable }
+
+    /// 出す予算のカード（「すべて」は自分だけ・わが家で共有の2枚。足して1つにしない。一人で使う設定は自分だけ）
+    var budgetScopes: [BudgetScope] {
+        BudgetScope.cards(showsScopeFilter: showsScopeFilter, effectiveScope: effectiveScope)
+    }
+
+    /// その予算の、表示している月の予算と実績（自分だけの予算は自分だけの支出、共有の予算は共有の支出だけを数える）
+    func budgetSummary(for scope: BudgetScope) -> MonthlyBudgetSummary {
+        MonthlyBudgetCalculator.summary(
+            month: displayedMonth,
+            scope: scope,
+            plan: repository.monthlyBudget(for: displayedMonth, scope: scope),
+            expenses: repository.visibleExpenses(scope: scope.expenseScope),
+            today: now
+        )
+    }
+
+    var budgetSummaries: [MonthlyBudgetSummary] { budgetScopes.map(budgetSummary(for:)) }
+
+    /// 予算を設定・変更できるか（わが家の予算は、新しく作るときは家計簿の共有がオンのときだけ。あれば参加中なら変えられる）
+    func canEditBudget(_ scope: BudgetScope) -> Bool {
+        guard displayedMonth.isStorable else { return false }
+        switch scope {
+        case .personal:
+            return true
+        case .household:
+            return repository.monthlyBudget(for: displayedMonth, scope: .household) == nil
+                ? repository.householdBudgetBlock == nil
+                : repository.canEditHouseholdBudgets
+        }
+    }
+
+    /// 変えられないときの理由・保存先の説明（画面に出す）
+    func budgetNote(for scope: BudgetScope) -> String {
+        switch scope {
+        case .personal:
+            return "自分だけの予算は、この iPhone の中だけに保存します（わが家には送りません）。"
+        case .household:
+            if canEditBudget(.household) {
+                return "わが家の共有予算は、わが家のメンバー（オーナーとパートナー）が見て、変えられます。共有の支出だけを数えます。"
+            }
+            return repository.householdBudgetBlock?.message ?? ExpenseSharingBlock.notJoined.message
+        }
+    }
+
+    /// 予算の入力の画面を開く（表示している月）
+    func startEditingBudget(_ scope: BudgetScope) {
+        guard canEditBudget(scope) else { return }
+        budgetDraft = MonthlyBudgetDraft(month: displayedMonth, scope: scope, plan: repository.monthlyBudget(for: displayedMonth, scope: scope))
+    }
+
+    func cancelBudgetEditing() {
+        budgetDraft = nil
+    }
+
+    /// 前の月の予算（「前月の予算をコピー」に使う。無ければ nil）
+    func previousMonthPlan(for draft: MonthlyBudgetDraft) -> MonthlyBudgetPlan? {
+        repository.monthlyBudget(for: draft.month.previous, scope: draft.scope)
+    }
+
+    /// 保存する。正しくなければ理由を返し、画面は開いたまま（予算は変わらない）
+    @discardableResult
+    func saveBudget(_ draft: MonthlyBudgetDraft) -> BudgetInputError? {
+        switch draft.validated() {
+        case .failure(let error):
+            return error
+        case .success(let plan):
+            if let error = repository.setMonthlyBudget(plan, for: draft.month, scope: draft.scope) { return error }
+            if budgetDraft?.id == draft.id { budgetDraft = nil }
+            return nil
+        }
+    }
+
+    /// その月の予算を解除する（カテゴリーの予算も一緒に。支出は消さない）
+    @discardableResult
+    func removeBudget(_ draft: MonthlyBudgetDraft) -> BudgetInputError? {
+        if let error = repository.setMonthlyBudget(nil, for: draft.month, scope: draft.scope) { return error }
+        if budgetDraft?.id == draft.id { budgetDraft = nil }
+        return nil
+    }
+
+    /// カードの VoiceOver（予算・使った金額・残り・割合・1日あたりの目安。色だけに頼らない）
+    func budgetSpokenLabel(_ summary: MonthlyBudgetSummary) -> String {
+        var parts = [summary.scope.budgetTitle, displayedMonth.title, "使った金額 \(LifeFormatters.yenSpoken(summary.spent))"]
+        if let plan = summary.plan {
+            parts.append("予算 \(LifeFormatters.yenSpoken(plan.totalAmount))")
+            if let overAmount = summary.overAmount {
+                parts.append("予算を\(LifeFormatters.yenSpoken(overAmount))上回っています")
+            } else if let remaining = summary.remaining {
+                parts.append("残り \(LifeFormatters.yenSpoken(remaining))")
+            }
+            if let percent = summary.usagePercentText { parts.append("使用割合 \(percent)") }
+            if let daily = summary.dailyAllowance {
+                parts.append("残り\(summary.daysRemaining)日、1日あたりの目安 \(LifeFormatters.yenSpoken(daily))")
+            }
+        } else {
+            parts.append("予算は未設定です")
+        }
+        return parts.joined(separator: "、")
+    }
+
+    /// カテゴリー1つの VoiceOver
+    func categorySpokenLabel(_ line: BudgetCategoryLine) -> String {
+        var parts = [line.category.label, "使った金額 \(LifeFormatters.yenSpoken(line.spent))"]
+        if let budget = line.budget {
+            parts.append("予算 \(LifeFormatters.yenSpoken(budget))")
+            if let remaining = line.remaining {
+                parts.append(remaining < 0 ? "予算を\(LifeFormatters.yenSpoken(-remaining))上回っています" : "残り \(LifeFormatters.yenSpoken(remaining))")
+            }
+            if let ratio = line.usageRatio { parts.append("使用割合 \(Int(min(ratio * 100, 1_000_000).rounded()))%") }
+        } else {
+            parts.append("予算は未設定")
+        }
+        return parts.joined(separator: "、")
     }
 
     // MARK: - 支出一覧

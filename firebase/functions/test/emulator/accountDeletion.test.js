@@ -637,6 +637,62 @@ describe('Build 21：共有の支出の商品明細（groups/{groupID}/expenseLi
   });
 });
 
+describe('Build 24：わが家の月の予算（groups/{groupID}/monthlyBudgets）', () => {
+  async function householdWithPartner() {
+    const [owner, partner] = [newID('o'), newID('p')];
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'shopping', 'money'] });
+    const { url } = await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    await householdStore.acceptInvite({ db, FieldValue, uid: partner, token: new URL(url).searchParams.get('token') });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    return { owner, partner, groupID };
+  }
+
+  /** アプリと同じ形の予算（月ごとに文書1つ） */
+  async function seedBudget(groupID, monthKey, updatedBy) {
+    await db.doc(`groups/${groupID}/monthlyBudgets/${monthKey}`).set({
+      schemaVersion: 1, monthKey, totalAmount: 120000, categoryAmounts: { food: 40000 }, updatedBy, updatedAt: T(0),
+    });
+  }
+
+  it('パートナーが退出しても、わが家の予算はわが家に残る（金額は変えない）', async () => {
+    const { partner, groupID } = await householdWithPartner();
+    await seedBudget(groupID, '2026-11', partner);
+    await householdStore.leaveHousehold({ db, FieldValue, uid: partner });
+    assert.equal((await data(`groups/${groupID}/monthlyBudgets/2026-11`)).totalAmount, 120000);
+  });
+
+  it('テスト38：パートナーのアカウントが削除されても、わが家の予算は残る。ほかの場所へ写さない', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await seedBudget(groupID, '2026-11', partner);
+    await seedUser(partner);
+    await cleanup(partner);
+    assert.ok(await exists(`groups/${groupID}/monthlyBudgets/2026-11`));
+    assert.ok(!(await subcollections(`users/${owner}`)).includes('monthlyBudgets'));
+    assert.equal((await db.collection('monthlyBudgets').limit(1).get()).size, 0);
+  });
+
+  it('テスト37：1人のわが家を削除すると（deleteHousehold）、わが家の予算も残らない（過去の月も）', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedBudget(groupID, '2026-10', owner);
+    await seedBudget(groupID, '2026-11', owner);
+    await householdStore.deleteHousehold({ db, FieldValue, uid: owner });
+    assert.equal((await db.collection(`groups/${groupID}/monthlyBudgets`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+
+  it('テスト38：1人のわが家のオーナーのアカウントが削除されると、わが家の予算も残らない', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedBudget(groupID, '2026-11', owner);
+    await cleanup(owner);
+    assert.equal((await db.collection(`groups/${groupID}/monthlyBudgets`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+});
+
 describe('削除トリガー（Auth Emulator で利用者を削除）', () => {
   let dave;
   before(async () => {

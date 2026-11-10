@@ -593,27 +593,84 @@ final class TodayViewModel {
         timelineSections.isEmpty && extraItems.isEmpty
     }
 
-    // MARK: - MONEY
+    // MARK: - MONEY（Build 24：「お金」の画面と同じ数え方。docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md）
+    //
+    // 2026-10-01 の決定（お金は「自分／共有」で分けない）は、Build 13 で家計簿を「自分だけ／わが家で共有」に分けたため、
+    // Build 24 で「お金」の画面と同じ範囲（すべて／自分／共有）に合わせた。以前の見本の固定値（今月 ¥82,450 など）は使わない
 
-    /// 決定済み：お金は「自分 / 共有」で分けない（2026-10-01）。フィルターは適用しない。
+    /// 今の範囲の予算（「お金」の画面のカードと同じ。「すべて」は自分だけ・わが家で共有の2つ。一人で使う設定は自分だけ）
+    var moneyScopes: [BudgetScope] {
+        BudgetScope.cards(showsScopeFilter: appState.usageStyle.showsScopeFilter, effectiveScope: appState.effectiveScope)
+    }
+
+    /// 今月の予算と実績（「お金」の画面の budgetSummary と同じ計算）
+    var moneySummaries: [MonthlyBudgetSummary] {
+        let month = BudgetMonth(date: now)
+        return moneyScopes.map { scope in
+            MonthlyBudgetCalculator.summary(
+                month: month,
+                scope: scope,
+                plan: store.monthlyBudget(for: month, scope: scope),
+                expenses: store.visibleExpenses(scope: scope.expenseScope),
+                today: now
+            )
+        }
+    }
+
+    /// 今日の支出（今の範囲。支出の日付で数える）
     var todaySpending: Int {
-        store.expenses
-            .filter { LifeCalendar.isSameDay($0.date, now) }
-            .reduce(0) { $0 + $1.amount }
+        moneyScopes.reduce(0) { total, scope in
+            store.visibleExpenses(scope: scope.expenseScope)
+                .filter { LifeCalendar.isSameDay($0.date, now) }
+                .reduce(total) { MonthlyBudgetCalculator.saturatingAdd($0, $1.amount) }
+        }
     }
 
-    var monthSpending: Int { store.budget.spent }
-
-    var monthlyBudget: Int { store.budget.budget }
-
-    /// 今月の予算に対する割合（0〜1。細い線の長さに使う）
-    var budgetRatio: Double {
-        guard monthlyBudget > 0 else { return 0 }
-        return min(max(Double(monthSpending) / Double(monthlyBudget), 0), 1)
+    /// 今月の支出（今の範囲。「すべて」は自分だけと共有の支出の合計。予算は足さない）
+    var monthSpending: Int {
+        moneySummaries.reduce(0) { MonthlyBudgetCalculator.saturatingAdd($0, $1.spent) }
     }
 
+    /// 予算の細い線（予算が1つで、設定してあるときだけ。「すべて」では予算を混ぜないので出さない）
+    var budgetRatio: Double? {
+        guard moneySummaries.count == 1, let summary = moneySummaries.first, summary.hasBudget else { return nil }
+        return summary.barRatio
+    }
+
+    /// 予算の一言（1行。「すべて」は自分と共有を分けて短く。足して「総予算」にしない）
     var budgetText: String {
-        "予算 \(LifeFormatters.yen(monthlyBudget))"
+        let summaries = moneySummaries
+        if summaries.count == 1, let summary = summaries.first {
+            return summary.hasBudget ? "予算 \(summary.statusText)" : "今月の予算は未設定"
+        }
+        return summaries.map { summary in
+            let name = summary.scope == .personal ? "自分" : "共有"
+            guard summary.hasBudget else { return "\(name) 予算未設定" }
+            if let overAmount = summary.overAmount { return "\(name) \(LifeFormatters.yen(overAmount))上回り" }
+            return "\(name) 残り \(LifeFormatters.yen(summary.remaining ?? 0))"
+        }.joined(separator: "・")
+    }
+
+    /// VoiceOver（今日・今月・予算の一言）
+    var moneySpokenLabel: String {
+        var parts = ["お金", "今日の支出 \(LifeFormatters.yenSpoken(todaySpending))", "今月の支出 \(LifeFormatters.yenSpoken(monthSpending))"]
+        let summaries = moneySummaries
+        for summary in summaries {
+            let name = summaries.count == 1 ? "予算" : summary.scope.budgetTitle
+            if let overAmount = summary.overAmount {
+                parts.append("\(name)を\(LifeFormatters.yenSpoken(overAmount))上回っています")
+            } else if let remaining = summary.remaining {
+                parts.append("\(name) 残り \(LifeFormatters.yenSpoken(remaining))")
+            } else {
+                parts.append("\(name)は未設定")
+            }
+        }
+        return parts.joined(separator: "、")
+    }
+
+    /// MONEY をタップしたとき：「お金」の画面を開く
+    func openMoney() {
+        appState.selectedTab = .money
     }
 
     // MARK: - 広告
