@@ -9,6 +9,8 @@ struct ReceiptRow: Hashable {
     var confidence: Float
     /// 行の範囲（位置が分からなければ nil）
     var box: RecognizedTextBox?
+    /// ほかの読み方の行（Build 22。Vision の2番目・3番目の候補で1か所ずつ置き換えたもの。最大3つ。数字の確かめだけに使う）
+    var alternatives: [String] = []
 }
 
 /// 読み取った文字を、レシートの行にまとめる（Build 20）
@@ -16,15 +18,28 @@ enum ReceiptLayout {
     /// 同じ行とみなす高さのずれ（文字の高さに対する割合）
     static let sameRowTolerance = 0.5
 
+    /// 1行あたりの、ほかの読み方の行の最大の数（Build 22。計算の量を増やしすぎない）
+    static let maxAlternativeRows = 3
+
     /// 行にまとめる。すべての文字の位置が分かるときは、上から下へ並べ、同じ高さの文字を1行にする。
-    /// 位置が分からないときは、読み取った順のまま1つずつを1行にする。空の行は除く
+    /// 位置が分からないときは、読み取った順のまま1つずつを1行にする。空の行は除く。
+    /// Build 22：全角を半角にしたあと、金額の場所の数字の読み違い（「1O0」「¥S00」など）を直す（ReceiptNumberText）
     static func rows(from lines: [ReceiptRecognizedLine]) -> [ReceiptRow] {
         let usable = lines
-            .map { ReceiptRecognizedLine(text: ReceiptFieldExtractor.normalize($0.text).trimmingCharacters(in: .whitespacesAndNewlines), confidence: $0.confidence, box: $0.box) }
+            .map { line in
+                ReceiptRecognizedLine(
+                    text: cleaned(line.text),
+                    confidence: line.confidence,
+                    box: line.box,
+                    alternatives: Array(line.alternatives.map(cleaned).filter { !$0.isEmpty }.prefix(maxAlternativeRows))
+                )
+            }
             .filter { !$0.text.isEmpty }
         let boxes = usable.compactMap(\.box)
         guard !usable.isEmpty, boxes.count == usable.count else {
-            return usable.map { ReceiptRow(text: $0.text, confidence: $0.confidence, box: $0.box) }
+            return usable.map { line in
+                ReceiptRow(text: line.text, confidence: line.confidence, box: line.box, alternatives: line.alternatives.filter { $0 != line.text })
+            }
         }
         // 上から下へ（同じ高さなら左から右へ）
         let sorted = usable.enumerated().sorted { lhs, rhs in
@@ -49,18 +64,38 @@ enum ReceiptLayout {
             let minY = ordered.map { $0.box!.y }.min() ?? 0
             let maxX = ordered.map { $0.box!.maxX }.max() ?? 0
             let maxY = ordered.map { $0.box!.maxY }.max() ?? 0
+            // ほかの読み方の行：1つのまとまりだけを、その2番目・3番目の候補に置き換える（最大3つ）
+            var alternatives: [String] = []
+            for (index, segment) in ordered.enumerated() {
+                for alternative in segment.alternatives where alternative != segment.text {
+                    var texts = ordered.map(\.text)
+                    texts[index] = alternative
+                    let joined = texts.joined(separator: " ")
+                    if alternatives.count < maxAlternativeRows, !alternatives.contains(joined) {
+                        alternatives.append(joined)
+                    }
+                }
+            }
             return ReceiptRow(
                 text: ordered.map(\.text).joined(separator: " "),
                 confidence: ordered.map(\.confidence).min() ?? 1,
-                box: RecognizedTextBox(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+                box: RecognizedTextBox(x: minX, y: minY, width: maxX - minX, height: maxY - minY),
+                alternatives: alternatives
             )
         }
+    }
+
+    /// 全角を半角にし、前後の空白を除き、金額の場所の数字の読み違いを直す
+    static func cleaned(_ text: String) -> String {
+        ReceiptNumberText.repaired(ReceiptFieldExtractor.normalize(text).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
 /// 合計金額の候補（Build 20）。確認画面で選ぶための一時的な候補。保存・送信しない
 struct ReceiptAmountCandidate: Identifiable, Hashable {
     enum Kind: Int, Comparable {
+        /// 小計・税・お預り・お釣りなどから計算した金額（Build 22。参考。自動では選ばない）
+        case calculated = -1
         /// 小計（参考。自動では選ばない）
         case subtotal = 0
         /// 合計・お会計・TOTAL
@@ -76,6 +111,7 @@ struct ReceiptAmountCandidate: Identifiable, Hashable {
             case .strongTotal: return 100
             case .total: return 50
             case .subtotal: return 0
+            case .calculated: return -10
             }
         }
     }
@@ -86,20 +122,105 @@ struct ReceiptAmountCandidate: Identifiable, Hashable {
     let kind: Kind
     /// 順位の点数（大きいほど上）
     let score: Double
+    /// 小計・税・お預り・お釣り・商品明細の合計から計算した金額と合うか（Build 22）
+    var isConsistent = false
 
     var id: String { "\(amount)-\(label)" }
 
-    /// 合計として選んでよい候補か（小計は「選択非推奨」）
-    var isRecommended: Bool { kind != .subtotal }
+    /// 合計として選んでよい候補か（小計・計算は「選択非推奨」「確認してください」）
+    var isRecommended: Bool { kind == .total || kind == .strongTotal }
 
-    /// 「¥3,520（合計）」「¥3,200（小計・選択非推奨）」
+    /// 「¥3,520（合計）」「¥3,200（小計・選択非推奨）」「¥3,520（計算・確認してください）」
     var displayText: String {
-        isRecommended ? "\(LifeFormatters.yen(amount))（\(label)）" : "\(LifeFormatters.yen(amount))（\(label)・選択非推奨）"
+        switch kind {
+        case .total, .strongTotal: return "\(LifeFormatters.yen(amount))（\(label)）"
+        case .subtotal: return "\(LifeFormatters.yen(amount))（\(label)・選択非推奨）"
+        case .calculated: return "\(LifeFormatters.yen(amount))（小計・税などから計算・確認してください）"
+        }
     }
 
     /// VoiceOver 用
     var spokenLabel: String {
-        isRecommended ? "\(label) \(LifeFormatters.yenSpoken(amount))" : "\(label) \(LifeFormatters.yenSpoken(amount))、合計としての選択は非推奨"
+        switch kind {
+        case .total, .strongTotal: return "\(label) \(LifeFormatters.yenSpoken(amount))"
+        case .subtotal: return "\(label) \(LifeFormatters.yenSpoken(amount))、合計としての選択は非推奨"
+        case .calculated: return "小計や税などから計算した金額 \(LifeFormatters.yenSpoken(amount))、レシートで確かめてください"
+        }
+    }
+}
+
+/// 合計金額の決め方の結果（Build 22）。一時的な値。保存・送信しない
+struct ReceiptAmountAnalysis: Equatable {
+    /// 候補（順位の高い順）
+    var candidates: [ReceiptAmountCandidate]
+    /// 自動で金額欄に入れる金額（決められなければ nil）
+    var amount: Int?
+    /// 決められなかった理由
+    var issue: ReceiptAmountIssue?
+    /// 入れたが確かめてほしいこと
+    var warning: String?
+}
+
+/// 合計金額を確かめるための、レシートの中のほかの金額（Build 22）。一時的な値。保存・送信しない
+struct ReceiptTotalsEvidence: Equatable {
+    /// 小計
+    var subtotal: Int?
+    /// 外税・消費税の合計（8%・10% の複数の税率の行を足す。内税は足さない）
+    var outerTax = 0
+    /// 値引き・割引・クーポンの合計（正の数）
+    var discount = 0
+    /// お預り
+    var deposit: Int?
+    /// お釣り（0円も含む）
+    var change: Int?
+    /// ポイントで払った金額
+    var pointsUsed = 0
+    /// 商品明細の金額の合計（すべての明細に金額があるときだけ）
+    var itemsTotal: Int?
+
+    /// 小計から計算した合計（小計＋外税、小計＋外税－値引き。値引きが小計に含まれている形と、含まれていない形の両方）
+    var subtotalValues: [Int] {
+        guard let subtotal else { return [] }
+        return Self.unique([subtotal + outerTax, subtotal + outerTax - discount])
+    }
+
+    /// お預り－お釣り（ポイントで払った分を足した形も）
+    var paymentValues: [Int] {
+        guard let deposit, let change, deposit >= change else { return [] }
+        return Self.unique([deposit - change, deposit - change + pointsUsed])
+    }
+
+    /// 商品明細の合計から計算した合計（税・値引きを足し引きした形も）
+    var itemValues: [Int] {
+        guard let itemsTotal else { return [] }
+        return Self.unique([itemsTotal, itemsTotal + outerTax, itemsTotal - discount, itemsTotal + outerTax - discount])
+    }
+
+    /// 強い手掛かり（小計・お預り－お釣り）から計算した合計
+    var strongValues: [Int] { Self.unique(subtotalValues + paymentValues) }
+
+    /// どれかの計算と合うか
+    func supports(_ value: Int) -> Bool {
+        subtotalValues.contains(value) || paymentValues.contains(value) || itemValues.contains(value)
+    }
+
+    /// 2つ以上の別々の計算（小計・お預り－お釣り・商品明細）がそろって示す金額（1つに決まるときだけ）
+    var agreedValue: Int? {
+        let groups = [Set(subtotalValues), Set(paymentValues), Set(itemValues)].filter { !$0.isEmpty }
+        var counts: [Int: Int] = [:]
+        for group in groups {
+            for value in group { counts[value, default: 0] += 1 }
+        }
+        let agreed = counts.filter { $0.value >= 2 }.map(\.key)
+        return agreed.count == 1 ? agreed.first : nil
+    }
+
+    private static func unique(_ values: [Int]) -> [Int] {
+        var result: [Int] = []
+        for value in values where value > 0 && value <= SharedExpensePayload.maxAmount && !result.contains(value) {
+            result.append(value)
+        }
+        return result
     }
 }
 
@@ -124,6 +245,12 @@ struct ReceiptLineItem: Identifiable, Hashable {
     }
 
     var quantity: Int? { Self.number(from: quantityText, max: 9_999) }
+
+    /// 数量×単価が金額と合わない（Build 22。読み違いかもしれないので、確認画面で知らせる。値は変えない）
+    var hasArithmeticMismatch: Bool {
+        guard let quantity, let unitPrice, let amount else { return false }
+        return quantity * unitPrice != amount
+    }
     var unitPrice: Int? { Self.number(from: unitPriceText, max: SharedExpensePayload.maxAmount) }
     var amount: Int? { Self.number(from: amountText, max: SharedExpensePayload.maxAmount) }
 

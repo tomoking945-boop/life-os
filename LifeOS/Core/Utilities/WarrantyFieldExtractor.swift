@@ -8,6 +8,9 @@ struct WarrantyRecognizedLine: Hashable {
     /// 写真の中の位置（Build 20。左上が原点、0〜1 に正規化）。レシートの行のまとまり・順位付けに使う。
     /// 保証書の読み取りは使わない（無くてもよい）。保存しない
     var box: RecognizedTextBox? = nil
+    /// ほかの読み方の候補（Build 22。Vision の2番目・3番目の候補。レシートの数字の確かめに使う）。
+    /// 保証書の読み取りは使わない。保存しない
+    var alternatives: [String] = []
 }
 
 /// 文字の位置（左上が原点、写真の幅・高さを 1 とした値。Build 20）

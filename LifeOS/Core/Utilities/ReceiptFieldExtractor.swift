@@ -6,6 +6,8 @@ enum ReceiptAmountIssue: Equatable {
     case notFound
     /// 合計の候補が複数あり、どれか決められない
     case ambiguous
+    /// 合計の見出しの金額が、小計・税・お預り・お釣りなどから計算した金額と合わない（Build 22）
+    case inconsistent
 
     var message: String {
         switch self {
@@ -13,6 +15,8 @@ enum ReceiptAmountIssue: Equatable {
             return "合計金額を読み取れませんでした。レシートを見て金額を入れてください。"
         case .ambiguous:
             return "合計金額の候補が複数あるため、金額を空にしました。レシートを見て金額を入れてください。"
+        case .inconsistent:
+            return "合計金額が、小計・税やお預り・お釣りから計算した金額と合わないため、空にしました。レシートを見て候補から選ぶか、金額を入れてください。"
         }
     }
 }
@@ -44,12 +48,15 @@ struct ReceiptExtractionProposal: Equatable {
     var isDateFromReceipt: Bool
     /// 合計金額を決められなかった理由
     var amountIssue: ReceiptAmountIssue?
+    /// 合計金額は入れたが、確かめてほしいこと（Build 22。小計・税などと合わないとき）
+    var amountWarning: String? = nil
 
     /// 確認画面に出す一言（読み取れなかった項目）
     var notes: [String] {
         var notes: [String] = []
         if isLowQuality { notes.append(ReceiptReadQuality.lowQualityMessage) }
         if let amountIssue { notes.append(amountIssue.message) }
+        if let amountWarning { notes.append(amountWarning) }
         if !isDateFromReceipt { notes.append("日付を読み取れなかったため、今日にしました。") }
         if !isTitleFromReceipt { notes.append("お店の名前を読み取れなかったため、「レシート」にしました。") }
         return notes
@@ -76,7 +83,7 @@ enum ReceiptFieldExtractor {
     }
 
     static func extract(from lines: [WarrantyRecognizedLine], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
-        extract(from: lines.map { ReceiptRecognizedLine(text: $0.text, confidence: $0.confidence, box: $0.box) }, today: today, calendar: calendar)
+        extract(from: lines.map { ReceiptRecognizedLine(text: $0.text, confidence: $0.confidence, box: $0.box, alternatives: $0.alternatives) }, today: today, calendar: calendar)
     }
 
     /// 位置・信頼度つきの行から候補を作る（Build 20）。位置があれば、同じ高さの文字を1行にまとめ、
@@ -84,8 +91,11 @@ enum ReceiptFieldExtractor {
     static func extract(from lines: [ReceiptRecognizedLine], today: Date, calendar: Calendar = LifeCalendar.calendar) -> ReceiptExtractionProposal {
         let rows = ReceiptLayout.rows(from: lines)
         let texts = rows.map(\.text)
-        let amountCandidates = self.amountCandidates(in: rows)
-        let (amount, issue) = selectedAmount(from: amountCandidates)
+        // Build 22：合計の候補を、小計・税・値引き・お預り・お釣り・商品明細の合計と照らし合わせて決める
+        let analysis = amountAnalysis(in: rows)
+        let amountCandidates = analysis.candidates
+        let amount = analysis.amount
+        let issue = analysis.issue
         let foundDate = purchaseDate(in: texts, calendar: calendar)
         let candidates = storeNames(in: rows)
         let foundTitle = candidates.first
@@ -100,7 +110,8 @@ enum ReceiptFieldExtractor {
             isLowQuality: ReceiptReadQuality.isLow(lines),
             isTitleFromReceipt: foundTitle != nil,
             isDateFromReceipt: foundDate != nil,
-            amountIssue: amount == nil ? (issue ?? .notFound) : nil
+            amountIssue: amount == nil ? (issue ?? .notFound) : nil,
+            amountWarning: amount == nil ? nil : analysis.warning
         )
     }
 
@@ -123,7 +134,7 @@ enum ReceiptFieldExtractor {
             "領収金額", "TOTAL AMOUNT", "GRAND TOTAL", "AMOUNT DUE"
         ]
         /// 一般的な合計の見出し
-        static let totals = ["合計", "お会計", "TOTAL"]
+        static let totals = ["合計", "お会計", "TOTAL", "現計"]
         /// 合計ではない行（この言葉がある行の金額は、合計の候補にしない）
         static let notTotal = [
             "小計", "SUBTOTAL", "SUB TOTAL", "SUB-TOTAL",
@@ -142,16 +153,55 @@ enum ReceiptFieldExtractor {
 
     /// 合計金額。決められないときは (nil, 理由)（文字だけの行。Build 20 から候補の順位付けと同じ決まり）
     static func totalAmount(in lines: [String]) -> (Int?, ReceiptAmountIssue?) {
-        selectedAmount(from: amountCandidates(in: ReceiptLayout.rows(from: lines.map { ReceiptRecognizedLine(text: $0) })))
+        let analysis = amountAnalysis(in: ReceiptLayout.rows(from: lines.map { ReceiptRecognizedLine(text: $0) }))
+        return (analysis.amount, analysis.amount == nil ? (analysis.issue ?? .notFound) : nil)
     }
 
-    /// 合計金額の候補（Build 20）。順位の高い順・同じ「金額と見出し」は1つだけ。
+    /// 合計金額の候補（Build 20）。順位の高い順・同じ「金額と見出し」は1つだけ
+    static func amountCandidates(in rows: [ReceiptRow]) -> [ReceiptAmountCandidate] {
+        amountAnalysis(in: rows).candidates
+    }
+
+    /// 合計が小計・税などと合わないときの一言（Build 22）
+    static let inconsistentWarning = "合計金額が、小計・税やお預り・お釣りから計算した金額と合いません。レシートで確かめてください。"
+
+    /// 合計金額の決め方（Build 22。docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md）
+    ///
+    /// 1. 見出し（総合計・お支払額・合計・現計・TOTAL など）の近くの金額を候補にする（Build 20 と同じ）
+    /// 2. 小計＋外税（－値引き）・お預り－お釣り・商品明細の合計を計算し、候補と照らし合わせる（合う候補を上の順位に。
+    ///    Vision の2番目・3番目の読み方の方が合うなら、そちらの数字を使う）
+    /// 3. 自動で入れるのは、いちばん強い見出しの候補が1つの金額にそろうときだけ（Build 18 と同じ）。
+    ///    そのうえで、2つ以上の別々の計算がそろって別の金額を示すときは、自動で入れない（.inconsistent）。
+    ///    計算が1つだけ合わないときは、金額は入れるが「確かめてください」と出す
+    static func amountAnalysis(in rows: [ReceiptRow]) -> ReceiptAmountAnalysis {
+        let evidence = totalsEvidence(in: rows)
+        var candidates = labeledAmountCandidates(in: rows, evidence: evidence)
+        var (amount, issue) = selectedAmount(from: candidates)
+        var warning: String?
+        if let value = amount, !evidence.supports(value) {
+            if let agreed = evidence.agreedValue, agreed != value {
+                // 別々の計算がそろって別の金額を示す：読み違いの疑いが強いので、自動で入れない
+                amount = nil
+                issue = .inconsistent
+            } else if !evidence.strongValues.isEmpty {
+                warning = inconsistentWarning
+            }
+        }
+        // 計算でそろった金額が候補に無ければ、「計算」の候補として出す（自動では選ばない）
+        if amount == nil, let agreed = evidence.agreedValue, !candidates.contains(where: { $0.amount == agreed }) {
+            candidates.append(ReceiptAmountCandidate(amount: agreed, label: "計算", kind: .calculated, score: 0, isConsistent: true))
+        }
+        return ReceiptAmountAnalysis(candidates: candidates, amount: amount, issue: amount == nil ? (issue ?? .notFound) : nil, warning: warning)
+    }
+
+    /// 見出しの近くの合計金額の候補（Build 20・22）。順位の高い順・同じ「金額と見出し」は1つだけ。
     ///
     /// - 見出しの行の右側（同じ行）の金額を優先し、無ければ直下の「金額だけの行」を使う
-    /// - 強い見出し（総合計・お支払額など）＞ 合計 ＞ 小計（参考・選択非推奨）の順。同じ強さなら、レシートの下の方・
-    ///   同じ行・信頼度の高いものを上にする
+    ///   （Build 22：「(税込)」のような短い行を1つ挟んでもよい。「¥3,」「520」のように2行に分かれた数字もつなぐ）
+    /// - 強い見出し（総合計・お支払額など）＞ 合計 ＞ 小計（参考・選択非推奨）の順。同じ強さなら、計算と合う・
+    ///   レシートの下の方・同じ行・信頼度の高いものを上にする
     /// - お預り・お釣り・税・値引き・点数・ポイント・カード番号・電話番号などの行は候補にしない
-    static func amountCandidates(in rows: [ReceiptRow]) -> [ReceiptAmountCandidate] {
+    static func labeledAmountCandidates(in rows: [ReceiptRow], evidence: ReceiptTotalsEvidence) -> [ReceiptAmountCandidate] {
         var found: [ReceiptAmountCandidate] = []
         let lastIndex = max(rows.count - 1, 1)
         for (index, row) in rows.enumerated() {
@@ -180,30 +230,33 @@ enum ReceiptFieldExtractor {
             } else {
                 continue
             }
-            guard let range = upper.range(of: matched.uppercased()) else { continue }
-            let offset = upper.distance(from: upper.startIndex, to: range.upperBound)
-            let rest = String(row.text.dropFirst(offset))
-            var foundAmount = amounts(in: rest).last
+            var foundAmount: Int? = amountAfter(matched, in: row.text) ?? nil
             var sourceRow = row
             var isSameRow = true
-            if foundAmount == nil, index + 1 < rows.count {
+            if foundAmount == nil, let below = amountBelow(rows, labelIndex: index) {
                 // 見出しの直下の行が金額だけのとき（「合計」の下に「¥1,080」）
-                let next = rows[index + 1]
-                let nextUpper = next.text.uppercased()
-                if !containsAny(nextUpper, Labels.notTotal),
-                   matchedLabel(in: nextUpper, Labels.strongTotals + Labels.totals + subtotalLabels) == nil,
-                   isAmountOnly(next.text),
-                   let value = amounts(in: next.text).last {
-                    foundAmount = value
-                    sourceRow = next
-                    isSameRow = false
-                }
+                foundAmount = below.amount
+                sourceRow = below.row
+                isSameRow = false
+            }
+            // Vision のほかの読み方での金額（同じ見出しのあと・直下の行）
+            var alternatives = row.alternatives.compactMap { amountAfter(matched, in: $0) ?? nil }
+            if !isSameRow {
+                alternatives += sourceRow.alternatives.compactMap { amounts(in: $0).last }
+            }
+            if foundAmount == nil {
+                foundAmount = alternatives.first
+            } else if let value = foundAmount, !evidence.supports(value),
+                      let better = alternatives.first(where: { evidence.supports($0) }) {
+                // 1番目の読み方は計算と合わないが、ほかの読み方が合う：そちらを使う
+                foundAmount = better
             }
             guard let amount = foundAmount else { continue }
             let position = row.box?.midY ?? Double(index) / Double(lastIndex)
             let confidence = Double(min(row.confidence, sourceRow.confidence))
-            let score = kind.weight + position * 10 + confidence * 3 + (isSameRow ? 2 : 1)
-            found.append(ReceiptAmountCandidate(amount: amount, label: label, kind: kind, score: score))
+            let consistent = evidence.supports(amount)
+            let score = kind.weight + position * 10 + confidence * 3 + (isSameRow ? 2 : 1) + (consistent ? 20 : 0)
+            found.append(ReceiptAmountCandidate(amount: amount, label: label, kind: kind, score: score, isConsistent: consistent))
         }
         // 順位の高い順。同じ「金額と見出し」は、順位の高い方だけ
         var results: [ReceiptAmountCandidate] = []
@@ -212,6 +265,97 @@ enum ReceiptFieldExtractor {
             results.append(candidate)
         }
         return results
+    }
+
+    /// 見出しのあとの金額（同じ行）。見出しが見つからなければ nil、金額が無ければ .some(nil)
+    private static func amountAfter(_ label: String, in text: String) -> Int?? {
+        let upper = text.uppercased()
+        guard let range = upper.range(of: label.uppercased()) else { return nil }
+        let offset = upper.distance(from: upper.startIndex, to: range.upperBound)
+        return .some(amounts(in: String(text.dropFirst(offset))).last)
+    }
+
+    /// 見出しの直下の金額だけの行（「(税込)」のような短い行を1つ挟んでもよい。2行に分かれた数字もつなぐ）
+    private static func amountBelow(_ rows: [ReceiptRow], labelIndex: Int) -> (amount: Int, row: ReceiptRow)? {
+        var index = labelIndex + 1
+        guard index < rows.count else { return nil }
+        // 数字の無い短い行（「(税込)」「(内税)」）を1つだけ飛ばす
+        if isShortNote(rows[index].text), index + 1 < rows.count {
+            index += 1
+        }
+        let next = rows[index]
+        let nextUpper = next.text.uppercased()
+        guard !containsAny(nextUpper, Labels.notTotal),
+              matchedLabel(in: nextUpper, Labels.strongTotals + Labels.totals + subtotalLabels) == nil else { return nil }
+        // 2行に分かれた数字（「¥3,」の下に「520」）
+        if index + 1 < rows.count,
+           next.text.range(of: #"^¥?\s*\d{1,3},?$"#, options: .regularExpression) != nil,
+           rows[index + 1].text.range(of: #"^\d{3}(,\d{3})*\s*円?$"#, options: .regularExpression) != nil {
+            let joined = (next.text + rows[index + 1].text).replacingOccurrences(of: " ", with: "")
+            if let value = amounts(in: joined).last { return (value, next) }
+        }
+        guard isAmountOnly(next.text), let value = amounts(in: next.text).last else { return nil }
+        return (value, next)
+    }
+
+    /// 数字の無い短い行（「(税込)」など）
+    private static func isShortNote(_ text: String) -> Bool {
+        text.count <= 8 && text.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789")) == nil
+            && matchedLabel(in: text.uppercased(), Labels.strongTotals + Labels.totals + subtotalLabels) == nil
+    }
+
+    // MARK: - 合計の確かめ（Build 22）
+
+    /// 外税・消費税の行（内税・対象額の行は除く）
+    private static func isOuterTaxRow(_ upper: String) -> Bool {
+        guard !containsAny(upper, ["内", "対象", "INCL"]) else { return false }
+        return containsAny(upper, ["外税", "消費税", "TAX"]) && !containsAny(upper, ["小計", "SUBTOTAL", "SUB TOTAL"])
+    }
+
+    /// 合計を確かめるための、レシートの中のほかの金額
+    static func totalsEvidence(in rows: [ReceiptRow]) -> ReceiptTotalsEvidence {
+        var evidence = ReceiptTotalsEvidence()
+        for (index, row) in rows.enumerated() {
+            let upper = row.text.uppercased()
+            if let subtotal = matchedLabel(in: upper, subtotalLabels) {
+                let others = Labels.notTotal.filter { !subtotalLabels.contains($0) }
+                if !containsAny(upper.replacingOccurrences(of: subtotal.uppercased(), with: " "), others) {
+                    let value = (amountAfter(subtotal, in: row.text) ?? nil) ?? amountBelow(rows, labelIndex: index)?.amount
+                    if let value { evidence.subtotal = value }
+                }
+                continue
+            }
+            if isOuterTaxRow(upper), let value = amounts(in: row.text).last {
+                evidence.outerTax += value
+                continue
+            }
+            if containsAny(upper, ["値引", "割引", "DISCOUNT", "クーポン"]), !containsAny(upper, ["対象"]),
+               let value = ReceiptNumberText.discountAmount(in: row.text) {
+                evidence.discount += value
+                continue
+            }
+            if containsAny(upper, ["ポイント", "POINT"]), containsAny(upper, ["利用", "使用", "支払"]),
+               let value = amounts(in: row.text).last {
+                evidence.pointsUsed += value
+                continue
+            }
+            if containsAny(upper, ["お預", "預り", "預かり"]), let value = amounts(in: row.text).last {
+                evidence.deposit = value
+                continue
+            }
+            if containsAny(upper, ["お釣", "おつり", "釣銭", "つり銭", "CHANGE"]) {
+                if let value = amounts(in: row.text).last {
+                    evidence.change = value
+                } else if row.text.range(of: #"(^|[\s¥])0\s*円?$"#, options: .regularExpression) != nil {
+                    evidence.change = 0
+                }
+            }
+        }
+        let items = lineItems(in: rows)
+        if !items.isEmpty, items.allSatisfy({ $0.amount != nil }) {
+            evidence.itemsTotal = items.compactMap(\.amount).reduce(0, +)
+        }
+        return evidence
     }
 
     /// 自動で金額欄に入れる合計（Build 18 と同じ決まり）。いちばん強い見出しの候補が1つの金額にそろうときだけ。
@@ -406,7 +550,7 @@ enum ReceiptFieldExtractor {
     private static let lineItemsEnd = [
         "小計", "SUBTOTAL", "SUB TOTAL", "合計", "お会計", "TOTAL", "総合計", "お買上", "お買い上", "お支払", "ご請求", "請求額", "領収金額",
         "お預", "預り", "預かり", "お釣", "おつり", "釣銭", "つり銭", "支払", "現金", "CASH", "CHANGE",
-        "クレジット", "電子マネー", "AMOUNT DUE"
+        "クレジット", "電子マネー", "AMOUNT DUE", "現計"
     ]
 
     /// 商品にしない行の言葉（税・値引き・ポイント・カード・電話・住所・番号・担当・あいさつなど）
@@ -439,7 +583,7 @@ enum ReceiptFieldExtractor {
         guard start < end else { return [] }
         var items: [ReceiptLineItem] = []
         for row in rows[start..<end] {
-            guard let parsed = parseLineItem(row.text) else { continue }
+            guard let parsed = bestLineItemParse(row) else { continue }
             if parsed.name.isEmpty {
                 // 商品名の無い行：直前の商品の空いている項目だけを埋める
                 guard var last = items.popLast() else { continue }
@@ -452,6 +596,30 @@ enum ReceiptFieldExtractor {
             }
         }
         return Array(items.filter { $0.amount != nil || $0.unitPrice != nil }.prefix(maxLineItems))
+    }
+
+    /// 1行の読み方を決める（Build 22）。数量×単価が金額と合わないとき・金額が読めないときは、
+    /// Vision のほかの読み方の中から、数量×単価と金額が合うもの（または金額が読めるもの）を使う。商品名は1番目の読み方のまま
+    static func bestLineItemParse(_ row: ReceiptRow) -> (name: String, quantity: Int?, unitPrice: Int?, amount: Int?)? {
+        guard let main = parseLineItem(row.text) else { return nil }
+        func fits(_ parsed: (name: String, quantity: Int?, unitPrice: Int?, amount: Int?)) -> Bool {
+            guard let quantity = parsed.quantity, let unitPrice = parsed.unitPrice, let amount = parsed.amount else { return false }
+            return quantity * unitPrice == amount
+        }
+        let needsCheck: Bool
+        if let quantity = main.quantity, let unitPrice = main.unitPrice, let amount = main.amount {
+            needsCheck = quantity * unitPrice != amount
+        } else {
+            needsCheck = main.amount == nil
+        }
+        guard needsCheck else { return main }
+        for alternative in row.alternatives {
+            guard let parsed = parseLineItem(alternative) else { continue }
+            if fits(parsed) || (main.amount == nil && parsed.amount != nil && parsed.quantity == main.quantity && parsed.unitPrice == main.unitPrice) {
+                return (main.name, parsed.quantity, parsed.unitPrice, parsed.amount)
+            }
+        }
+        return main
     }
 
     /// 1行を「商品名・数量・単価・金額」に分ける。商品の行ではなければ nil

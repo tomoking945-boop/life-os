@@ -35,6 +35,8 @@ struct ReceiptRecognizedLine: Hashable {
     var confidence: Float = 1
     /// 位置（分からなければ nil。文字だけの読み取り結果のとき）
     var box: RecognizedTextBox? = nil
+    /// ほかの読み方の候補（Build 22。Vision の2番目・3番目の候補。数字の確かめだけに使う。保存しない）
+    var alternatives: [String] = []
 }
 
 /// レシートの文字を読み取る窓口（テストでは偽物に差し替える）
@@ -67,13 +69,43 @@ struct ReceiptTextRecognizer: ReceiptTextRecognizing {
         try await recognizeReceipt(in: imageData, detectsDocument: true).map(\.text)
     }
 
+    /// 1枚の写真で文字認識を動かす最大の回数（Build 22。1回目＋薄い印字向けの2回目まで。Build 9 のような重さを出さない）
+    static let maxRecognitionPasses = 2
+
     func recognizeReceipt(in imageData: Data, detectsDocument: Bool) async throws -> [ReceiptRecognizedLine] {
         try Task.checkCancellation()
         let prepared = try await Self.prepare(imageData, detectsDocument: detectsDocument)
         try Task.checkCancellation()
-        let lines = try await recognizeText(in: prepared.data)
+        var best = try await recognizeText(in: prepared.data).map(Self.receiptLine)
         try Task.checkCancellation()
-        return lines.map { ReceiptRecognizedLine(text: $0.text, confidence: $0.confidence, box: $0.box) }
+        // Build 22：1回目の精度が低いときだけ、白黒・コントラスト・薄い印字の補正をした写真で、もう1回だけ読む
+        var passes = 1
+        while passes < Self.maxRecognitionPasses, ReceiptReadQuality.isLow(best) {
+            passes += 1
+            guard let enhanced = try await Self.enhance(prepared.data) else { break }
+            try Task.checkCancellation()
+            let second = try await recognizeText(in: enhanced).map(Self.receiptLine)
+            try Task.checkCancellation()
+            best = ReceiptReadQuality.better(best, second)
+        }
+        return best
+    }
+
+    private static func receiptLine(_ line: WarrantyRecognizedLine) -> ReceiptRecognizedLine {
+        ReceiptRecognizedLine(text: line.text, confidence: line.confidence, box: line.box, alternatives: line.alternatives)
+    }
+
+    /// 薄い印字向けの写真を作る（重い処理のため画面とは別に動かす。キャンセルを伝える）
+    private static func enhance(_ imageData: Data) async throws -> Data? {
+        let task = Task.detached(priority: .userInitiated) { () throws -> Data? in
+            try Task.checkCancellation()
+            return ReceiptImagePreparer.enhancedForFaintPrint(imageData)
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     /// 文字認識（保証書と同じ端末内の部品だけを使う）
@@ -118,6 +150,20 @@ enum ReceiptReadQuality {
     static let minimumCharacters = 15
     /// 平均の信頼度がこれより低ければ「低い」
     static let minimumAverageConfidence: Float = 0.5
+
+    /// 読み取りの良さ（文字の数×平均の信頼度。2回読んだときに良い方を選ぶ。Build 22）
+    static func score(_ lines: [ReceiptRecognizedLine]) -> Double {
+        let usable = lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !usable.isEmpty else { return 0 }
+        let characters = usable.reduce(0) { $0 + $1.text.filter { !$0.isWhitespace }.count }
+        let average = usable.reduce(Float(0)) { $0 + $1.confidence } / Float(usable.count)
+        return Double(characters) * Double(average)
+    }
+
+    /// 2回の読み取りのうち良い方（同じなら1回目）
+    static func better(_ first: [ReceiptRecognizedLine], _ second: [ReceiptRecognizedLine]) -> [ReceiptRecognizedLine] {
+        score(second) > score(first) ? second : first
+    }
 
     static func isLow(_ lines: [ReceiptRecognizedLine]) -> Bool {
         let usable = lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

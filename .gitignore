@@ -32,3 +32,10 @@ database-debug.log
 # Xcode / macOS
 xcuserdata/
 .DS_Store
+
+# Build 22（2026-11-10）：レシートの公開データセット（CORD など）は Mac の中だけで評価する。画像・注釈はコミットしない
+# （docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md。評価の結果の数字だけを文書に書く）
+evaluation/datasets/
+evaluation/results/
+__pycache__/
+*.pyc

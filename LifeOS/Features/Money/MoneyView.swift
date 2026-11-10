@@ -332,6 +332,12 @@ struct MoneyView: View {
     }
 }
 
+/// 支出の追加・編集の入力欄（Build 22）
+enum ExpenseEditorField: Hashable {
+    case title
+    case amount
+}
+
 /// 支出の追加・編集（タイトル・金額・カテゴリー・日付・保存先。編集では削除も）
 /// Build 20：レシートから開いたときは、合計金額の候補と商品明細（確認用）も出す
 struct ExpenseEditorSheet: View {
@@ -340,6 +346,8 @@ struct ExpenseEditorSheet: View {
     @State private var isConfirmingDelete = false
     /// 商品明細（確認用）を開いているか（Build 20。はじめは閉じている）
     @State private var isShowingLineItems = false
+    /// 入力中の欄（Build 22。「完了」・背景のタップ・スクロールでキーボードを閉じる）
+    @FocusState private var focusedField: ExpenseEditorField?
 
     init(viewModel: MoneyViewModel, draft: ExpenseDraft) {
         self.viewModel = viewModel
@@ -356,9 +364,11 @@ struct ExpenseEditorSheet: View {
             Form {
                 Section {
                     TextField("タイトル（必須）", text: $draft.title)
+                        .focused($focusedField, equals: .title)
                         .accessibilityLabel("支出のタイトル")
                     TextField("金額（円）", text: $draft.amountText)
                         .keyboardType(.numberPad)
+                        .focused($focusedField, equals: .amount)
                         .accessibilityLabel("金額（円）")
                     Picker("カテゴリー", selection: $draft.category) {
                         ForEach(ExpenseCategory.allCases) { category in
@@ -462,6 +472,9 @@ struct ExpenseEditorSheet: View {
             .background(LifeColors.background.ignoresSafeArea())
             .navigationTitle(draft.isFromReceipt ? "レシートから追加" : (draft.isNew ? "支出を追加" : "支出を編集"))
             .navigationBarTitleDisplayMode(.inline)
+            // Build 22：キーボードを閉じやすくする（スクロール・背景のタップ・画面を離れたとき。タップは候補・保存・キャンセルへ届く）
+            .lifeKeyboardDismissal()
+            .lifeKeyboardDoneButton { focusedField = nil }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { viewModel.cancelEditing() }
@@ -584,6 +597,8 @@ struct ReceiptLineItemRow: View {
     @Binding var item: ReceiptLineItem
     let onDelete: () -> Void
     @State private var isEditing = false
+    /// 入力中の欄（Build 22。「完了」・背景のタップ・スクロールでキーボードを閉じる）
+    @FocusState private var focusedField: LineItemEditorField?
 
     var body: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
@@ -611,22 +626,32 @@ struct ReceiptLineItemRow: View {
             }
             if isEditing {
                 TextField("商品名", text: $item.name)
+                    .focused($focusedField, equals: .name)
                     .frame(minHeight: LifeSpacing.minTapTarget)
                     .accessibilityLabel("商品名")
                 HStack(spacing: LifeSpacing.sm) {
                     TextField("数量", text: $item.quantityText)
-                        .keyboardType(.numberPad)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .quantity)
                         .frame(minHeight: LifeSpacing.minTapTarget)
                         .accessibilityLabel("数量")
                     TextField("単価（円）", text: $item.unitPriceText)
                         .keyboardType(.numberPad)
+                        .focused($focusedField, equals: .unitPrice)
                         .frame(minHeight: LifeSpacing.minTapTarget)
                         .accessibilityLabel("単価（円）")
                     TextField("金額（円）", text: $item.amountText)
                         .keyboardType(.numberPad)
+                        .focused($focusedField, equals: .amount)
                         .frame(minHeight: LifeSpacing.minTapTarget)
                         .accessibilityLabel("金額（円）")
                 }
+            }
+            // Build 22：数量×単価が金額と合わないときは知らせる（読み違いかもしれない。値は変えない。色だけに頼らない）
+            if item.hasArithmeticMismatch {
+                Label("数量×単価と金額が合いません。レシートで確かめてください。", systemImage: "exclamationmark.triangle")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.text)
             }
         }
     }

@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// 商品明細の入力欄（Build 22）
+enum LineItemEditorField: Hashable {
+    case name
+    case quantity
+    case unitPrice
+    case amount
+}
+
 /// 支出の詳細（2026-11-08 Build 21。docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）。
 ///
 /// - 店名（タイトル）・合計金額・カテゴリー・日付・自分だけ／共有・商品明細・明細の合計・レシートの合計との比較を出す
@@ -18,6 +26,8 @@ struct ExpenseDetailSheet: View {
     @State private var editAmount = ""
     /// 直せなかった・消せなかった理由
     @State private var message: String?
+    /// 入力中の欄（Build 22）
+    @FocusState private var focusedField: LineItemEditorField?
 
     init(viewModel: MoneyViewModel, expenseID: Expense.ID) {
         self.viewModel = viewModel
@@ -40,6 +50,9 @@ struct ExpenseDetailSheet: View {
             .background(LifeColors.background.ignoresSafeArea())
             .navigationTitle("支出の詳細")
             .navigationBarTitleDisplayMode(.inline)
+            // Build 22：キーボードを閉じやすくする（スクロール・背景のタップ・「完了」・画面を離れたとき）
+            .lifeKeyboardDismissal()
+            .lifeKeyboardDoneButton { focusedField = nil }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { viewModel.closeDetail() }
@@ -182,18 +195,22 @@ struct ExpenseDetailSheet: View {
     private func editor(for item: ExpenseLineItem, in expense: Expense) -> some View {
         VStack(alignment: .leading, spacing: LifeSpacing.xs) {
             TextField("商品名（必須）", text: $editName)
+                .focused($focusedField, equals: .name)
                 .frame(minHeight: LifeSpacing.minTapTarget)
                 .accessibilityLabel("商品名")
             HStack(spacing: LifeSpacing.sm) {
                 TextField("数量", text: $editQuantity)
+                    .focused($focusedField, equals: .quantity)
                     .keyboardType(.decimalPad)
                     .frame(minHeight: LifeSpacing.minTapTarget)
                     .accessibilityLabel("数量（分からなければ空）")
                 TextField("単価（円）", text: $editUnitPrice)
+                    .focused($focusedField, equals: .unitPrice)
                     .keyboardType(.numberPad)
                     .frame(minHeight: LifeSpacing.minTapTarget)
                     .accessibilityLabel("単価（円。分からなければ空）")
                 TextField("金額（円）", text: $editAmount)
+                    .focused($focusedField, equals: .amount)
                     .keyboardType(.numberPad)
                     .frame(minHeight: LifeSpacing.minTapTarget)
                     .accessibilityLabel("金額（円）")

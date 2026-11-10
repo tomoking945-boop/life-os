@@ -47,6 +47,7 @@
 - [レシートの店名候補を選ぶ・予定を登録した人の色で表示する（Build 19）](docs/BUILD_19_RECEIPT_STORE_SELECTION_AND_CALENDAR_COLORS.md)
 - [レシートの店名・合計金額の読み取り精度の改善と商品明細（確認用）（Build 20）](docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md)
 - [商品明細を支出と一緒に保存し、あとから見返す（Build 21）](docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md)
+- [キーボードを閉じやすくする・レシートの数字の読み取りを正確にする（Build 22）](docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md)
 
 ## UIプロトタイプの動かし方
 

@@ -92,6 +92,29 @@ enum ReceiptImagePreparer {
         return CIContext(options: [.cacheIntermediates: false]).createCGImage(output, from: output.extent)
     }
 
+    /// 薄い印字向けに整えた写真（Build 22）：白黒にして、コントラストを上げ、薄い文字を濃くする。
+    /// 2回目の読み取り（1回目の精度が低いとき）だけに使う。メモリの中だけ。作れなければ nil
+    static func enhancedForFaintPrint(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let input = CIImage(cgImage: image)
+        guard let controls = CIFilter(name: "CIColorControls") else { return nil }
+        controls.setValue(input, forKey: kCIInputImageKey)
+        controls.setValue(0.0, forKey: kCIInputSaturationKey)
+        controls.setValue(enhancedContrast, forKey: kCIInputContrastKey)
+        guard let gray = controls.outputImage, let gamma = CIFilter(name: "CIGammaAdjust") else { return nil }
+        gamma.setValue(gray, forKey: kCIInputImageKey)
+        // 1 より大きいと暗い色（薄い印字）が濃くなる
+        gamma.setValue(enhancedGamma, forKey: "inputPower")
+        guard let output = gamma.outputImage,
+              let result = CIContext(options: [.cacheIntermediates: false]).createCGImage(output, from: input.extent) else { return nil }
+        return jpegData(result)
+    }
+
+    /// 薄い印字向けの補正の強さ（Build 22）
+    static let enhancedContrast = 1.4
+    static let enhancedGamma = 1.5
+
     /// JPEG にする（メモリの中だけ）
     private static func jpegData(_ image: CGImage) -> Data? {
         let data = NSMutableData()

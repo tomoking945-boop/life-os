@@ -12,6 +12,9 @@ enum WarrantyTextRecognizer {
         case unreadableImage
     }
 
+    /// 1つの文字のまとまりから受け取る候補の数（Build 22。1番目が読み取りの結果、ほかはレシートの数字の確かめ用）
+    static let maxCandidates = 3
+
     /// 写真（原本のデータ）から文字の行を読み取る。重い処理のため、呼び出し側で待つ（async）。
     /// Build 18：呼び出し側の Task を取り消したら、まだ始まっていない読み取りは始めない（レシートの「キャンセル」。保証書の動きは同じ）
     static func recognizeLines(in imageData: Data) async throws -> [WarrantyRecognizedLine] {
@@ -58,13 +61,16 @@ enum WarrantyTextRecognizer {
             return lhs.boundingBox.minX < rhs.boundingBox.minX
         }
         return sorted.compactMap { observation in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
+            // Build 22：上位3つの候補を受け取る（1番目が今までどおりの文字。2・3番目はレシートの数字の確かめだけに使う）
+            let candidates = observation.topCandidates(Self.maxCandidates)
+            guard let candidate = candidates.first else { return nil }
             // Build 20：位置も返す（Vision は左下が原点なので、左上が原点の値にする）。保証書の読み取りは使わない
             let box = observation.boundingBox
             return WarrantyRecognizedLine(
                 text: candidate.string,
                 confidence: candidate.confidence,
-                box: RecognizedTextBox(x: Double(box.minX), y: Double(1 - box.maxY), width: Double(box.width), height: Double(box.height))
+                box: RecognizedTextBox(x: Double(box.minX), y: Double(1 - box.maxY), width: Double(box.width), height: Double(box.height)),
+                alternatives: candidates.dropFirst().map(\.string)
             )
         }
     }

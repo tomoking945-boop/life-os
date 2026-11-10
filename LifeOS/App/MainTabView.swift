@@ -74,6 +74,8 @@ struct MainTabView: View {
         .onChange(of: appState.plan) { appState.save() }
         .onChange(of: appState.notificationSettings) { appState.save() }
         .onChange(of: appState.usageStyle) { appState.save() }
+        // Build 22：別のタブへ移ったら、入力中のキーボードを閉じる（入力した文字はそのまま）
+        .onChange(of: appState.selectedTab) { LifeKeyboard.dismiss() }
         // Firebase の「わが家」（2026-10-28）：人数は「今日」の招待のカードに、groupID と種類は共有 ToDo・買い物の見張りに使う。
         // 退出・削除・サインアウトでわが家が無くなったら、共有項目の表示だけを消す（端末の個人データは消さない）
         .onAppear {
