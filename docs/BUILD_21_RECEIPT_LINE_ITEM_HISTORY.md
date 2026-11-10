@@ -1,6 +1,6 @@
 # Build 21：商品明細を支出と一緒に保存し、あとから見返す
 
-2026-11-08。ブランチ `build21-receipt-line-item-history`（`origin/main` の `0ebbe66` から）。main にはまだ入れていません。
+2026-11-08。ブランチ `build21-receipt-line-item-history`（`origin/main` の `0ebbe66` から）。作ったときは main に入れず、Mac での確認（2026-11-10）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果（修正後）」）。
 Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -285,9 +285,22 @@ Mac での確認結果：下の「Mac での最初の確認（2026-11-10）」�
 
 修正後の結果（この作業環境）：単体 **103件成功・失敗0・スキップ0**。Rules・Functions・アカウント削除は **未実行**（この作業環境では Firestore Emulator を取得できない）。Mac での再確認が必要（予定：単体103・Rules 100・Functions 47・アカウント削除30、合計280件）。
 
+### Mac での確認結果（修正後。2026-11-10、池上さんの報告。`b20b367`）
+
+| 確認 | 結果 |
+| --- | --- |
+| ターミナルの全テスト | **280件成功・失敗0・スキップ0**（単体103・Rules 100・Functions 47・アカウント削除30） |
+| Xcode のテスト | **Test Succeeded・失敗0**（実際に表示された実行件数・スキップ数：未報告。予定は666件） |
+| Release ビルド | **Build Succeeded** |
+| 実機での確認（下の13項目） | **未実施** |
+
+- この確認のあと、池上さんの指示で main へ取り込んだ（fast-forward。rebase・force push はしていない）
+- **Firestore Rules はまだ公開していない**。TestFlight へのアップロード・Console の変更もしていない
+- 次の公開の順番：**Firestore Rules（`firebase deploy --only firestore:rules`）→ Build 21 の TestFlight**（上の「公開順序」）
+
 ## Release ビルド
 
-この作業環境では未確認（Xcode が無い）。Mac での結果：未報告。
+この作業環境では未確認（Xcode が無い）。**Mac で Build Succeeded**（2026-11-10、池上さんの報告。`b20b367`）。
 
 ## 実機確認手順（Build 21。わが家で家計簿を共有している2台で）
 
@@ -305,7 +318,7 @@ Mac での確認結果：下の「Mac での最初の確認（2026-11-10）」�
 12. 保証書の撮影・読み取りが今までどおり
 13. VoiceOver で、明細が「商品名・数量・単価・金額」の順に読まれる。ごみ箱・明細の行が押しやすい
 
-結果：未報告（推測しない）。
+結果：**未実施**（2026-11-10 時点、池上さんの報告。推測しない）。
 
 ## リスク
 
