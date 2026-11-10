@@ -1,6 +1,6 @@
 # Build 24：月の予算・カテゴリー別の予算・今日画面の MONEY
 
-2026-11-10。ブランチ `build24-monthly-budget-and-category-summary`（`origin/main` の `edccbb4` から）。main には入れていません。
+2026-11-10。ブランチ `build24-monthly-budget-and-category-summary`（`origin/main` の `edccbb4` から）。作ったときは main に入れず、Mac での確認（2026-11-10）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果」）。
 Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -262,7 +262,28 @@ Build 23 以前のアプリは予算の場所を読み書きしないので、�
 - アプリのコード・テストの中身（確かめる内容）は変えていません。テストの削除・スキップ・弱める変更もしていません。Build 番号は24、Version は1.0のまま
 - 修正のあとの Mac での結果：**未報告**
 
-Mac での確認結果：**未報告**。
+### Mac での確認結果（2026-11-10、池上さんの報告。`6d2b5cd`）
+
+| 確認 | 結果 |
+| --- | --- |
+| サーバーの単体テスト | **113件成功** |
+| Rules Emulator | **109件成功** |
+| Functions Emulator | **48件成功** |
+| アカウント削除 | **34件成功** |
+| サーバーの合計 | **304件成功・失敗0・スキップ0** |
+| Xcode のテスト | **`Test Succeeded`・失敗0**。実行件数・スキップ数は **未報告**（782件は予定の数で、実行した件数ではない） |
+| Release ビルド | **`Build Succeeded`** |
+| Build 24 の実機確認 | **未実施** |
+
+途中で見つかって直したもの（上の2つの記録）：
+
+| commit | 内容 |
+| --- | --- |
+| `b028532` | `BudgetAmountProblem` を `Error` に準拠（1回目の Xcode 確認のコンパイルエラー） |
+| `7da3728` | `testScopesAreNotMixed` に `throws` を追加（2回目の Xcode 確認のテストコードのコンパイルエラー） |
+| `6d2b5cd` | 2件目の修正の内容を文書に整理 |
+
+次は、main へ取り込んだあとに **Firestore のルールだけを公開**（`firebase deploy --only firestore:rules`）し、そのあとで Build 24 を TestFlight へアップロードする順番です（どちらも、指示があってから別の手順で行います）。
 
 ## 実機確認手順（Build 24。わが家で家計簿を共有している2台で）
 
@@ -304,3 +325,5 @@ Mac での確認結果：**未報告**。
 2. `cd firebase/functions` → `npm test`（単体・Rules・Functions・アカウント削除。予定は合計304件）
 3. Xcode でテスト（予定は782件）→ Release ビルド
 4. 結果を教えてください（この文書に記録します）。main への取り込み・Firestore のルールの公開・TestFlight は、そのあとの指示で行います
+
+上の 1〜3 は 2026-11-10 に Mac で確認済み（「Mac での確認結果」）。実機確認は未実施です。
