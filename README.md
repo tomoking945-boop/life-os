@@ -48,6 +48,7 @@
 - [レシートの店名・合計金額の読み取り精度の改善と商品明細（確認用）（Build 20）](docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md)
 - [商品明細を支出と一緒に保存し、あとから見返す（Build 21）](docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md)
 - [キーボードを閉じやすくする・レシートの数字の読み取りを正確にする（Build 22）](docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md)
+- [家計簿の検索・商品の購入履歴・過去の参考価格（Build 23）](docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md)
 
 ## UIプロトタイプの動かし方
 

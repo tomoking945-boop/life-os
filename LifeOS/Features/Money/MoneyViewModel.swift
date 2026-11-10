@@ -166,6 +166,12 @@ struct ExpenseDetailTarget: Identifiable, Hashable {
     let id: Expense.ID
 }
 
+/// 購入履歴で開く商品（Build 23。整えた商品名。詳細画面のあいだだけ持つ。保存・送信しない）
+struct ProductHistoryTarget: Identifiable, Hashable {
+    let key: String
+    var id: String { key }
+}
+
 /// カテゴリーごとの合計（表示している範囲・その月）
 struct ExpenseCategoryTotal: Equatable, Identifiable {
     let category: ExpenseCategory
@@ -191,6 +197,15 @@ final class MoneyViewModel {
     var detailTarget: ExpenseDetailTarget?
     /// 詳細画面の「支出を編集」：詳細画面が閉じてから編集画面を開く支出
     @ObservationIgnored private var editAfterDetail: Expense.ID?
+
+    // MARK: 家計簿の検索（Build 23。画面のあいだだけ持つ。保存・送信・ログ出力しない）
+
+    /// 検索欄の文字
+    var searchText = ""
+    /// 月で絞り込む（月の初日。nil はすべての月）
+    var searchMonth: Date?
+    /// カテゴリーで絞り込む（nil はすべて）
+    var searchCategory: ExpenseCategory?
 
     // MARK: レシートの読み取り（Build 18）
 
@@ -299,6 +314,89 @@ final class MoneyViewModel {
 
     func select(_ category: ExpenseCategory?) {
         selectedCategory = category
+    }
+
+    // MARK: - 家計簿の検索（Build 23。docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md）
+
+    /// 検索中か（整えた検索語が空でなければ。空なら通常の一覧）
+    var isSearching: Bool { !ExpenseSearchText.normalized(searchText).isEmpty }
+
+    /// 今の絞り込み（すべて／自分／共有は、画面上部の切り替えと同じ）
+    var searchFilter: ExpenseSearchFilter {
+        ExpenseSearchFilter(scope: effectiveScope, month: searchMonth, category: searchCategory)
+    }
+
+    /// 検索の結果と調べた数。端末に読み込んである支出と明細だけを、その場で調べる（問い合わせ・見張りを増やさない）
+    var searchOutcome: ExpenseSearchOutcome {
+        guard isSearching else { return .empty }
+        let expenses = scopedExpenses
+        return ExpenseSearch.search(
+            searchText,
+            expenses: expenses,
+            lineItems: repository.lineItemsByExpense(expenses.map(\.id)),
+            filter: searchFilter
+        )
+    }
+
+    /// 検索結果（同じ支出は1件だけ。新しい順）
+    var searchResults: [ExpenseSearchResult] { searchOutcome.results }
+
+    /// 月の絞り込みに出す月（表示している範囲で、支出のある月。新しい順）
+    var searchMonths: [Date] { ExpenseSearch.months(in: scopedExpenses) }
+
+    var searchMonthTitle: String { searchMonth.map(LifeFormatters.month) ?? "すべての月" }
+    var searchCategoryTitle: String { searchCategory?.label ?? "すべてのカテゴリー" }
+
+    /// 検索をやめる（検索語・月・カテゴリーの絞り込みを空にして、通常の一覧へ戻る）
+    func clearSearch() {
+        searchText = ""
+        searchMonth = nil
+        searchCategory = nil
+    }
+
+    /// 検索結果の補足（カテゴリー・日付・自分だけ／わが家で共有。色だけに頼らず文字で）
+    func searchDetailText(for expense: Expense) -> String {
+        [expense.category.label, LifeFormatters.dateNoting(expense.date, now: now), destinationLabel(for: expense)].joined(separator: "・")
+    }
+
+    /// 検索結果の VoiceOver（店名・補足・合計・一致した商品）
+    func searchSpokenLabel(for result: ExpenseSearchResult) -> String {
+        var parts = [result.expense.title, searchDetailText(for: result.expense), "合計 \(LifeFormatters.yenSpoken(result.expense.amount))"]
+        let shown = result.matchedItems.prefix(ExpenseSearch.maxMatchedItemsShown)
+        if !shown.isEmpty {
+            parts.append("一致した商品 " + shown.map { "\($0.name) \(LifeFormatters.yenSpoken($0.amount))" }.joined(separator: "、"))
+        }
+        if result.matchedItems.count > shown.count {
+            parts.append("ほか\(result.matchedItems.count - shown.count)件の商品が一致")
+        }
+        return parts.joined(separator: "、")
+    }
+
+    // MARK: - 商品の購入履歴・過去の参考価格（Build 23）
+
+    /// 明細から開く購入履歴（整えた商品名が同じものだけをまとめる）
+    func historyTarget(for item: ExpenseLineItem) -> ProductHistoryTarget {
+        ProductHistoryTarget(key: PurchaseHistory.key(for: item.name))
+    }
+
+    /// その商品の購入履歴（表示している範囲の支出だけ。新しい順）。開くたびに、今の支出と明細から作る
+    func purchaseHistory(for target: ProductHistoryTarget) -> ProductPurchaseHistory {
+        let expenses = scopedExpenses
+        return PurchaseHistory.history(
+            forKey: target.key,
+            expenses: expenses,
+            lineItems: repository.lineItemsByExpense(expenses.map(\.id)),
+            scope: effectiveScope
+        )
+    }
+
+    /// 購入履歴で見ている範囲（色だけに頼らず文字で）
+    var historyScopeText: String {
+        switch effectiveScope {
+        case .all: return showsScopeFilter ? "自分だけ・わが家で共有の両方" : "すべての支出"
+        case .mine: return "自分だけ"
+        case .shared: return "わが家で共有"
+        }
     }
 
     // MARK: - 追加・編集（Build 13）

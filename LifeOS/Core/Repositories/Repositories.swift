@@ -103,6 +103,9 @@ protocol ExpenseRepository: AnyObject {
     @discardableResult func addExpense(_ expense: Expense, destination: SaveDestination, lineItems: [ExpenseLineItem]) -> Bool
     /// 支出の商品明細（表示順。無ければ空）
     func lineItems(for id: Expense.ID) -> [ExpenseLineItem]
+    /// 複数の支出の商品明細をまとめて（Build 23。検索・購入履歴用。明細の無い支出は入らない）。
+    /// 1件ずつの lineItems(for:) と同じ決まり（自分だけの支出は端末の明細、共有の支出はわが家の明細）
+    func lineItemsByExpense(_ ids: [Expense.ID]) -> [Expense.ID: [ExpenseLineItem]]
     /// 明細1件を直す
     @discardableResult func updateLineItem(_ item: ExpenseLineItem, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError>
     /// 明細1件を消す（支出そのものは消さない）

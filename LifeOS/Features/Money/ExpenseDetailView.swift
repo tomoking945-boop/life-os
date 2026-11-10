@@ -14,6 +14,7 @@ enum LineItemEditorField: Hashable {
 /// - 商品明細は1件ずつ直す・消すことができる（確認の画面は出さない。保存できなければ元の内容のまま、理由を出す）
 /// - 支出そのものの変更・削除は「支出を編集」から（明細の削除とは分ける）
 /// - 商品明細の無い支出（以前の支出・手入力の支出）は「商品明細はありません」
+/// - Build 23：明細をタップすると、その商品の「購入履歴」（過去の購入記録・参考価格）を開く。直すときは鉛筆のボタン
 struct ExpenseDetailSheet: View {
     let viewModel: MoneyViewModel
     let expenseID: Expense.ID
@@ -28,6 +29,8 @@ struct ExpenseDetailSheet: View {
     @State private var message: String?
     /// 入力中の欄（Build 22）
     @FocusState private var focusedField: LineItemEditorField?
+    /// 購入履歴を開いている商品（Build 23。この画面のあいだだけ。保存・送信しない）
+    @State private var historyTarget: ProductHistoryTarget?
 
     init(viewModel: MoneyViewModel, expenseID: Expense.ID) {
         self.viewModel = viewModel
@@ -50,6 +53,10 @@ struct ExpenseDetailSheet: View {
             .background(LifeColors.background.ignoresSafeArea())
             .navigationTitle("支出の詳細")
             .navigationBarTitleDisplayMode(.inline)
+            // Build 23：商品の購入履歴（同じ画面の中で開く。戻ると詳細へ）
+            .navigationDestination(item: $historyTarget) { target in
+                ProductPurchaseHistoryView(viewModel: viewModel, target: target)
+            }
             // Build 22：キーボードを閉じやすくする（スクロール・背景のタップ・「完了」・画面を離れたとき）
             .lifeKeyboardDismissal()
             .lifeKeyboardDoneButton { focusedField = nil }
@@ -115,10 +122,14 @@ struct ExpenseDetailSheet: View {
             } header: {
                 Text("商品明細")
             } footer: {
-                if !items.isEmpty, viewModel.canEditLineItems(expense) {
-                    Text(expense.isShared
-                         ? "明細をタップすると直せます。共有の支出の明細は、わが家のメンバーにも表示されます。"
-                         : "明細をタップすると直せます。この iPhone の中だけに保存しています。")
+                if !items.isEmpty {
+                    if viewModel.canEditLineItems(expense) {
+                        Text(expense.isShared
+                             ? "明細をタップすると購入履歴を開きます。直すときは鉛筆のボタンを押します。共有の支出の明細は、わが家のメンバーにも表示されます。"
+                             : "明細をタップすると購入履歴を開きます。直すときは鉛筆のボタンを押します。この iPhone の中だけに保存しています。")
+                    } else {
+                        Text("明細をタップすると購入履歴を開きます。")
+                    }
                 }
             }
 
@@ -145,11 +156,12 @@ struct ExpenseDetailSheet: View {
         .environment(\.locale, Locale(identifier: "ja_JP"))
     }
 
-    /// 明細1件：商品名が主・数量と単価は補助・金額は右。タップで直す。ごみ箱で1件だけ消す
+    /// 明細1件：商品名が主・数量と単価は補助・金額は右。タップで購入履歴（Build 23）。鉛筆で直す。ごみ箱で1件だけ消す
     private func row(for item: ExpenseLineItem, in expense: Expense) -> some View {
         HStack(spacing: LifeSpacing.sm) {
             Button {
-                startEditing(item)
+                focusedField = nil
+                historyTarget = viewModel.historyTarget(for: item)
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.sm) {
                     VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
@@ -172,10 +184,20 @@ struct ExpenseDetailSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!viewModel.canEditLineItems(expense))
             .accessibilityLabel(item.spokenLabel)
-            .accessibilityHint("この明細を直します")
+            .accessibilityHint("この商品の購入履歴（過去の購入記録・参考価格）を開きます")
             if viewModel.canEditLineItems(expense) {
+                Button {
+                    startEditing(item)
+                } label: {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(item.name)の明細を直す")
+                .accessibilityHint("商品名・数量・単価・金額を直します")
                 Button {
                     message = viewModel.deleteLineItem(item, in: expense)
                 } label: {

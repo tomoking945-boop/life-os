@@ -1296,6 +1296,18 @@ final class LifeStore {
         return householdExpenseLineItems[id] ?? []
     }
 
+    /// 複数の支出の商品明細をまとめて（Build 23。家計簿の検索・購入履歴用）。lineItems(for:) と同じ決まりで、
+    /// 支出の一覧を1回だけ調べる（支出1,000件でも、支出ごとに一覧を調べ直さない）。読むだけで、何も保存・送信しない
+    func lineItemsByExpense(_ ids: [Expense.ID]) -> [Expense.ID: [ExpenseLineItem]] {
+        let personalIDs = Set(expenses.map(\.id))
+        var result: [Expense.ID: [ExpenseLineItem]] = [:]
+        for id in ids where result[id] == nil {
+            let items = personalIDs.contains(id) ? expenseLineItems[id] : householdExpenseLineItems[id]
+            if let items, !items.isEmpty { result[id] = items }
+        }
+        return result
+    }
+
     /// 支出の商品明細を置き換える（詳細画面の修正・削除から）。形を確かめ、表示順を振り直す。
     /// - 自分だけの支出：端末に保存できなければ元に戻す（元の内容を失わない）
     /// - 共有の支出：Firestore へ送る。断られたら元に戻す（SharedExpensesService が sharedLineItemsSaveFailed を呼ぶ）

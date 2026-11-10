@@ -10,6 +10,8 @@ import UniformTypeIdentifiers
 /// 合計金額の候補・商品明細（確認用）を確認画面に出す（docs/BUILD_20_RECEIPT_ACCURACY_AND_LINE_ITEM_PREVIEW.md）
 /// Build 21：確認画面に残っている商品明細を支出と一緒に保存する。支出をタップすると詳細画面を開き、
 /// 商品明細を見返し・直し・消すことができる（docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md）
+/// Build 23：画面上部の検索欄で、店名・支出のタイトル・商品名から支出を探す（端末に読み込んである支出と明細だけを調べる）。
+/// すべて／自分／共有・月・カテゴリーで絞り込める（docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md）
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -26,6 +28,8 @@ struct MoneyView: View {
     @State private var scannedReceipt: CapturedReceipt?
     /// 書類スキャンが失敗した（閉じたら今までのカメラを開く）
     @State private var receiptScannerFailed = false
+    /// 検索欄に入力中か（Build 23。「完了」・背景のタップ・スクロールでキーボードを閉じる。Build 22 と同じ）
+    @FocusState private var isSearchFocused: Bool
 
     private struct CapturedReceipt {
         let data: Data
@@ -41,29 +45,39 @@ struct MoneyView: View {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
                 LifeScreenHeader(eyebrow: "MONEY", title: "お金")
 
+                // Build 23：家計簿の検索（画面上部）
+                searchField
+
                 if viewModel.showsScopeFilter {
                     LifeSegmentControl(ScopeFilter.allCases, selection: $viewModel.scope) { $0.title }
                 }
 
-                summaryCard
-                VStack(spacing: LifeSpacing.sm) {
-                    LifeButton("支出を追加", systemImage: "plus") {
-                        viewModel.startAdding()
+                if viewModel.isSearching {
+                    searchResultsSection
+                } else {
+                    summaryCard
+                    VStack(spacing: LifeSpacing.sm) {
+                        LifeButton("支出を追加", systemImage: "plus") {
+                            viewModel.startAdding()
+                        }
+                        // レシートを読み取る（Build 18）。読み取り中・入力中は押せない（二重に始めない）
+                        LifeButton("レシートを読み取る", systemImage: "doc.text.viewfinder", kind: .secondary) {
+                            viewModel.startReceiptScan()
+                        }
+                        .disabled(!viewModel.canStartReceiptScan)
+                        .accessibilityHint("レシートを撮るか写真から選んで、この iPhone の中で読み取ります")
+                        .accessibilityIdentifier("money.scanReceipt")
                     }
-                    // レシートを読み取る（Build 18）。読み取り中・入力中は押せない（二重に始めない）
-                    LifeButton("レシートを読み取る", systemImage: "doc.text.viewfinder", kind: .secondary) {
-                        viewModel.startReceiptScan()
-                    }
-                    .disabled(!viewModel.canStartReceiptScan)
-                    .accessibilityHint("レシートを撮るか写真から選んで、この iPhone の中で読み取ります")
-                    .accessibilityIdentifier("money.scanReceipt")
+                    categorySection
+                    expenseList
                 }
-                categorySection
-                expenseList
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
             .padding(.vertical, LifeSpacing.screenVertical)
         }
+        // Build 23：検索欄のキーボードも、Build 22 と同じ方法で閉じる（スクロール・背景のタップ・「完了」・画面を離れたとき）
+        .lifeKeyboardDismissal()
+        .lifeKeyboardDoneButton { isSearchFocused = false }
         .lifeScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .quickAddAccessory()
@@ -224,6 +238,170 @@ struct MoneyView: View {
             return
         }
         viewModel.readReceipt(data, contentType: type)
+    }
+
+    // MARK: - 家計簿の検索（Build 23）
+
+    /// 検索欄（店名・商品名）。入力した言葉は保存しない。消すボタンで通常の一覧へ戻る
+    private var searchField: some View {
+        HStack(spacing: LifeSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(LifeColors.secondaryText)
+                .accessibilityHidden(true)
+            TextField("店名・商品名で探す", text: $viewModel.searchText)
+                .font(LifeTypography.body)
+                .foregroundStyle(LifeColors.text)
+                .focused($isSearchFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { isSearchFocused = false }
+                .frame(minHeight: LifeSpacing.minTapTarget)
+                .accessibilityLabel("支出を探す")
+                .accessibilityHint("店名・支出のタイトル・商品名で探します。この iPhone の中だけで探し、検索した言葉は保存しません")
+                .accessibilityIdentifier("money.search")
+            if !viewModel.searchText.isEmpty {
+                Button {
+                    viewModel.clearSearch()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LifeColors.secondaryText)
+                        .frame(width: LifeSpacing.minTapTarget, height: LifeSpacing.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("検索語を消す")
+                .accessibilityHint("検索をやめて、支出の一覧に戻ります")
+            }
+        }
+        .padding(.leading, LifeSpacing.md)
+        .background(Capsule().fill(LifeColors.surface))
+        .overlay(Capsule().stroke(LifeColors.divider, lineWidth: LifeSpacing.hairline))
+    }
+
+    /// 検索結果（件数・絞り込み・結果の一覧）。結果をタップすると、今までの支出の詳細を開く
+    private var searchResultsSection: some View {
+        let results = viewModel.searchResults
+        return VStack(alignment: .leading, spacing: LifeSpacing.sm) {
+            searchFilters
+            LifeSectionTitle("検索結果", trailing: "\(results.count)件")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("検索結果 \(results.count)件")
+            if results.isEmpty {
+                LifeEmptyState(
+                    systemImage: "magnifyingglass",
+                    title: "該当する支出はありません",
+                    message: "店名・商品名の一部でも探せます。絞り込みを「すべて」に戻すと見つかることがあります。"
+                )
+                .frame(maxWidth: .infinity)
+                .lifeSurface(.sunken, cornerRadius: LifeRadius.band)
+            } else {
+                LifeRuledList(results) { result in
+                    searchResultRow(result)
+                }
+            }
+            Text("この iPhone に読み込んである支出と商品明細の中だけで探します。検索した言葉は保存しません。")
+                .font(LifeTypography.footnote)
+                .foregroundStyle(LifeColors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// 月・カテゴリーの絞り込み（すべて／自分／共有は、上の切り替えと同じ）
+    private var searchFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: LifeSpacing.xs) {
+                Menu {
+                    Picker("月", selection: $viewModel.searchMonth) {
+                        Text("すべての月").tag(Date?.none)
+                        ForEach(viewModel.searchMonths, id: \.self) { month in
+                            Text(LifeFormatters.month(month)).tag(Date?.some(month))
+                        }
+                    }
+                } label: {
+                    searchFilterLabel(viewModel.searchMonthTitle, systemImage: "calendar", isActive: viewModel.searchMonth != nil)
+                }
+                .accessibilityLabel("月で絞り込む、\(viewModel.searchMonthTitle)")
+                Menu {
+                    Picker("カテゴリー", selection: $viewModel.searchCategory) {
+                        Text("すべてのカテゴリー").tag(ExpenseCategory?.none)
+                        ForEach(viewModel.categories) { category in
+                            Text(category.label).tag(ExpenseCategory?.some(category))
+                        }
+                    }
+                } label: {
+                    searchFilterLabel(viewModel.searchCategoryTitle, systemImage: "tag", isActive: viewModel.searchCategory != nil)
+                }
+                .accessibilityLabel("カテゴリーで絞り込む、\(viewModel.searchCategoryTitle)")
+            }
+            .padding(.vertical, LifeSpacing.xxs)
+        }
+    }
+
+    private func searchFilterLabel(_ title: String, systemImage: String, isActive: Bool) -> some View {
+        HStack(spacing: LifeSpacing.xxs) {
+            Image(systemName: systemImage)
+                .accessibilityHidden(true)
+            Text(title)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(LifeTypography.caption)
+                .accessibilityHidden(true)
+        }
+        .font(LifeTypography.callout)
+        .foregroundStyle(isActive ? LifeColors.onPrimary : LifeColors.text)
+        .padding(.horizontal, LifeSpacing.md)
+        .frame(minHeight: LifeSpacing.minTapTarget)
+        .background(Capsule().fill(isActive ? LifeColors.primary : LifeColors.surface))
+        .overlay(Capsule().stroke(isActive ? LifeColors.primary : LifeColors.divider, lineWidth: 1))
+        .contentShape(Capsule())
+    }
+
+    /// 検索結果の1行：店名・カテゴリー・日付・自分だけ／共有・合計（右寄せ）。商品名で一致したときは、その商品名と金額
+    private func searchResultRow(_ result: ExpenseSearchResult) -> some View {
+        Button {
+            isSearchFocused = false
+            viewModel.showDetail(result.expense)
+        } label: {
+            VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                HStack(spacing: LifeSpacing.sm) {
+                    LifeCategoryDot(color: LifeCategoryColors.warmGold)
+                    LifeMoneyRow(
+                        title: result.expense.title,
+                        amount: result.expense.amount,
+                        detail: viewModel.searchDetailText(for: result.expense)
+                    )
+                    if result.expense.isShared {
+                        HouseholdSharedMark()
+                    }
+                }
+                ForEach(Array(result.matchedItems.prefix(ExpenseSearch.maxMatchedItemsShown))) { item in
+                    HStack(alignment: .firstTextBaseline, spacing: LifeSpacing.sm) {
+                        Text("一致した商品：\(item.name)")
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.secondaryText)
+                            .lineLimit(2)
+                        Spacer(minLength: LifeSpacing.xs)
+                        Text(LifeFormatters.yen(item.amount))
+                            .font(LifeTypography.footnote)
+                            .foregroundStyle(LifeColors.secondaryText)
+                    }
+                }
+                if result.matchedItems.count > ExpenseSearch.maxMatchedItemsShown {
+                    Text("ほか\(result.matchedItems.count - ExpenseSearch.maxMatchedItemsShown)件の商品が一致")
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                }
+            }
+            .padding(.vertical, LifeSpacing.xxs)
+            .frame(minHeight: LifeSpacing.minTapTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.searchSpokenLabel(for: result))
+        .accessibilityHint("詳細を開きます（商品明細と購入履歴を見られます）")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - 今月
