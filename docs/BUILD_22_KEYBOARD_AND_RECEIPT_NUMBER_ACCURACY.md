@@ -1,7 +1,7 @@
 # Build 22：キーボードを閉じやすくする・レシートの数字の読み取りを正確にする
 
-2026-11-10。ブランチ `build22-keyboard-and-receipt-number-accuracy`（`origin/main` の `16978a6` から）。main には入れていません。
-Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
+2026-11-10。ブランチ `build22-keyboard-and-receipt-number-accuracy`（`origin/main` の `16978a6` から）。作ったときは main に入れず、Mac での確認（2026-11-10）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果」）。
+この作業では、Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
 
@@ -11,7 +11,7 @@ Firebase（Firestore のルール・索引・Functions・Hosting）への公開�
 | ブランチ | `build22-keyboard-and-receipt-number-accuracy` を `origin/main` から作成 |
 | commit していない変更・送っていない変更・stash | なし（上書きしていない） |
 | Build 21 の実機での結果 | `docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md` に、機能とは別の commit（`e672a60`）で記録（キーボードが閉じない・数字がまだ不正確。ほかの項目は未報告） |
-| Build 21 の Firestore のルール | **まだ公開していない**（Build 21 の公開の順番は「Firestore のルール → Build 21 を TestFlight」のまま） |
+| Build 21 の Firestore のルール | 作業を始めたときの文書には「まだ公開していない」と書いたが、**誤り**（下の「訂正」）。本番のプロジェクトへ公開済み |
 
 **Build 16 は欠番** です（`docs/BUILD_17_EVENT_DESTINATION_SWITCH.md`）。Build 17〜21 に続き、今回は Build 22 です。Version は 1.0、`ITSAppUsesNonExemptEncryption = NO` のままです。
 
@@ -141,9 +141,9 @@ Build 21 までの決め方を、架空の合成レシート42枚（下の「合
 **RecognizeDocumentsRequest（新しい書類の読み取りの窓口）は使っていません。** 理由：
 
 - この窓口は新しい SDK（iOS 26 の SDK）が必要で、この作業環境には Xcode が無いため、組み立てられるか・正しく動くかを確かめられません
-- Mac の Xcode の版がまだ分からない（**未報告**）ため、使うと Mac で組み立てられなくなるおそれがあります
+- 作ったときは Mac の Xcode の版が分からなかったため、使うと Mac で組み立てられなくなるおそれがありました（その後、Mac は **Xcode 27.2**（Build version 27B52）と報告がありました。下の「Mac での確認結果」）
 - アプリの対応 OS（iOS 17.0）は上げていません。使うとしても、新しい OS だけで使い、ほかの OS では今の読み取りに戻る形にする必要があります
-- 今の `VNRecognizeTextRequest` が、そのまま「戻る先」です。Mac の Xcode の版を教えていただければ、次の Build で検討できます
+- 今の `VNRecognizeTextRequest` が、そのまま「戻る先」です。Mac は Xcode 27.2 のため、今後この窓口を評価できる環境です（**Build 22 では未使用・未評価**）
 
 ## 公開データセット
 
@@ -159,6 +159,16 @@ Build 21 までの決め方を、架空の合成レシート42枚（下の「合
 - 日本のレシートとは別に数えます。CORD（インドネシアのレシート。ルピアの「60.000」など）の結果に合わせて、日本向けの決まりは変えません
 - 評価の道具：`tools/receipt-eval/cord_eval.py`。CORD の **注釈の JSON だけ** を使い（画像は読まない）、注釈の単語・位置を「文字の行」にして Build 21／Build 22 の決め方に通し、正解の合計と比べます。件数だけを出します（店名・商品名・金額・文字は出さない）
 - CORD での結果：**未実行**（データを持っていないため。Mac で行う場合は下の「Mac での次の手順」）
+
+### 公開データについて、正確な記録（2026-11-10）
+
+- CORD は **ライセンスを確かめただけ** です。CORD の実データは **ダウンロードしておらず、評価もしていません**
+- `cord_eval.py` は、**架空の CORD と同じ形のデータ** で動くことだけを確かめました
+- Build 22 の数字の決め方は、**日本向けの架空の合成レシート42枚** で評価しました（下の「合成レシート」）
+- **インターネット上のレシートで Apple Vision を学習し直したわけではありません**（Vision は Apple の端末内の部品のまま。Build 22 で変えたのは、読み取った文字から金額を決める手順だけ）
+- SROIE は利用していません
+- `RecognizeDocumentsRequest` は Build 22 では使っていません
+- 「学習済み」「公開データで精度を確かめた」とは言えません
 
 ## 合成レシート（日本向け・架空）
 
@@ -216,7 +226,16 @@ Build 22 で直ったもの：薄い印字（Build 21 は ¥6 を入れた）・
 
 **Build 22 では不要です。** Firestore のルール・索引・Functions・Hosting は変えていません（データの形も同じ）。
 
-ただし、**Build 21 の Firestore のルールはまだ公開していません。** Build 21 以降のアプリで共有の支出の商品明細を使うには、先に Build 21 のルールの公開が必要です（`docs/BUILD_21_RECEIPT_LINE_ITEM_HISTORY.md` の「公開順序」）。公開の作業は、指示があるまで行いません。
+### 訂正（2026-11-10）
+
+この文書を作ったときに「**Build 21 の Firestore のルールはまだ公開していません**」と書きましたが、**誤りでした**。
+Build 21 の Firestore のルールは、本番のプロジェクト `kurashi-os-production` へ **すでに公開済み** です（池上さんが Mac で公開。Mac の結果で次の表示を確かめています）。
+
+- `rules file firestore.rules compiled successfully`
+- `released rules firestore.rules to cloud.firestore`
+- `Deploy complete!`
+
+Build 22 では、Rules・Functions・Indexes・Hosting を変えていないため、**Firebase の再公開は不要** です。
 
 ## 既存機能への影響
 
@@ -321,7 +340,19 @@ Build 22 で直ったもの：薄い印字（Build 21 は ¥6 を入れた）・
 | Rules Emulator・Functions Emulator・アカウント削除 | **未実行**（この作業環境では Firestore Emulator を取得できない。Build 22 ではサーバーを変えていない） |
 | Swift（Xcode） | **未実行**（この作業環境に Xcode が無い）。全 Swift ファイルの簡易の字句チェック（かっこ・文字列・コメントの対応）だけ実行：問題なし |
 
-Mac での確認結果：**未報告**。
+### Mac での確認結果（2026-11-10、池上さんの報告。`fc0fde0`）
+
+| 確認 | 結果 |
+| --- | --- |
+| サーバーの単体テスト | **103件成功** |
+| Rules Emulator | **100件成功** |
+| Functions Emulator | **47件成功** |
+| アカウント削除 | **30件成功** |
+| サーバーの合計 | **280件成功・失敗0・スキップ0** |
+| Xcode の版 | **Xcode 27.2**（Build version 27B52） |
+| Xcode のテスト | **`Test Succeeded`・失敗0**。実行件数・スキップ数は **未報告**（706件は予定の数で、実行した件数ではない） |
+| Release ビルド | **`Build Succeeded`** |
+| Build 22 の実機確認 | **未実施** |
 
 ## 実機確認手順（Build 22）
 
@@ -369,4 +400,6 @@ Mac での確認結果：**未報告**。
 4. （任意）`cd firebase/functions` → `npm test`（Build 22 ではサーバーを変えていないので、Build 21 と同じ280件の予定）
 5. （任意・CORD の評価）CORD を Mac の中の `evaluation/datasets/cord/` に置き、注釈の JSON のフォルダを指定して `python3 tools/receipt-eval/cord_eval.py evaluation/datasets/cord/json`（件数だけが出ます。画像・注釈は commit しないでください）
 6. Mac の Xcode の版（RecognizeDocumentsRequest を検討するため）
-7. 結果を教えてください（この文書に記録します）。main への取り込み・Firestore のルールの公開（Build 21 の分）・TestFlight は、そのあとの指示で行います
+7. 結果を教えてください（この文書に記録します）。main への取り込み・TestFlight は、そのあとの指示で行います（Build 21 の Firestore のルールは公開済み。上の「訂正」）
+
+上の 1・2・4・6 は 2026-11-10 に Mac で確認済み（「Mac での確認結果」）。3（合成レシートの比べる道具を Mac で動かすこと）は未報告、5（CORD の評価）は未実行。次は **Build 22 を TestFlight へアップロード** し、実機で確かめる段階です（アップロードは指示があってから行います）。
