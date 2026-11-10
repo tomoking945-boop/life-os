@@ -1,6 +1,6 @@
 # Build 23：家計簿の検索・商品の購入履歴・過去の参考価格
 
-2026-11-10。ブランチ `build23-expense-search-and-price-history`（`origin/main` の `33484b7` から）。main には入れていません。
+2026-11-10。ブランチ `build23-expense-search-and-price-history`（`origin/main` の `33484b7` から）。作ったときは main に入れず、Mac での確認（2026-11-10）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果」）。
 Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -229,7 +229,20 @@ Build 21 では明細のタップで「直す」欄が開きましたが、Build
 | Rules Emulator・Functions Emulator・アカウント削除 | **未実行**（この作業環境では Firestore Emulator を取得できない。Build 23 ではサーバーを変えていない） |
 | Swift（Xcode） | **未実行**（この作業環境に Xcode が無い）。全 Swift ファイルの簡易の字句チェック（かっこ・文字列・コメントの対応）だけ実行：問題なし |
 
-Mac での確認結果：**未報告**。
+### Mac での確認結果（2026-11-10、池上さんの報告。`06ee7b4`）
+
+| 確認 | 結果 |
+| --- | --- |
+| サーバーの単体テスト | **103件成功** |
+| Rules Emulator | **100件成功** |
+| Functions Emulator | **47件成功** |
+| アカウント削除 | **30件成功** |
+| サーバーの合計 | **280件成功・失敗0・スキップ0** |
+| Xcode のテスト | **成功・失敗0**。実行件数・スキップ数は **未報告**（744件は予定の数で、実行した件数ではない） |
+| Release ビルド | **`Build Succeeded`** |
+| Build 23 の実機確認 | **未実施** |
+
+Build 23 では Rules・Functions・Indexes・Hosting を変えていないため、Firebase の再公開は不要です。次は **Build 23 を TestFlight へアップロード** し、上の「実機確認手順」で確かめる段階です（アップロードは指示があってから行います）。
 
 ## 実機確認手順（Build 23）
 
@@ -283,3 +296,5 @@ Mac での確認結果：**未報告**。
 2. Xcode でテスト（予定は744件）→ Release ビルド
 3. （任意）`cd firebase/functions` → `npm test`（Build 23 ではサーバーを変えていないので、Build 22 と同じ280件の予定）
 4. 結果を教えてください（この文書に記録します）。main への取り込み・TestFlight は、そのあとの指示で行います（Firebase の公開は不要）
+
+上の 1〜3 は 2026-11-10 に Mac で確認済み（「Mac での確認結果」）。実機確認は未実施です。
