@@ -239,6 +239,17 @@ Build 23 以前のアプリは予算の場所を読み書きしないので、�
 | Rules Emulator・Functions Emulator・アカウント削除 | **未実行**（この作業環境では Firestore Emulator を取得できない）。JavaScript の書き方の確認（`node --check`）だけ実行：問題なし |
 | Swift（Xcode） | **未実行**（この作業環境に Xcode が無い）。全 Swift ファイルの簡易の字句チェック（かっこ・文字列・コメントの対応）だけ実行：問題なし |
 
+### Mac での最初の確認と修正（2026-11-10、池上さんの報告。`76d1d2f`）
+
+- Xcode でコンパイルエラー：`MonthlyBudgetPlan.swift` の `Type 'BudgetAmountProblem' does not conform to protocol 'Error'`
+- 原因：`BudgetAmountInput.parse` は `Result<Int?, BudgetAmountProblem>` を返しますが、Swift の `Result` の失敗側の型は `Error` に準拠していなければなりません。`BudgetAmountProblem` は `Equatable` だけでした（この作業環境には Xcode が無く、組み立てで確かめられなかったため見落としました）
+- 修正：`enum BudgetAmountProblem: Error, Equatable` にしました（型の宣言だけ。値・日本語の理由・アプリの動作・データの形・Rules・Functions は変えていません）
+- 同じ原因の箇所：Build 24 で新しく足した `Result` は、`BudgetAmountInput.parse`（直した）と `MonthlyBudgetDraft.validated`（失敗側の `BudgetInputError` は、もともと `Error` に準拠）の2つだけでした。ほかに同じ原因の箇所はありません
+- 念のための書き換え：端末の予算の記録を読む部分（`MonthlyBudgetRecords` の月のキー）の `init?(intValue: Int) { nil }` を、意味が同じ `init?(intValue: Int) { return nil }` にしました（Swift の版によって省略の書き方が通らないことがあるため。動作は同じ）
+- テスト：変えていません（削除・スキップ・弱める変更なし）
+- Build 番号は24、Version は1.0のまま
+- 修正のあとの Mac での結果：**未報告**
+
 Mac での確認結果：**未報告**。
 
 ## 実機確認手順（Build 24。わが家で家計簿を共有している2台で）

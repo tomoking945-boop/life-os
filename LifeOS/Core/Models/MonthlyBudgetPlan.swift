@@ -179,8 +179,8 @@ struct MonthlyBudgetPlan: Equatable, Codable {
     }
 }
 
-/// 金額の入力の問題（1つの欄）
-enum BudgetAmountProblem: Equatable {
+/// 金額の入力の問題（1つの欄）。BudgetAmountInput.parse の Result の失敗側に使うため Error に準拠する（2026-11-10 修正）
+enum BudgetAmountProblem: Error, Equatable {
     case negative
     case decimal
     case notNumber
@@ -473,7 +473,7 @@ struct MonthlyBudgetRecords: Codable, Equatable {
         var stringValue: String
         var intValue: Int? { nil }
         init?(stringValue: String) { self.stringValue = stringValue }
-        init?(intValue: Int) { nil }
+        init?(intValue: Int) { return nil }
     }
 
     init(from decoder: Decoder) throws {
