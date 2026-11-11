@@ -82,6 +82,11 @@ struct TodayView: View {
 
                 moneySection
 
+                // Build 25：今月の未確認の定期支出（支払日を過ぎた・今日・7日以内）があるときだけ。タップで「お金」の画面へ
+                if let text = viewModel.recurringReviewText {
+                    recurringReviewRow(text)
+                }
+
                 // Free のときだけ表示。Premium では条件ごと外れるので余白も残らない。
                 // TODO: 広告カードの表示位置は仕様未定。現状は重要操作と離すため画面の最後に配置。
                 if viewModel.showsAd {
@@ -712,6 +717,44 @@ struct TodayView: View {
             .accessibilityHint("Inboxを開いて、まとめて整理できます")
             LifeDivider()
         }
+    }
+
+    // MARK: - 定期支出を確認（Build 25）
+
+    /// 「定期支出を確認」：件数だけを出す（名前・金額は出さない）。自動で保存しない
+    private func recurringReviewRow(_ text: String) -> some View {
+        Button {
+            viewModel.openMoney()
+        } label: {
+            HStack(spacing: LifeSpacing.sm) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.title3)
+                    .foregroundStyle(LifeColors.primary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: LifeSpacing.xxs) {
+                    Text("定期支出を確認")
+                        .font(LifeTypography.editorialHeadline)
+                        .foregroundStyle(LifeColors.text)
+                    Text(text)
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.secondaryText)
+                }
+                Spacer(minLength: LifeSpacing.xs)
+                Image(systemName: "chevron.right")
+                    .font(LifeTypography.footnote)
+                    .foregroundStyle(LifeColors.secondaryText)
+                    .accessibilityHidden(true)
+            }
+            .padding(.vertical, LifeSpacing.md)
+            .frame(maxWidth: .infinity, minHeight: LifeSpacing.minTapTarget, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("定期支出を確認、\(text)")
+        .accessibilityHint("お金の画面を開いて、今月分を追加するか決めます")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("today.recurringReview")
     }
 
     // MARK: - MONEY：大きな数字

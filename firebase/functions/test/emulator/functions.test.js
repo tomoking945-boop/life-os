@@ -105,7 +105,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`, `groups/${GROUP}/expenseLineItems`, `groups/${GROUP}/monthlyBudgets`]) {
+  for (const path of ['_emulatorSentMessages', 'invites', 'memberships', `groups/${GROUP}/items`, `groups/${GROUP}/members`, `groups/${GROUP}/notificationLog`, `groups/${GROUP}/expenses`, `groups/${GROUP}/expenseLineItems`, `groups/${GROUP}/monthlyBudgets`, `groups/${GROUP}/recurringExpenses`, `groups/${GROUP}/recurringExpenseOccurrences`]) {
     await clearCollection(path);
   }
   for (const user of [alice, bob, carol]) {
@@ -767,6 +767,34 @@ describe('共有更新の通知', () => {
     await ref.delete();
     await sleep(3000);
     assert.equal((await sentMessages()).length, 0, '予算では通知しない');
+    assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
+  });
+
+  it('Build 25：わが家の定期支出の登録・編集・停止・今月分を追加・今月は追加しないでは、通知も通知の記録も作らない（名前・金額を送らない）', async () => {
+    await addMembersAndDevices();
+    const templateID = 'D3B07384-D113-4EC5-A2A8-1A0F8E2B5C11';
+    const expenseID = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+    const templateRef = db.doc(`groups/${GROUP}/recurringExpenses/${templateID}`);
+    await templateRef.set({
+      schemaVersion: 1, title: '家賃テスト', expectedAmount: 85000, category: 'other', dueDay: 27, startMonthKey: '2026-11', isActive: true,
+      createdBy: alice.uid, updatedBy: alice.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    await templateRef.update({ expectedAmount: 86000, isActive: false, updatedBy: bob.uid, updatedAt: FieldValue.serverTimestamp() });
+    const batch = db.batch();
+    batch.set(db.doc(`groups/${GROUP}/expenses/${expenseID}`), {
+      schemaVersion: 1, title: '家賃テスト', amount: 86000, category: 'other', date: Timestamp.now(),
+      createdBy: alice.uid, updatedBy: alice.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    batch.set(db.doc(`groups/${GROUP}/recurringExpenseOccurrences/${templateID}_2026-11`), {
+      schemaVersion: 1, templateID, monthKey: '2026-11', status: 'created', expenseID, processedBy: alice.uid, processedAt: FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    const skipRef = db.doc(`groups/${GROUP}/recurringExpenseOccurrences/${templateID}_2026-12`);
+    await skipRef.set({ schemaVersion: 1, templateID, monthKey: '2026-12', status: 'skipped', expenseID: null, processedBy: bob.uid, processedAt: FieldValue.serverTimestamp() });
+    await skipRef.delete();
+    await sleep(3000);
+    const messages = await sentMessages();
+    assert.equal(messages.length, 0, '定期支出では通知しない');
     assert.equal((await db.collection(`groups/${GROUP}/notificationLog`).get()).size, 0, '通知の記録も作らない');
   });
 

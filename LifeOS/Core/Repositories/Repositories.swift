@@ -116,6 +116,23 @@ protocol ExpenseRepository: AnyObject {
     var householdBudgetBlock: ExpenseSharingBlock? { get }
     /// すでにある、わが家の予算を変える・解除できるか
     var canEditHouseholdBudgets: Bool { get }
+
+    // MARK: 固定費・定期支出（2026-11-11 Build 25）
+    /// その範囲の定期支出の設定（自分だけは端末、わが家で共有は Firestore）
+    func recurringTemplates(scope: BudgetScope) -> [RecurringExpenseTemplate]
+    /// その範囲の月ごとの状態（記録の無い月は未確認）
+    func recurringOccurrences(scope: BudgetScope) -> [String: RecurringOccurrence]
+    func recurringTemplate(id: UUID) -> RecurringExpenseTemplate?
+    /// 新しく、わが家で共有の定期支出を作れない理由（作れるなら nil）
+    var householdRecurringBlock: ExpenseSharingBlock? { get }
+    /// すでにある、わが家で共有の定期支出を変えられるか
+    var canEditHouseholdRecurring: Bool { get }
+    @discardableResult func saveRecurringTemplate(_ template: RecurringExpenseTemplate) -> RecurringExpenseError?
+    @discardableResult func setRecurringTemplateActive(_ id: UUID, isActive: Bool, resumingIn month: BudgetMonth) -> RecurringExpenseError?
+    /// 「今月分を追加」の保存（支出1件と「追加済み」を一緒に）。できなければ理由（支出は作らない）
+    @discardableResult func addRecurringExpense(_ expense: Expense, templateID: UUID, month: BudgetMonth) -> RecurringExpenseError?
+    @discardableResult func skipRecurring(templateID: UUID, month: BudgetMonth) -> RecurringExpenseError?
+    @discardableResult func undoRecurringSkip(templateID: UUID, month: BudgetMonth) -> RecurringExpenseError?
     /// 明細1件を直す
     @discardableResult func updateLineItem(_ item: ExpenseLineItem, in id: Expense.ID) -> Result<[ExpenseLineItem], ExpenseLineItemSaveError>
     /// 明細1件を消す（支出そのものは消さない）

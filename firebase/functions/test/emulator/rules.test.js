@@ -1359,3 +1359,244 @@ describe('Build 24：わが家の月の予算（groups/{groupID}/monthlyBudgets�
     await assertFails(setDoc(doc(as('alice'), `users/alice/monthlyBudgets/${MONTH}`), budget('alice')), '自分だけの予算の置き場所は無い');
   });
 });
+
+describe('Build 25：わが家で共有の定期支出（groups/{groupID}/recurringExpenses・recurringExpenseOccurrences）', () => {
+  const TEMPLATE = 'D3B07384-D113-4EC5-A2A8-1A0F8E2B5C11';
+  const EXPENSE_A = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+  const EXPENSE_B = '7C9E6679-7425-40DE-944B-E07FC1F90AE7';
+  const MONTH = '2026-11';
+  const templatePath = (id = TEMPLATE, group = GROUP) => `groups/${group}/recurringExpenses/${id}`;
+  const occurrencePath = (month = MONTH, id = TEMPLATE, group = GROUP) => `groups/${group}/recurringExpenseOccurrences/${id}_${month}`;
+  const expensePath = (id, group = GROUP) => `groups/${group}/expenses/${id}`;
+
+  /** アプリ（SharedRecurringExpensePayload）が作る形：11項目。作成者・変えた人は本人・日時はサーバーの時刻 */
+  function template(uid, overrides = {}) {
+    return {
+      schemaVersion: 1, title: '家賃', expectedAmount: 85000, category: 'other', dueDay: 27, startMonthKey: MONTH, isActive: true,
+      createdBy: uid, updatedBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  /** 設定を変えるときに送る項目（作成者・作成日時・schemaVersion は送らない） */
+  function templateUpdate(uid, overrides = {}) {
+    return {
+      title: '家賃', expectedAmount: 86000, category: 'other', dueDay: 27, startMonthKey: MONTH, isActive: true,
+      updatedBy: uid, updatedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  /** 月ごとの状態：7項目 */
+  function occurrence(uid, status, expenseID, overrides = {}, month = MONTH) {
+    return {
+      schemaVersion: 1, templateID: TEMPLATE, monthKey: month, status, expenseID, processedBy: uid, processedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  function expense(uid, overrides = {}) {
+    return {
+      schemaVersion: 1, title: '家賃', amount: 85000, category: 'other',
+      date: Timestamp.fromDate(new Date('2026-11-27T00:00:00+09:00')),
+      createdBy: uid, updatedBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...overrides,
+    };
+  }
+
+  /** アプリの「今月分を追加」と同じ：共有の支出と「追加済み」を1回の書き込みで */
+  function addThisMonth(db, uid, expenseID, month = MONTH) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, expensePath(expenseID)), expense(uid));
+    batch.set(doc(db, occurrencePath(month)), occurrence(uid, 'created', expenseID, {}, month));
+    return batch.commit();
+  }
+
+  async function setMoney(on) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), `groups/${GROUP}`), { sharedKinds: on ? ['todo', 'shopping', 'money'] : ['todo', 'shopping'] });
+    });
+  }
+
+  async function count(path) {
+    let size = 0;
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      size = (await getDocs(collection(context.firestore(), path))).size;
+    });
+    return size;
+  }
+
+  beforeEach(async () => {
+    await setMoney(true);
+  });
+
+  it('テスト3・4：オーナーが作った設定をパートナーが読め、編集・停止・再開できる（作成者・作成日時は変えられない）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    const read = await getDoc(doc(as('bob'), templatePath()));
+    assert.equal(read.data().title, '家賃');
+    assert.equal(read.data().expectedAmount, 85000);
+    assert.deepEqual(Object.keys(read.data()).sort(), [
+      'category', 'createdAt', 'createdBy', 'dueDay', 'expectedAmount', 'isActive', 'schemaVersion', 'startMonthKey', 'title', 'updatedAt', 'updatedBy',
+    ], '11項目だけ');
+    await assertSucceeds(updateDoc(doc(as('bob'), templatePath()), templateUpdate('bob')));
+    await assertSucceeds(updateDoc(doc(as('bob'), templatePath()), templateUpdate('bob', { isActive: false })), '停止');
+    await assertSucceeds(updateDoc(doc(as('alice'), templatePath()), templateUpdate('alice', { isActive: true, startMonthKey: '2027-01' })), '再開');
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), { ...templateUpdate('bob'), createdBy: 'bob' }), '作成者は変えられない');
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), { ...templateUpdate('bob'), createdAt: serverTimestamp() }), '作成日時は変えられない');
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), { ...templateUpdate('bob'), schemaVersion: 2 }));
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), templateUpdate('alice')), '変えた人は本人');
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), templateUpdate('bob', { updatedAt: Timestamp.now() })), '端末の時刻は使えない');
+    await assertFails(deleteDoc(doc(as('alice'), templatePath())), 'Build 25 では全部を消さない（停止だけ）');
+  });
+
+  it('テスト3：作成者・作成日時は本人・サーバーの時刻。文書の ID は UUID。決まった11項目だけ', async () => {
+    await assertFails(setDoc(doc(as('alice'), templatePath()), template('bob')), '作成者は本人');
+    await assertFails(setDoc(doc(as('alice'), templatePath()), template('alice', { createdAt: Timestamp.now() })));
+    await assertFails(setDoc(doc(as('alice'), templatePath('rent')), template('alice')), '文書の ID は UUID');
+    await assertFails(setDoc(doc(as('alice'), templatePath()), template('alice', { memo: '大家さん' })), '決まっていない項目');
+    await assertFails(setDoc(doc(as('alice'), templatePath()), template('alice', { email: 'a@example.com' })));
+    const missing = template('alice');
+    delete missing.isActive;
+    await assertFails(setDoc(doc(as('alice'), templatePath()), missing), '足りない項目');
+    await assertFails(setDoc(doc(as('alice'), templatePath()), template('alice', { schemaVersion: 2 })));
+  });
+
+  it('テスト7・8・10：名前1〜80文字・改行なし、金額1〜999,999,999の整数、カテゴリー6つ、支払日1〜31、開始月2000-01〜2099-12', async () => {
+    const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    let n = 0;
+    const ok = (overrides, note) => assertSucceeds(setDoc(doc(as('alice'), templatePath(id(++n))), template('alice', overrides)), note);
+    const ng = (overrides, note) => assertFails(setDoc(doc(as('alice'), templatePath(id(++n))), template('alice', overrides)), note);
+    await ok({ title: 'あ'.repeat(80) }, '80文字');
+    await ok({ title: '👨‍👩‍👧 サブスク' }, '絵文字');
+    await ng({ title: '' }, '空');
+    await ng({ title: 'あ'.repeat(81) }, '81文字');
+    await ng({ title: '家賃\n駐車場' }, '改行');
+    await ng({ title: '家賃\t' }, '制御文字');
+    await ng({ title: 85000 }, '文字ではない');
+    await ok({ expectedAmount: 1 });
+    await ok({ expectedAmount: 999999999 });
+    await ng({ expectedAmount: 0 }, '0円');
+    await ng({ expectedAmount: -1 }, '負');
+    await ng({ expectedAmount: 1000000000 }, '上限超え');
+    await ng({ expectedAmount: 1.5 }, '小数');
+    await ng({ expectedAmount: '85000' }, '文字');
+    await ok({ category: 'subscription' });
+    await ng({ category: 'rent' }, '決まっていないカテゴリー');
+    await ok({ dueDay: 1 });
+    await ok({ dueDay: 31 });
+    await ng({ dueDay: 0 });
+    await ng({ dueDay: 32 });
+    await ng({ dueDay: 27.5 });
+    await ok({ startMonthKey: '2000-01' });
+    await ok({ startMonthKey: '2099-12' });
+    await ng({ startMonthKey: '1999-12' });
+    await ng({ startMonthKey: '2100-01' });
+    await ng({ startMonthKey: '2026-13' });
+    await ng({ startMonthKey: '2026-1' });
+    await ng({ isActive: 'true' }, '真偽値ではない');
+  });
+
+  it('テスト5・6：わが家に入っていない人・サインインしていない人・別のわが家の人は読み書きできない', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await assertSucceeds(addThisMonth(as('alice'), 'alice', EXPENSE_A));
+    for (const db of [as('mallory'), testEnv.unauthenticatedContext().firestore()]) {
+      await assertFails(getDoc(doc(db, templatePath())));
+      await assertFails(getDocs(collection(db, `groups/${GROUP}/recurringExpenses`)));
+      await assertFails(getDoc(doc(db, occurrencePath())));
+      await assertFails(getDocs(collection(db, `groups/${GROUP}/recurringExpenseOccurrences`)));
+      await assertFails(updateDoc(doc(db, templatePath()), templateUpdate('mallory')));
+      await assertFails(setDoc(doc(db, occurrencePath('2026-12')), occurrence('mallory', 'skipped', null, {}, '2026-12')));
+    }
+    await assertFails(setDoc(doc(as('mallory'), templatePath(TEMPLATE, GROUP)), template('mallory')));
+    await assertFails(getDocs(collectionGroup(as('alice'), 'recurringExpenses')));
+    await assertFails(getDocs(collectionGroup(as('alice'), 'recurringExpenseOccurrences')));
+    await assertFails(getDocs(collection(as('alice'), `groups/${OTHER_GROUP}/recurringExpenses`)));
+    await assertFails(setDoc(doc(as('alice'), templatePath(TEMPLATE, OTHER_GROUP)), template('alice')), '別のわが家');
+    // 退出した人（メンバー文書が無い）
+    await removeMemberAsServer('bob');
+    await assertFails(getDoc(doc(as('bob'), templatePath())));
+    await assertFails(updateDoc(doc(as('bob'), templatePath()), templateUpdate('bob')));
+  });
+
+  it('家計簿がオフ：新しく作れない。すでにある設定は変えられる。「今月分を追加」は支出を作れないので断られる', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await setMoney(false);
+    await assertFails(setDoc(doc(as('alice'), templatePath('00000000-0000-4000-8000-000000000001')), template('alice')), '新しく作れない');
+    await assertSucceeds(updateDoc(doc(as('bob'), templatePath()), templateUpdate('bob', { isActive: false })));
+    await assertFails(addThisMonth(as('alice'), 'alice', EXPENSE_A));
+    assert.equal(await count(`groups/${GROUP}/expenses`), 0, '支出も作られない');
+  });
+
+  it('テスト22：「今月分を追加」は、共有の支出と「追加済み」を同じ書き込みで作る（片方だけは作れない）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    // 状態だけ（支出なし）は断られる
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'created', EXPENSE_A)), '支出を作らずに「追加済み」だけは置けない');
+    // すでにある支出を「追加済み」にすることもできない（同じ書き込みで新しく作る支出だけ）
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), expensePath(EXPENSE_B)), expense('alice', { createdAt: Timestamp.now(), updatedAt: Timestamp.now() }));
+    });
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'created', EXPENSE_B)), 'すでにある支出');
+    // 一緒なら通る
+    await assertSucceeds(addThisMonth(as('alice'), 'alice', EXPENSE_A));
+    const read = (await getDoc(doc(as('bob'), occurrencePath()))).data();
+    assert.equal(read.status, 'created');
+    assert.equal(read.expenseID, EXPENSE_A);
+    assert.deepEqual(Object.keys(read).sort(), ['expenseID', 'monthKey', 'processedAt', 'processedBy', 'schemaVersion', 'status', 'templateID'], '7項目だけ');
+    assert.ok((await getDoc(doc(as('bob'), expensePath(EXPENSE_A)))).exists(), 'パートナーにも支出が見える');
+  });
+
+  it('テスト21：2台で同時に「今月分を追加」しても、支出も「追加済み」も1件だけ（2回目は全部が断られる）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await assertSucceeds(addThisMonth(as('alice'), 'alice', EXPENSE_A));
+    await assertFails(addThisMonth(as('bob'), 'bob', EXPENSE_B), 'パートナーの2回目');
+    await assertFails(addThisMonth(as('alice'), 'alice', EXPENSE_B), '同じ人の2回目（別の支出 ID）');
+    assert.equal(await count(`groups/${GROUP}/expenses`), 1, '支出は1件だけ');
+    assert.equal(await count(`groups/${GROUP}/recurringExpenseOccurrences`), 1);
+    assert.equal((await getDoc(doc(as('bob'), expensePath(EXPENSE_B)))).exists(), false, '断られた書き込みの支出は残らない');
+    // 「今月は追加しない」で上書きもできない
+    await assertFails(setDoc(doc(as('bob'), occurrencePath()), occurrence('bob', 'skipped', null)));
+  });
+
+  it('テスト27・28：「追加済み」は変更も削除もできない。支出を消しても「追加済み」は残る（候補が戻らない）', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await assertSucceeds(addThisMonth(as('alice'), 'alice', EXPENSE_A));
+    await assertFails(updateDoc(doc(as('alice'), occurrencePath()), { status: 'skipped', expenseID: null, processedBy: 'alice', processedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as('bob'), occurrencePath()), { expenseID: EXPENSE_B, processedBy: 'bob', processedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(as('alice'), occurrencePath())), '追加済みは消せない');
+    await assertFails(deleteDoc(doc(as('bob'), occurrencePath())));
+    await assertSucceeds(deleteDoc(doc(as('bob'), expensePath(EXPENSE_A))), '支出は消せる');
+    assert.equal((await getDoc(doc(as('alice'), occurrencePath()))).data().status, 'created', '追加済みのまま');
+  });
+
+  it('テスト25・26：「今月は追加しない」は支出を作らず、メンバーなら未確認に戻せる（消せる）。変更はできない', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await assertSucceeds(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null)));
+    assert.equal(await count(`groups/${GROUP}/expenses`), 0);
+    await assertFails(setDoc(doc(as('bob'), occurrencePath()), occurrence('bob', 'skipped', null)), '上書き（変更）はできない');
+    await assertSucceeds(deleteDoc(doc(as('bob'), occurrencePath())), 'パートナーも未確認に戻せる');
+    assert.equal((await getDoc(doc(as('alice'), occurrencePath()))).exists(), false);
+    // 戻したあとは「今月分を追加」できる
+    await assertSucceeds(addThisMonth(as('bob'), 'bob', EXPENSE_A));
+  });
+
+  it('月ごとの状態の形：文書の ID は設定の ID と月・設定がある・処理した人は本人・日時はサーバー・skipped は null・created は UUID', async () => {
+    await assertSucceeds(setDoc(doc(as('alice'), templatePath()), template('alice')));
+    await assertFails(setDoc(doc(as('alice'), occurrencePath('2026-12')), occurrence('alice', 'skipped', null)), '文書の ID と月が合わない');
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/recurringExpenseOccurrences/other_${MONTH}`), occurrence('alice', 'skipped', null)), '文書の ID と設定が合わない');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath(MONTH, '00000000-0000-4000-8000-000000000009')),
+      occurrence('alice', 'skipped', null, { templateID: '00000000-0000-4000-8000-000000000009' })), '設定が無い');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('bob', 'skipped', null)), '処理した人は本人');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null, { processedAt: Timestamp.now() })));
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', EXPENSE_A)), 'skipped は支出の ID を持たない');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'paused', null)), '決まっていない状態');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null, { amount: 85000 })), '決まっていない項目');
+    await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null, { schemaVersion: 2 })));
+    const batch = writeBatch(as('alice'));
+    batch.set(doc(as('alice'), expensePath('not-a-uuid')), expense('alice'));
+    batch.set(doc(as('alice'), occurrencePath()), occurrence('alice', 'created', 'not-a-uuid'));
+    await assertFails(batch.commit(), 'created の expenseID は UUID');
+  });
+
+  it('定期支出の決まりは、ほかの場所の権限を広げない（支出・予算・自分の場所に定期支出の形を書けない）', async () => {
+    await assertFails(setDoc(doc(as('alice'), expensePath(EXPENSE_A)), template('alice')));
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/monthlyBudgets/${MONTH}`), template('alice')));
+    await assertFails(setDoc(doc(as('alice'), `users/alice/recurringExpenses/${TEMPLATE}`), template('alice')), '自分だけの定期支出の置き場所は無い');
+    await assertFails(setDoc(doc(as('alice'), `groups/${GROUP}/notificationLog/${TEMPLATE}`), template('alice')));
+  });
+});

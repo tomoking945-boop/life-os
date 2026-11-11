@@ -23,6 +23,10 @@ rules_version = '2';
 // - わが家の月の予算（2026-11-10 Build 24）：groups/{groupID}/monthlyBudgets/{YYYY-MM}。メンバーだけが読み書きでき、
 //   新しく作れるのは「家計簿」がオンのときだけ。決まった6項目・決まったカテゴリー・金額の範囲・カテゴリーの合計は月の予算以下。
 //   自分だけの予算は置けない（アプリが送らない）。docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md
+// - わが家で共有の定期支出（2026-11-11 Build 25）：設定は groups/{groupID}/recurringExpenses/{templateID}（決まった11項目）、
+//   月ごとの状態は groups/{groupID}/recurringExpenseOccurrences/{templateID}_{YYYY-MM}（決まった7項目）。メンバーだけが読み書きできる。
+//   「追加済み」は、新しい共有の支出と同じ書き込みでだけ作れて、変更・削除できない（同じ月の支出は1件だけ）。
+//   「今月は追加しない」は消せる（未確認に戻す）。docs/BUILD_25_RECURRING_EXPENSES.md
 // - 端末トークンは本人だけが登録・削除できる
 // - 招待（invites）・通知の記録（notificationLog）はアプリから読み書きできない（Functions だけ）
 service cloud.firestore {
@@ -313,6 +317,115 @@ service cloud.firestore {
       }
 
       // notificationLog など、ここに書かれていない場所はすべて拒否（Functions は管理者として書く）
+
+      // わが家で共有の定期支出の設定（2026-11-11 Build 25）。groups/{groupID}/recurringExpenses/{templateID}（文書の ID は設定の UUID）。
+      // メンバーだけが読み書きでき（オーナーもパートナーも編集・停止・再開できる）、新しく作れるのは「家計簿」（money）がオンのときだけ
+      // （オフにしたあとも、すでにある設定の変更はできる）。決まった11項目だけ。作成者・作成日時・schemaVersion は変えられない。
+      // 全部を消すことはしない（Build 25 では停止だけ。わが家の削除のときはサーバーが消す）。docs/BUILD_25_RECURRING_EXPENSES.md
+      match /recurringExpenses/{templateID} {
+        function validRecurringTemplate(data) {
+          return data.keys().hasOnly([
+              'schemaVersion', 'title', 'expectedAmount', 'category', 'dueDay', 'startMonthKey', 'isActive',
+              'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && data.keys().hasAll([
+              'schemaVersion', 'title', 'expectedAmount', 'category', 'dueDay', 'startMonthKey', 'isActive',
+              'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+            ])
+            && data.schemaVersion == 1
+            && data.title is string
+            && data.title.matches('^[^[:cntrl:]]{1,80}$')
+            && data.expectedAmount is int
+            && data.expectedAmount >= 1
+            && data.expectedAmount <= 999999999
+            && data.category in ['food', 'dailyGoods', 'diningOut', 'transport', 'subscription', 'other']
+            && data.dueDay is int
+            && data.dueDay >= 1
+            && data.dueDay <= 31
+            && data.startMonthKey is string
+            && data.startMonthKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')
+            && data.isActive is bool
+            && data.createdBy is string
+            && data.createdAt is timestamp
+            && data.updatedBy == request.auth.uid
+            && data.updatedAt == request.time;
+        }
+
+        // わが家の設定で「家計簿」がオンか（groups の sharedKinds。変えられるのは updateHousehold だけ）
+        function recurringSharingIsOn() {
+          return 'money' in get(/databases/$(database)/documents/groups/$(groupID)).data.get('sharedKinds', []);
+        }
+
+        allow read: if isMember(groupID);
+
+        // 作成：メンバーだけ・家計簿がオンのときだけ・文書の ID は UUID・作成者は本人・作成日時はサーバーの時刻
+        allow create: if isMember(groupID)
+          && templateID.matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$')
+          && validRecurringTemplate(request.resource.data)
+          && recurringSharingIsOn()
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+
+        // 更新（編集・停止・再開）：メンバーだけ。作成者・作成日時・schemaVersion は変えられない（家計簿をオフにしたあとも変えられる）
+        allow update: if isMember(groupID)
+          && validRecurringTemplate(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.schemaVersion == resource.data.schemaVersion;
+
+        allow delete: if false;
+      }
+
+      // わが家で共有の定期支出の月ごとの状態（2026-11-11 Build 25）。
+      // groups/{groupID}/recurringExpenseOccurrences/{templateID}_{YYYY-MM}（文書の ID は設定の ID と月のキー。同じ月は文書1つだけ）。
+      // - created（追加済み）：新しい共有の支出（expenseID の文書）を、同じ書き込みで作るときだけ置ける。変更・削除できない
+      //   （2台で同時に押しても、2回目は文書がすでにあるので断られ、支出も一緒に作られない）
+      // - skipped（今月は追加しない）：支出は作らない（expenseID は null）。消せる（未確認に戻す）。変更はできない
+      // - 処理した人は本人・処理した日時はサーバーの時刻。設定（recurringExpenses）がある月だけ
+      match /recurringExpenseOccurrences/{occurrenceID} {
+        function validOccurrence(data) {
+          return data.keys().hasOnly(['schemaVersion', 'templateID', 'monthKey', 'status', 'expenseID', 'processedBy', 'processedAt'])
+            && data.keys().hasAll(['schemaVersion', 'templateID', 'monthKey', 'status', 'expenseID', 'processedBy', 'processedAt'])
+            && data.schemaVersion == 1
+            && data.templateID is string
+            && data.templateID.matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$')
+            && data.monthKey is string
+            && data.monthKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$')
+            && occurrenceID == data.templateID + '_' + data.monthKey
+            && data.status in ['created', 'skipped']
+            && data.processedBy == request.auth.uid
+            && data.processedAt == request.time
+            && exists(/databases/$(database)/documents/groups/$(groupID)/recurringExpenses/$(data.templateID));
+        }
+
+        function expensePath(expenseID) {
+          return /databases/$(database)/documents/groups/$(groupID)/expenses/$(expenseID);
+        }
+
+        // 追加済み：expenseID は UUID で、その共有の支出は、この書き込みの前には無く、この書き込みのあとにある（同じ書き込みで作る）
+        function createdWithNewExpense(data) {
+          return data.status == 'created'
+            && data.expenseID is string
+            && data.expenseID.matches('^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$')
+            && !exists(expensePath(data.expenseID))
+            && existsAfter(expensePath(data.expenseID))
+            && getAfter(expensePath(data.expenseID)).data.createdBy == request.auth.uid;
+        }
+
+        allow read: if isMember(groupID);
+
+        allow create: if isMember(groupID)
+          && validOccurrence(request.resource.data)
+          && (createdWithNewExpense(request.resource.data)
+            || (request.resource.data.status == 'skipped' && request.resource.data.expenseID == null));
+
+        // 変更はできない（追加済みを「今月は追加しない」に変える・別の支出につけかえる、をさせない）
+        allow update: if false;
+
+        // 削除：「今月は追加しない」だけ（未確認に戻す）。追加済みは消せない（同じ月の支出を二重に作らない）
+        allow delete: if isMember(groupID)
+          && resource.data.status == 'skipped';
+      }
 
       // わが家の月の予算（2026-11-10 Build 24）。groups/{groupID}/monthlyBudgets/{YYYY-MM}（月ごとに文書1つ。文書の ID は月のキー）。
       // メンバーだけが読み書きでき（オーナーもパートナーも変えられる）、新しく作れるのは、わが家の設定で「家計簿」（money）がオンのときだけ

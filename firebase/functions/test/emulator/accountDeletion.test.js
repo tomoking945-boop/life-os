@@ -693,6 +693,90 @@ describe('Build 24：わが家の月の予算（groups/{groupID}/monthlyBudgets�
   });
 });
 
+describe('Build 25：わが家で共有の定期支出（groups/{groupID}/recurringExpenses・recurringExpenseOccurrences）', () => {
+  const TEMPLATE = 'D3B07384-D113-4EC5-A2A8-1A0F8E2B5C11';
+  const EXPENSE = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+
+  async function householdWithPartner() {
+    const [owner, partner] = [newID('o'), newID('p')];
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'shopping', 'money'] });
+    const { url } = await householdStore.createInvite({ db, FieldValue, Timestamp, uid: owner, baseURL: 'https://example.web.app' });
+    await householdStore.acceptInvite({ db, FieldValue, uid: partner, token: new URL(url).searchParams.get('token') });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    return { owner, partner, groupID };
+  }
+
+  /** アプリと同じ形の設定と、追加済み・今月は追加しないの記録 */
+  async function seedRecurring(groupID, uid) {
+    await db.doc(`groups/${groupID}/recurringExpenses/${TEMPLATE}`).set({
+      schemaVersion: 1, title: '家賃', expectedAmount: 85000, category: 'other', dueDay: 27, startMonthKey: '2026-10', isActive: true,
+      createdBy: uid, updatedBy: uid, createdAt: T(0), updatedAt: T(0),
+    });
+    await db.doc(`groups/${groupID}/expenses/${EXPENSE}`).set({
+      schemaVersion: 1, title: '家賃', amount: 85000, category: 'other', date: T(0), createdBy: uid, updatedBy: uid, createdAt: T(0), updatedAt: T(0),
+    });
+    await db.doc(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-10`).set({
+      schemaVersion: 1, templateID: TEMPLATE, monthKey: '2026-10', status: 'created', expenseID: EXPENSE, processedBy: uid, processedAt: T(0),
+    });
+    await db.doc(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-11`).set({
+      schemaVersion: 1, templateID: TEMPLATE, monthKey: '2026-11', status: 'skipped', expenseID: null, processedBy: uid, processedAt: T(0),
+    });
+  }
+
+  it('テスト42：パートナーが退出しても、定期支出の設定と記録はわが家に残る（変えない）', async () => {
+    const { partner, groupID } = await householdWithPartner();
+    await seedRecurring(groupID, partner);
+    await householdStore.leaveHousehold({ db, FieldValue, uid: partner });
+    assert.equal((await data(`groups/${groupID}/recurringExpenses/${TEMPLATE}`)).expectedAmount, 85000);
+    assert.equal((await data(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-10`)).status, 'created');
+    assert.equal((await data(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-11`)).status, 'skipped');
+  });
+
+  it('テスト42：パートナーのアカウントが削除されても、定期支出は残る。ほかの場所へ写さない', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await seedRecurring(groupID, partner);
+    await seedUser(partner);
+    await cleanup(partner);
+    assert.ok(await exists(`groups/${groupID}/recurringExpenses/${TEMPLATE}`));
+    assert.ok(await exists(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-10`));
+    assert.ok(!(await subcollections(`users/${owner}`)).includes('recurringExpenses'));
+    assert.equal((await db.collection('recurringExpenses').limit(1).get()).size, 0);
+    assert.equal((await db.collection('recurringExpenseOccurrences').limit(1).get()).size, 0);
+  });
+
+  it('テスト42：オーナーのアカウントが削除されてパートナーがオーナーになっても、定期支出は残る', async () => {
+    const { owner, partner, groupID } = await householdWithPartner();
+    await seedRecurring(groupID, owner);
+    await seedUser(owner);
+    await cleanup(owner);
+    assert.equal((await data(`groups/${groupID}/members/${partner}`)).role, 'owner');
+    assert.equal((await data(`groups/${groupID}/recurringExpenses/${TEMPLATE}`)).createdBy, owner, '作成者は書き換えない');
+    assert.equal((await data(`groups/${groupID}/recurringExpenseOccurrences/${TEMPLATE}_2026-10`)).expenseID, EXPENSE);
+  });
+
+  it('テスト41：1人のわが家を削除すると（deleteHousehold）、定期支出の設定と記録も残らない', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedRecurring(groupID, owner);
+    await householdStore.deleteHousehold({ db, FieldValue, uid: owner });
+    assert.equal((await db.collection(`groups/${groupID}/recurringExpenses`).get()).size, 0);
+    assert.equal((await db.collection(`groups/${groupID}/recurringExpenseOccurrences`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+
+  it('テスト41：1人のわが家のオーナーのアカウントが削除されると、定期支出も残らない', async () => {
+    const owner = newID('o');
+    await householdStore.createHousehold({ db, FieldValue, uid: owner, name: 'わが家', sharedKinds: ['todo', 'money'] });
+    const groupID = (await data(`memberships/${owner}`)).groupID;
+    await seedRecurring(groupID, owner);
+    await cleanup(owner);
+    assert.equal((await db.collection(`groups/${groupID}/recurringExpenses`).get()).size, 0);
+    assert.equal((await db.collection(`groups/${groupID}/recurringExpenseOccurrences`).get()).size, 0);
+    assert.deepEqual(await subcollections(`groups/${groupID}`), []);
+  });
+});
+
 describe('削除トリガー（Auth Emulator で利用者を削除）', () => {
   let dave;
   before(async () => {

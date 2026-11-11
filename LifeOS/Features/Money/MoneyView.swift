@@ -58,6 +58,8 @@ struct MoneyView: View {
                     searchResultsSection
                 } else {
                     budgetSection
+                    // Build 25：定期支出（予算のカードの下、追加ボタンの上）
+                    RecurringExpensesSection(viewModel: viewModel)
                     VStack(spacing: LifeSpacing.sm) {
                         LifeButton("支出を追加", systemImage: "plus") {
                             viewModel.startAdding()
@@ -144,6 +146,27 @@ struct MoneyView: View {
                     .presentationDetents([.large])
                     .lifeSheetPresentation()
             }
+        }
+        // 定期支出の設定の入力（Build 25）。保存するまで設定は変わらない
+        .sheet(item: $viewModel.recurringDraft) { draft in
+            RecurringExpenseEditorSheet(viewModel: viewModel, draft: draft)
+                .presentationDetents([.large])
+                .lifeSheetPresentation()
+        }
+        // 「今月は追加しない」の確認（Build 25。支出は作らない。あとで「未確認に戻す」で取り消せる）
+        .confirmationDialog(
+            "今月は追加しませんか？",
+            isPresented: Binding(
+                get: { viewModel.pendingRecurringSkip != nil },
+                set: { isPresented in if !isPresented { viewModel.pendingRecurringSkip = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.pendingRecurringSkip
+        ) { candidate in
+            Button("今月は追加しない") { viewModel.skipRecurring(candidate) }
+            Button("キャンセル", role: .cancel) { viewModel.pendingRecurringSkip = nil }
+        } message: { candidate in
+            Text("\(candidate.month.title)の支出は作りません（予算にも入りません）。あとで「未確認に戻す」で取り消せます。")
         }
         // 月の予算の入力（Build 24）。保存するまで予算は変わらない
         .sheet(item: $viewModel.budgetDraft) { draft in
@@ -583,9 +606,22 @@ struct ExpenseEditorSheet: View {
                             Text(category.label).tag(category)
                         }
                     }
-                    DatePicker("日付", selection: $draft.date, displayedComponents: .date)
+                    if let recurring = draft.recurring {
+                        // Build 25：定期支出の「今月分を追加」は、対象の月の中の日付だけ
+                        DatePicker("日付", selection: $draft.date, in: recurring.month.dayRange(), displayedComponents: .date)
+                            .accessibilityIdentifier("money.recurring.date")
+                    } else {
+                        DatePicker("日付", selection: $draft.date, displayedComponents: .date)
+                    }
                 } footer: {
-                    if !draft.amountText.isEmpty, draft.amount == nil {
+                    if let message = viewModel.draftMessage {
+                        // Build 25：保存できなかった理由（支出は作っていない）
+                        Text(message)
+                            .foregroundStyle(LifeColors.text)
+                            .accessibilityIdentifier("money.recurring.draftMessage")
+                    } else if let recurring = draft.recurring {
+                        Text("定期支出の\(recurring.month.title)分です。内容を確かめて「保存」を押すと家計簿に入ります（日付は\(recurring.month.title)の中から選べます）。")
+                    } else if !draft.amountText.isEmpty, draft.amount == nil {
                         Text("金額は 1〜999,999,999 円の数字で入れてください。")
                     } else if draft.isFromReceipt, draft.amountText.isEmpty {
                         // レシートから：金額が空のままでは保存できない（推測した金額は入れない。Build 18）
@@ -678,7 +714,7 @@ struct ExpenseEditorSheet: View {
             .environment(\.calendar, LifeCalendar.calendar)
             .scrollContentBackground(.hidden)
             .background(LifeColors.background.ignoresSafeArea())
-            .navigationTitle(draft.isFromReceipt ? "レシートから追加" : (draft.isNew ? "支出を追加" : "支出を編集"))
+            .navigationTitle(draft.recurring != nil ? "定期支出を追加" : (draft.isFromReceipt ? "レシートから追加" : (draft.isNew ? "支出を追加" : "支出を編集")))
             .navigationBarTitleDisplayMode(.inline)
             // Build 22：キーボードを閉じやすくする（スクロール・背景のタップ・画面を離れたとき。タップは候補・保存・キャンセルへ届く）
             .lifeKeyboardDismissal()

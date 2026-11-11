@@ -15,7 +15,7 @@ struct ExpenseDraft: Equatable, Identifiable {
     /// 保存先（追加の初期値は必ず「自分だけ」）
     var destination: SaveDestination
     /// 編集を始めたときの保存先
-    let originalDestination: SaveDestination
+    private(set) var originalDestination: SaveDestination
     /// レシートから作った下書きのときの一言（読み取れなかった項目など。Build 18）。保存しない
     var receiptNotes: [String] = []
     /// レシートから作った下書きか（Build 18）
@@ -31,6 +31,8 @@ struct ExpenseDraft: Equatable, Identifiable {
     /// 商品明細（Build 20。確認用）。確認画面で直す・消すことができる。保存・共有・送信しない。
     /// 支出を保存する・閉じる・キャンセルすると、下書きごと手放す
     var lineItems: [ReceiptLineItem] = []
+    /// 定期支出の「今月分を追加」から開いた下書き（Build 25。保存先は設定と同じで変えられない。日付は対象の月の中だけ）
+    private(set) var recurring: RecurringExpenseContext?
 
     /// 新しい支出（保存先の初期値は「自分だけ」。入力の内容から共有を選ばない）
     init(newOn date: Date) {
@@ -118,6 +120,19 @@ struct ExpenseDraft: Equatable, Identifiable {
         lineItemPreparation.problems
     }
 
+    /// 定期支出の「今月分を追加」（Build 25）：名前・目安金額・カテゴリー・支払予定日・設定の保存先を入れておく。
+    /// 保存を押すまで支出は作らない（金額・日付・名前は直せる。保存先は変えられない）
+    init(recurring candidate: RecurringCandidate) {
+        self.init(newOn: candidate.dueDate)
+        title = candidate.template.title
+        amountText = String(candidate.template.expectedAmount)
+        category = candidate.template.category
+        let shared: SaveDestination = candidate.template.isShared ? .household : .personal
+        destination = shared
+        originalDestination = shared
+        recurring = RecurringExpenseContext(templateID: candidate.template.id, month: candidate.month, isShared: candidate.template.isShared)
+    }
+
     /// 今ある支出の編集
     init(editing expense: Expense) {
         id = expense.id
@@ -158,6 +173,31 @@ struct ExpenseDraft: Equatable, Identifiable {
             date: date,
             ownership: originalDestination == .household ? .shared : .personal
         )
+    }
+}
+
+/// 定期支出から開いた支出の下書きの情報（Build 25）
+struct RecurringExpenseContext: Equatable {
+    let templateID: UUID
+    /// 対象の月（日付はこの月の中だけ）
+    let month: BudgetMonth
+    let isShared: Bool
+}
+
+/// 定期支出の一覧の1行（Build 25。候補か、停止中・開始前の設定）
+struct RecurringRow: Identifiable, Equatable {
+    let template: RecurringExpenseTemplate
+    /// その月の候補（停止中で記録の無い月・開始前の月は nil）
+    let candidate: RecurringCandidate?
+    var id: UUID { template.id }
+
+    /// 状態（色だけに頼らず文字で）：未確認・追加済み・今月は追加しない・停止中・開始前
+    var stateText: String {
+        if let candidate {
+            return template.isActive ? candidate.state.label : "\(candidate.state.label)（停止中）"
+        }
+        if !template.isActive { return "停止中" }
+        return "\(template.startMonth?.title ?? "")から"
     }
 }
 
@@ -213,6 +253,17 @@ final class MoneyViewModel {
     var displayedMonth: BudgetMonth
     /// 予算の入力の画面（開いていなければ nil。保存するまで予算は変わらない）
     var budgetDraft: MonthlyBudgetDraft?
+
+    // MARK: 定期支出（Build 25）
+
+    /// 定期支出の設定の入力の画面（開いていなければ nil。保存するまで設定は変わらない）
+    var recurringDraft: RecurringExpenseDraft?
+    /// 「今月は追加しない」の確認を出している候補
+    var pendingRecurringSkip: RecurringCandidate?
+    /// 定期支出の操作の結果の一言（できなかった理由など。日本語）
+    var recurringMessage: String?
+    /// 支出の確認画面に出す理由（定期支出の「今月分を追加」が保存できなかったとき。日本語）
+    var draftMessage: String?
 
     // MARK: レシートの読み取り（Build 18）
 
@@ -446,6 +497,191 @@ final class MoneyViewModel {
         return parts.joined(separator: "、")
     }
 
+    // MARK: - 固定費・定期支出（Build 25。docs/BUILD_25_RECURRING_EXPENSES.md）
+
+    /// 出す定期支出のまとまり（予算のカードと同じ。「すべて」は自分だけ・わが家で共有を分けて出す）
+    var recurringScopes: [BudgetScope] { budgetScopes }
+
+    /// 表示している月の候補（候補は支出ではない：予算・集計・検索に入れない）
+    func recurringCandidates(for scope: BudgetScope) -> [RecurringCandidate] {
+        RecurringExpenseSchedule.candidates(
+            templates: repository.recurringTemplates(scope: scope),
+            occurrences: repository.recurringOccurrences(scope: scope),
+            month: displayedMonth
+        )
+    }
+
+    /// 一覧の行（候補と、停止中・開始前の設定。停止中・開始前の設定も、編集・再開できるように出す）
+    func recurringRows(for scope: BudgetScope) -> [RecurringRow] {
+        let candidates = recurringCandidates(for: scope)
+        let byTemplate = Dictionary(candidates.map { ($0.template.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let shown = candidates.map { RecurringRow(template: $0.template, candidate: $0) }
+        let others = repository.recurringTemplates(scope: scope)
+            .filter { byTemplate[$0.id] == nil }
+            .sorted { $0.title == $1.title ? $0.id.uuidString < $1.id.uuidString : $0.title < $1.title }
+            .map { RecurringRow(template: $0, candidate: nil) }
+        return shown + others
+    }
+
+    /// その設定を操作（今月分を追加・今月は追加しない・編集・停止・再開）できるか
+    func canActOnRecurring(_ template: RecurringExpenseTemplate) -> Bool {
+        template.isShared ? repository.canEditHouseholdRecurring : true
+    }
+
+    /// 「今月分を追加」を押せるか（未確認・動いている設定。共有は家計簿の共有がオンのとき）
+    func canAddRecurring(_ candidate: RecurringCandidate) -> Bool {
+        guard candidate.state == .unconfirmed, candidate.template.isActive, draft == nil else { return false }
+        guard candidate.template.isShared else { return true }
+        return repository.canEditHouseholdRecurring && repository.expenseSharingBlock == nil
+    }
+
+    /// まとまりの説明（保存先・変えられない理由）
+    func recurringNote(for scope: BudgetScope) -> String {
+        switch scope {
+        case .personal:
+            return "自分だけの定期支出は、この iPhone の中だけに保存します（わが家には送りません）。"
+        case .household:
+            if repository.canEditHouseholdRecurring {
+                return "わが家で共有の定期支出は、オーナーとパートナーが見て、追加・編集できます。"
+            }
+            return (repository.householdRecurringBlock ?? .notJoined).recurringMessage
+        }
+    }
+
+    /// 新しい設定を作る画面を開く（保存先の初期値は「自分だけ」）
+    func startAddingRecurring() {
+        recurringMessage = nil
+        recurringDraft = RecurringExpenseDraft(newIn: BudgetMonth(date: now))
+    }
+
+    /// 設定の編集の画面を開く（保存先は変えない）
+    func startEditingRecurring(_ template: RecurringExpenseTemplate) {
+        guard canActOnRecurring(template) else {
+            recurringMessage = (repository.householdRecurringBlock ?? .notJoined).recurringMessage
+            return
+        }
+        recurringMessage = nil
+        recurringDraft = RecurringExpenseDraft(editing: template, fallbackMonth: BudgetMonth(date: now))
+    }
+
+    func cancelRecurringEditing() {
+        recurringDraft = nil
+    }
+
+    /// 新しい設定で「わが家で共有」を選べるか（一人で使う設定・わが家に参加していない・家計簿の共有がオフは選べない）
+    var canChooseHouseholdRecurring: Bool {
+        showsScopeFilter && repository.householdRecurringBlock == nil
+    }
+
+    /// 設定の保存先の説明
+    func recurringDestinationNote(for draft: RecurringExpenseDraft) -> String {
+        if !draft.isNew {
+            return "保存先はあとから変えられません。変えたいときは、この定期支出を停止して、新しく作ってください。"
+        }
+        if draft.destination == .household {
+            return "「わが家で共有」にすると、名前・目安金額・カテゴリー・支払日がパートナーの画面にも表示されます。"
+        }
+        if !showsScopeFilter { return ExpenseSharingBlock.soloMode.recurringMessage }
+        if let block = repository.householdRecurringBlock { return block.recurringMessage }
+        return "自分だけの定期支出は、この iPhone の中だけに保存します。"
+    }
+
+    /// 設定を保存する。正しくなければ理由を返し、画面は開いたまま（設定は変わらない）
+    @discardableResult
+    func saveRecurring(_ draft: RecurringExpenseDraft) -> RecurringExpenseError? {
+        var draft = draft
+        if draft.isNew, draft.destination == .household, !canChooseHouseholdRecurring {
+            let block: ExpenseSharingBlock = showsScopeFilter ? (repository.householdRecurringBlock ?? .notJoined) : .soloMode
+            return .notEditable(block.recurringMessage)
+        }
+        if !draft.isNew, let existing = repository.recurringTemplate(id: draft.id) {
+            draft.destination = existing.isShared ? .household : .personal
+        }
+        switch draft.validated() {
+        case .failure(let error):
+            return error
+        case .success(let template):
+            if let error = repository.saveRecurringTemplate(template) { return error }
+            if recurringDraft?.id == draft.id { recurringDraft = nil }
+            return nil
+        }
+    }
+
+    /// 停止する（作った支出・記録は消さない。新しい月の候補を出さない）
+    @discardableResult
+    func pauseRecurring(_ template: RecurringExpenseTemplate) -> RecurringExpenseError? {
+        let error = repository.setRecurringTemplateActive(template.id, isActive: false, resumingIn: BudgetMonth(date: now))
+        recurringMessage = error?.message
+        if error == nil, recurringDraft?.id == template.id { recurringDraft = nil }
+        return error
+    }
+
+    /// 再開する（再開した月以降の候補を出す。止めていたあいだの月の候補は出さない）
+    @discardableResult
+    func resumeRecurring(_ template: RecurringExpenseTemplate) -> RecurringExpenseError? {
+        let error = repository.setRecurringTemplateActive(template.id, isActive: true, resumingIn: BudgetMonth(date: now))
+        recurringMessage = error?.message
+        if error == nil, recurringDraft?.id == template.id { recurringDraft = nil }
+        return error
+    }
+
+    /// 「今月分を追加」：支出の確認画面を開く（保存を押すまで支出は作らない）
+    func startRecurringExpense(_ candidate: RecurringCandidate) {
+        guard canAddRecurring(candidate) else {
+            if candidate.template.isShared, let block = repository.expenseSharingBlock ?? repository.householdRecurringBlock {
+                recurringMessage = block.recurringMessage
+            }
+            return
+        }
+        recurringMessage = nil
+        draftMessage = nil
+        draft = ExpenseDraft(recurring: candidate)
+    }
+
+    /// 「今月は追加しない」の確認を出す
+    func confirmRecurringSkip(_ candidate: RecurringCandidate) {
+        guard candidate.state == .unconfirmed, canActOnRecurring(candidate.template) else { return }
+        pendingRecurringSkip = candidate
+    }
+
+    /// 確認のあと「今月は追加しない」にする（支出は作らない）
+    @discardableResult
+    func skipRecurring(_ candidate: RecurringCandidate) -> RecurringExpenseError? {
+        pendingRecurringSkip = nil
+        let error = repository.skipRecurring(templateID: candidate.template.id, month: candidate.month)
+        recurringMessage = error?.message
+        return error
+    }
+
+    /// 「未確認に戻す」（今月は追加しない だけ。追加済みは戻せない）
+    @discardableResult
+    func undoRecurringSkip(_ candidate: RecurringCandidate) -> RecurringExpenseError? {
+        let error = repository.undoRecurringSkip(templateID: candidate.template.id, month: candidate.month)
+        recurringMessage = error?.message
+        return error
+    }
+
+    /// 支払予定日の文（「毎月27日」・その月の日付）
+    func recurringDueText(_ row: RecurringRow) -> String {
+        var text = "毎月\(row.template.dueDay)日"
+        if let candidate = row.candidate {
+            text += "（\(LifeFormatters.shortDate(candidate.dueDate))）"
+        }
+        return text
+    }
+
+    /// 行の VoiceOver（名前・状態・目安金額・支払日・カテゴリー・保存先）
+    func recurringSpokenLabel(_ row: RecurringRow) -> String {
+        [
+            row.template.title,
+            row.stateText,
+            "目安 \(LifeFormatters.yenSpoken(row.template.expectedAmount))",
+            recurringDueText(row),
+            row.template.category.label,
+            row.template.isShared ? "わが家で共有" : "自分だけ",
+        ].joined(separator: "、")
+    }
+
     // MARK: - 支出一覧
 
     let categories = ExpenseCategory.allCases
@@ -571,10 +807,13 @@ final class MoneyViewModel {
 
     func cancelEditing() {
         draft = nil
+        draftMessage = nil
     }
 
     /// 下書きで選べる保存先か
     func canChoose(_ destination: SaveDestination, in draft: ExpenseDraft) -> Bool {
+        // Build 25：定期支出から開いた下書きは、設定と同じ保存先だけ（自分だけに切り替えない）
+        if draft.recurring != nil { return destination == draft.originalDestination }
         switch (draft.originalDestination, destination) {
         case (.personal, .personal):
             return true
@@ -589,6 +828,11 @@ final class MoneyViewModel {
 
     /// 選べないときの理由（画面に出す）
     func destinationNote(for draft: ExpenseDraft) -> String {
+        if let recurring = draft.recurring {
+            return recurring.isShared
+                ? "わが家で共有の定期支出から追加します。保存先は変えられません（共有に保存できないときは、支出を作りません）。"
+                : "自分だけの定期支出から追加します。この iPhone の中だけに保存します。"
+        }
         if draft.originalDestination == .household {
             return repository.canEditSharedExpenses
                 ? "わが家で共有している支出です。変更・削除はパートナーの画面にも反映されます。"
@@ -607,6 +851,16 @@ final class MoneyViewModel {
         if draft.isNew, self.expense(id: expense.id) != nil {
             if self.draft?.id == draft.id { self.draft = nil }
             return false
+        }
+        // Build 25：定期支出の「今月分を追加」。支出1件と「追加済み」を一緒に保存する（自分だけには切り替えない）
+        if let recurring = draft.recurring {
+            if let error = repository.addRecurringExpense(expense, templateID: recurring.templateID, month: recurring.month) {
+                draftMessage = error.message
+                return false
+            }
+            draftMessage = nil
+            if self.draft?.id == draft.id { self.draft = nil }
+            return true
         }
         let destination = canChoose(draft.destination, in: draft) ? draft.destination : draft.originalDestination
         if draft.isNew {

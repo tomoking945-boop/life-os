@@ -673,6 +673,38 @@ final class TodayViewModel {
         appState.selectedTab = .money
     }
 
+    // MARK: - 定期支出を確認（2026-11-11 Build 25。docs/BUILD_25_RECURRING_EXPENSES.md）
+    //
+    // 今月の「未確認」で、支払予定日を過ぎた・今日・7日以内のものだけ。自動で保存しない・通知を出さない（通知の許可も求めない）
+
+    /// 確認したい定期支出（今の範囲。「お金」の画面の候補と同じ決まり）
+    var recurringToReview: [RecurringCandidate] {
+        let month = BudgetMonth(date: now)
+        return moneyScopes.flatMap { scope in
+            RecurringExpenseSchedule.needsReview(
+                RecurringExpenseSchedule.candidates(
+                    templates: store.recurringTemplates(scope: scope),
+                    occurrences: store.recurringOccurrences(scope: scope),
+                    month: month
+                ),
+                today: now
+            )
+        }
+    }
+
+    /// 「定期支出を確認」の一言（名前・金額は出さず、件数だけ）
+    var recurringReviewText: String? {
+        let candidates = recurringToReview
+        guard !candidates.isEmpty else { return nil }
+        let today = LifeCalendar.startOfDay(now)
+        let overdue = candidates.filter { LifeCalendar.startOfDay($0.dueDate) < today }.count
+        let dueToday = candidates.filter { LifeCalendar.isSameDay($0.dueDate, now) }.count
+        var parts = ["未確認 \(candidates.count)件"]
+        if overdue > 0 { parts.append("支払日を過ぎた \(overdue)件") }
+        if dueToday > 0 { parts.append("今日が支払日 \(dueToday)件") }
+        return parts.joined(separator: "・")
+    }
+
     // MARK: - 広告
 
     var showsAd: Bool { !appState.isPremium }

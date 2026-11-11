@@ -836,11 +836,17 @@ final class Build24TodayAndCompatibilityTests: XCTestCase {
         XCTAssertEqual(warranty.fields.first { $0.kind == .modelNumber }?.value, "AB-123")
     }
 
-    /// 44・45：Build 番号は4か所とも 24。Version は 1.0、暗号化の申告は NO のまま。Build 16 は欠番
+    /// 44・45：Build 番号は4か所とも同じで 24 以上。Version は 1.0、暗号化の申告は NO のまま。Build 16 は欠番
+    /// （2026-11-11 Build 25：Build 番号を 25 に上げたため「24 ちょうど」から「4か所とも同じで 24 以上」に変えた。
+    ///  Build 25 ちょうどは Build25RecurringExpensesTests.testBuildNumberIs25 で確かめる）
     func testBuildNumberIs24() throws {
         let project = try build24Source("LifeOS.xcodeproj/project.pbxproj")
         let lines = project.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }, Array(repeating: "CURRENT_PROJECT_VERSION = 24;", count: 4))
+        let versions = lines.filter { $0.hasPrefix("CURRENT_PROJECT_VERSION =") }
+        XCTAssertEqual(versions.count, 4)
+        XCTAssertEqual(Set(versions).count, 1, "4か所とも同じ")
+        let number = Int(versions.first?.replacingOccurrences(of: "CURRENT_PROJECT_VERSION = ", with: "").replacingOccurrences(of: ";", with: "") ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(number, 24)
         XCTAssertEqual(lines.filter { $0.hasPrefix("MARKETING_VERSION =") }, Array(repeating: "MARKETING_VERSION = 1.0;", count: 4))
         XCTAssertEqual(lines.filter { $0.hasPrefix("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption =") }, Array(repeating: "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;", count: 2))
         XCTAssertTrue(try build24Source("docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md").contains("Build 16 は欠番"))

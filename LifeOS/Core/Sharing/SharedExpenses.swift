@@ -9,6 +9,9 @@ import Observation
 // - 送らないもの：レシートの画像・メモ・メールアドレス・端末の情報・個人の支出・保証書・予定（支出の文書には予算を入れない）
 // - Build 24（2026-11-10）：わが家の共有予算は、支出とは別の groups/{groupID}/monthlyBudgets/{YYYY-MM}（SharedMonthlyBudgets.swift）。
 //   自分だけの予算は端末の中だけ（送らない）
+// - Build 25（2026-11-11）：わが家で共有の定期支出の設定と月ごとの状態は groups/{groupID}/recurringExpenses・
+//   recurringExpenseOccurrences（SharedRecurringExpenses.swift）。「今月分を追加」は共有の支出と「追加済み」を1回の書き込みで送る。
+//   共有の保存に失敗しても「自分だけ」の支出に変えない（支出を作らず、候補は未確認のまま）
 // - 個人の支出は、これまでどおり端末の中（life-store.json）だけ。共有の支出は端末に保存しない（起動中だけ持ち、Firestore から読み直す）
 // - 文書の ID は支出の UUID（同じ操作をくり返しても1件のまま）
 // - 共有の支出の通知は作らない（Functions の通知は items だけ）
@@ -108,6 +111,15 @@ enum ExpenseSharingBlock: Equatable {
         case .moneyOff: return "わが家の設定で「家計簿」がオフのため、共有できません。"
         }
     }
+
+    /// 定期支出（Build 25）での説明。定期支出は自分だけに切り替えて保存しないので「自分だけに保存します」とは言わない
+    var recurringMessage: String {
+        switch self {
+        case .soloMode: return "一人で使う設定のため、わが家で共有の定期支出は使えません。"
+        case .notConnected: return "共有の準備ができていないため、わが家で共有の定期支出は使えません。"
+        case .notSignedIn, .notJoined, .moneyOff: return message
+        }
+    }
 }
 
 // MARK: - 窓口（テストでは偽物に差し替える）
@@ -141,6 +153,16 @@ protocol HouseholdExpenseSyncing: AnyObject {
     var canShareBudgets: Bool { get }
     /// わが家の予算を置く・消す（Build 24。plan が nil なら解除）。失敗したら previous に戻す
     func saveSharedBudget(_ plan: MonthlyBudgetPlan?, for month: BudgetMonth, previous: MonthlyBudgetPlan?)
+    /// わが家で共有の定期支出を保存できるか（保存先があるか。Build 25）
+    var canShareRecurringExpenses: Bool { get }
+    /// 共有の定期支出の設定を作る・変える（Build 25）。失敗したら previous に戻す（新しい設定なら消す）
+    func saveSharedRecurringTemplate(_ template: RecurringExpenseTemplate, isNew: Bool, previous: RecurringExpenseTemplate?)
+    /// 共有の支出と「追加済み」を1回の書き込みで作る（Build 25）。失敗したら両方とも作らない（自分だけには変えない）
+    func createRecurringSharedExpense(_ expense: Expense, occurrence: RecurringOccurrence)
+    /// 「今月は追加しない」を記録する（Build 25）。失敗したら未確認に戻す
+    func saveSharedRecurringSkip(_ occurrence: RecurringOccurrence)
+    /// 「今月は追加しない」を未確認に戻す（Build 25）。失敗したら「今月は追加しない」のまま
+    func undoSharedRecurringSkip(_ occurrence: RecurringOccurrence)
 }
 
 // MARK: - わが家の共有の支出をまとめる
@@ -179,6 +201,11 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
     @ObservationIgnored private let budgetsBackend: SharedMonthlyBudgetsBackend?
     /// わが家の予算の見張り（Build 24。支出・明細の見張りとは別。常に最大1つ）
     @ObservationIgnored private var budgetsObservation: RepositoryObservation?
+    /// わが家で共有の定期支出の保存先（Build 25。無ければ、共有の定期支出は使えない）
+    @ObservationIgnored private let recurringBackend: SharedRecurringExpensesBackend?
+    /// 定期支出の設定の見張り・月ごとの状態の見張り（Build 25。わが家につき各1つ）
+    @ObservationIgnored private var recurringTemplatesObservation: RepositoryObservation?
+    @ObservationIgnored private var recurringOccurrencesObservation: RepositoryObservation?
     /// 作成の結果を待っている支出（支出と明細の両方の結果がそろってから片付ける。Build 21）
     @ObservationIgnored private var pendingCreates: [Expense.ID: PendingCreate] = [:]
     /// 削除の結果を待っている支出（Build 21）
@@ -194,11 +221,23 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
     var activeBudgetsListenerCount: Int { budgetsObservation == nil ? 0 : 1 }
     /// わが家の予算を保存できるか（Build 24）
     var canShareBudgets: Bool { budgetsBackend != nil }
+    /// 定期支出の見張りの数（確認用。設定・月ごとの状態で各1つまで。Build 25）
+    var activeRecurringListenerCount: Int {
+        (recurringTemplatesObservation == nil ? 0 : 1) + (recurringOccurrencesObservation == nil ? 0 : 1)
+    }
+    /// わが家で共有の定期支出を保存できるか（Build 25）
+    var canShareRecurringExpenses: Bool { recurringBackend != nil }
 
-    init(backend: SharedExpensesBackend?, lineItemsBackend: SharedExpenseLineItemsBackend? = nil, budgetsBackend: SharedMonthlyBudgetsBackend? = nil) {
+    init(
+        backend: SharedExpensesBackend?,
+        lineItemsBackend: SharedExpenseLineItemsBackend? = nil,
+        budgetsBackend: SharedMonthlyBudgetsBackend? = nil,
+        recurringBackend: SharedRecurringExpensesBackend? = nil
+    ) {
         self.backend = backend
         self.lineItemsBackend = lineItemsBackend
         self.budgetsBackend = budgetsBackend
+        self.recurringBackend = recurringBackend
     }
 
     var isAvailable: Bool { backend != nil }
@@ -226,11 +265,16 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
         lineItemsObservation = nil
         budgetsObservation?.cancel()
         budgetsObservation = nil
+        recurringTemplatesObservation?.cancel()
+        recurringTemplatesObservation = nil
+        recurringOccurrencesObservation?.cancel()
+        recurringOccurrencesObservation = nil
         pendingCreates = [:]
         pendingDeletes = [:]
         groupID = newGroupID
         store?.clearHouseholdExpenses()
         store?.clearHouseholdBudgets()
+        store?.clearHouseholdRecurringExpenses()
         guard let backend, let newGroupID else {
             status = .off
             return
@@ -269,6 +313,27 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
             self.lastFailure = failure
             if failure == .permissionDenied {
                 self.store?.clearHouseholdBudgets()
+            }
+        })
+        // わが家で共有の定期支出（Build 25）。設定と月ごとの状態の見張りを1つずつ。失敗しても支出の表示はそのまま
+        recurringTemplatesObservation = recurringBackend?.listenTemplates(groupID: newGroupID, onChange: { [weak self] templates in
+            guard let self, self.groupID == newGroupID else { return }
+            self.store?.applySharedRecurringTemplates(templates)
+        }, onError: { [weak self] failure in
+            guard let self, self.groupID == newGroupID else { return }
+            self.lastFailure = failure
+            if failure == .permissionDenied {
+                self.store?.clearHouseholdRecurringExpenses()
+            }
+        })
+        recurringOccurrencesObservation = recurringBackend?.listenOccurrences(groupID: newGroupID, onChange: { [weak self] occurrences in
+            guard let self, self.groupID == newGroupID else { return }
+            self.store?.applySharedRecurringOccurrences(occurrences)
+        }, onError: { [weak self] failure in
+            guard let self, self.groupID == newGroupID else { return }
+            self.lastFailure = failure
+            if failure == .permissionDenied {
+                self.store?.clearHouseholdRecurringExpenses()
             }
         })
     }
@@ -450,6 +515,95 @@ final class SharedExpensesService: HouseholdExpenseSyncing {
         }
     }
 
+    // MARK: 共有の定期支出（Build 25）
+
+    func saveSharedRecurringTemplate(_ template: RecurringExpenseTemplate, isNew: Bool, previous: RecurringExpenseTemplate?) {
+        let fields = isNew
+            ? SharedRecurringExpensePayload.createTemplateFields(for: template)
+            : SharedRecurringExpensePayload.updateTemplateFields(for: template)
+        guard canEditSharedExpenses, let recurringBackend, let groupID, let fields else {
+            store?.sharedRecurringTemplateSaveFailed(template.id, restoring: previous)
+            notice = "わが家の定期支出を保存できませんでした。元の内容に戻しました。"
+            return
+        }
+        let completion: (SharedItemsFailure?) -> Void = { [weak self] failure in
+            guard let self else { return }
+            guard let failure else {
+                self.store?.sharedRecurringTemplateSaved(template.id)
+                return
+            }
+            self.lastFailure = failure
+            self.store?.sharedRecurringTemplateSaveFailed(template.id, restoring: previous)
+            self.notice = "わが家の定期支出を保存できませんでした（\(failure.reason)）。元の内容に戻しました。"
+        }
+        if isNew {
+            recurringBackend.createTemplate(groupID: groupID, id: template.id, fields: fields, completion: completion)
+        } else {
+            recurringBackend.updateTemplate(groupID: groupID, id: template.id, fields: fields, completion: completion)
+        }
+    }
+
+    func createRecurringSharedExpense(_ expense: Expense, occurrence: RecurringOccurrence) {
+        guard canEditSharedExpenses, isMoneyEnabled, let recurringBackend, let groupID,
+              let expenseFields = SharedExpensePayload.createFields(for: expense),
+              let occurrenceFields = SharedRecurringExpensePayload.occurrenceFields(for: occurrence) else {
+            store?.recurringSharedExpenseFailed(expense.id, occurrence: occurrence)
+            notice = "定期支出を追加できませんでした。支出は作っていません（候補は未確認のままです）。"
+            return
+        }
+        recurringBackend.createExpenseWithOccurrence(
+            groupID: groupID, expenseID: expense.id, expenseFields: expenseFields,
+            occurrenceID: occurrence.id, occurrenceFields: occurrenceFields
+        ) { [weak self] failure in
+            guard let self else { return }
+            guard let failure else {
+                self.store?.recurringSharedExpenseConfirmed(expense.id, occurrence: occurrence)
+                return
+            }
+            // 断られた（同じ月をほかの iPhone が先に追加した・権限が無い・通信できない）：両方とも作らない。自分だけにも変えない
+            self.lastFailure = failure
+            self.store?.recurringSharedExpenseFailed(expense.id, occurrence: occurrence)
+            self.notice = "定期支出を追加できませんでした（\(failure.reason)）。支出は作っていません（候補は未確認のまま。ほかの iPhone で追加済みのときは「追加済み」になります）。"
+        }
+    }
+
+    func saveSharedRecurringSkip(_ occurrence: RecurringOccurrence) {
+        guard canEditSharedExpenses, let recurringBackend, let groupID,
+              let fields = SharedRecurringExpensePayload.occurrenceFields(for: occurrence) else {
+            store?.sharedRecurringSkipFailed(occurrence)
+            notice = "「今月は追加しない」を保存できませんでした。未確認のままです。"
+            return
+        }
+        recurringBackend.createSkippedOccurrence(groupID: groupID, occurrenceID: occurrence.id, fields: fields) { [weak self] failure in
+            guard let self else { return }
+            guard let failure else {
+                self.store?.sharedRecurringOccurrenceSettled(occurrence.id)
+                return
+            }
+            self.lastFailure = failure
+            self.store?.sharedRecurringSkipFailed(occurrence)
+            self.notice = "「今月は追加しない」を保存できませんでした（\(failure.reason)）。未確認のままです。"
+        }
+    }
+
+    func undoSharedRecurringSkip(_ occurrence: RecurringOccurrence) {
+        guard canEditSharedExpenses, let recurringBackend, let groupID else {
+            store?.sharedRecurringUndoSkipFailed(occurrence)
+            notice = "未確認に戻せませんでした。「今月は追加しない」のままです。"
+            return
+        }
+        recurringBackend.deleteSkippedOccurrence(groupID: groupID, occurrenceID: occurrence.id) { [weak self] failure in
+            guard let self else { return }
+            guard let failure else {
+                self.store?.sharedRecurringOccurrenceSettled(occurrence.id)
+                return
+            }
+            self.lastFailure = failure
+            self.store?.sharedRecurringUndoSkipFailed(occurrence)
+            self.notice = "未確認に戻せませんでした（\(failure.reason)）。「今月は追加しない」のままです。"
+        }
+    }
+
     /// 作成の結果を待っている支出（Build 21）
     private struct PendingCreate {
         let expense: Expense
@@ -484,7 +638,8 @@ extension SharedExpensesService {
             return SharedExpensesService(
                 backend: FirestoreSharedExpensesBackend(),
                 lineItemsBackend: FirestoreSharedExpenseLineItemsBackend(),
-                budgetsBackend: FirestoreSharedMonthlyBudgetsBackend()
+                budgetsBackend: FirestoreSharedMonthlyBudgetsBackend(),
+                recurringBackend: FirestoreSharedRecurringExpensesBackend()
             )
         }
         #endif

@@ -50,6 +50,7 @@
 - [キーボードを閉じやすくする・レシートの数字の読み取りを正確にする（Build 22）](docs/BUILD_22_KEYBOARD_AND_RECEIPT_NUMBER_ACCURACY.md)
 - [家計簿の検索・商品の購入履歴・過去の参考価格（Build 23）](docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md)
 - [月の予算・カテゴリー別の予算・今日画面の MONEY（Build 24）](docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md)
+- [固定費・定期支出（Build 25）](docs/BUILD_25_RECURRING_EXPENSES.md)
 
 ## UIプロトタイプの動かし方
 

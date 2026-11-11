@@ -74,6 +74,13 @@ struct BudgetMonth: Hashable, Comparable, Identifiable {
         calendar.range(of: .day, in: .month, for: firstDay(calendar: calendar))?.count ?? 30
     }
 
+    /// その月の初日から最終日まで（Build 25。定期支出の日付を対象の月の中だけで選ぶ）
+    func dayRange(calendar: Calendar = LifeCalendar.calendar) -> ClosedRange<Date> {
+        let first = firstDay(calendar: calendar)
+        let last = calendar.date(byAdding: .day, value: dayCount(calendar: calendar) - 1, to: first) ?? first
+        return first...last
+    }
+
     /// その日がこの月か（支出の日付で数える）
     func contains(_ date: Date, calendar: Calendar = LifeCalendar.calendar) -> Bool {
         BudgetMonth(date: date, calendar: calendar) == self

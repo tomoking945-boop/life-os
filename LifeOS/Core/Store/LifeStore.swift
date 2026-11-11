@@ -73,6 +73,25 @@ final class LifeStore {
     private(set) var personalMonthlyBudgets: [String: MonthlyBudgetPlan] = [:]
     /// わが家の共有予算（Build 24）。Firestore から受け取る。端末の life-store.json には保存しない
     private(set) var householdMonthlyBudgets: [String: MonthlyBudgetPlan] = [:]
+    /// 自分だけの定期支出の設定と月ごとの状態（2026-11-11 Build 25）。端末の life-store.json にだけ保存する（送らない）
+    private(set) var personalRecurringTemplates: [RecurringExpenseTemplate] = []
+    private(set) var personalRecurringOccurrences: [String: RecurringOccurrence] = [:]
+    /// わが家で共有の定期支出の設定と月ごとの状態（Build 25）。Firestore から受け取る。端末の life-store.json には保存しない
+    private(set) var householdRecurringTemplates: [RecurringExpenseTemplate] = []
+    private(set) var householdRecurringOccurrences: [String: RecurringOccurrence] = [:]
+    /// 共有の保存の結果がまだ届いていない設定・月ごとの状態（Build 25。古い一覧が届いても、結果が届くまでは画面の内容を保つ）
+    @ObservationIgnored private var pendingRecurringTemplates: [UUID: RecurringExpenseTemplate] = [:]
+    @ObservationIgnored private var pendingRecurringOccurrences: [String: PendingRecurringOccurrence] = [:]
+    /// 最後に Firestore から届いた月ごとの状態（保存が断られたときに戻す先。Build 25）
+    @ObservationIgnored private var receivedRecurringOccurrences: [String: RecurringOccurrence] = [:]
+    /// 最後に Firestore から届いた設定（Build 25）
+    @ObservationIgnored private var receivedRecurringTemplates: [RecurringExpenseTemplate] = []
+
+    /// 送信待ちの月ごとの状態（置く・消す）
+    private enum PendingRecurringOccurrence {
+        case set(RecurringOccurrence)
+        case removed
+    }
 
     /// 「わが家で共有」から「自分だけ」へ変えている途中の予定の UUID（Build 17）。
     /// 端末の life-store.json にも保存する（UUID だけ。外へは送らない）。共有の予定の削除がサーバーで確かめられるまで、
@@ -110,6 +129,8 @@ final class LifeStore {
         var expenseLineItems: ExpenseLineItemRecords?
         // Build 24 で追加：自分だけの月の予算（以前の保存データには無いため Optional＝予算は未設定。読めない記録は飛ばす）
         var monthlyBudgets: MonthlyBudgetRecords?
+        // Build 25 で追加：自分だけの定期支出の設定と月ごとの状態（以前の保存データには無いため Optional＝定期支出なし。読めない記録は飛ばす）
+        var recurringExpenses: RecurringExpenseRecords?
     }
 
     /// 保存ファイルの名前（AppState が既存の利用者かどうかを調べるときにも使う）
@@ -179,6 +200,11 @@ final class LifeStore {
             store.expenseLineItems = Self.loadedLineItems(snapshot.expenseLineItems, personalIDs: Set(store.expenses.map(\.id)))
             // Build 24：自分だけの月の予算（以前の保存データには無い＝どの月も未設定。以前の「予算」の値は月の予算にしない）
             store.personalMonthlyBudgets = snapshot.monthlyBudgets?.budgets ?? [:]
+            // Build 25：自分だけの定期支出（以前の保存データには無い＝定期支出なし）
+            store.personalRecurringTemplates = snapshot.recurringExpenses?.templates ?? []
+            store.personalRecurringOccurrences = Dictionary(
+                (snapshot.recurringExpenses?.occurrences ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+            )
         } else if startEmptyIfNoSavedData {
             store = LifeStore.empty()
         } else {
@@ -216,7 +242,11 @@ final class LifeStore {
                     ? nil
                     : pendingPersonalConversions.sorted { $0.uuidString < $1.uuidString },
                 expenseLineItems: lineItemRecordsForSaving(),
-                monthlyBudgets: personalMonthlyBudgets.isEmpty ? nil : MonthlyBudgetRecords(budgets: personalMonthlyBudgets)
+                monthlyBudgets: personalMonthlyBudgets.isEmpty ? nil : MonthlyBudgetRecords(budgets: personalMonthlyBudgets),
+                recurringExpenses: personalRecurringTemplates.isEmpty ? nil : RecurringExpenseRecords(
+                    templates: personalRecurringTemplates,
+                    occurrences: personalRecurringOccurrences.values.sorted { $0.id < $1.id }
+                )
             ),
             to: Self.fileName
         )
@@ -277,6 +307,8 @@ final class LifeStore {
         suggestionDecisions = []
         expenseLineItems = [:]
         personalMonthlyBudgets = [:]
+        personalRecurringTemplates = []
+        personalRecurringOccurrences = [:]
         save()
     }
 
@@ -1493,6 +1525,288 @@ final class LifeStore {
     /// わが家の予算の保存が断られた：元の予算に戻す
     func sharedBudgetSaveFailed(_ month: BudgetMonth, restoring previous: MonthlyBudgetPlan?) {
         householdMonthlyBudgets[month.key] = previous
+    }
+
+    // MARK: - 固定費・定期支出（2026-11-11 Build 25。docs/BUILD_25_RECURRING_EXPENSES.md）
+
+    /// その範囲の設定（自分だけは端末、わが家で共有は Firestore）
+    func recurringTemplates(scope: BudgetScope) -> [RecurringExpenseTemplate] {
+        scope == .personal ? personalRecurringTemplates : householdRecurringTemplates
+    }
+
+    /// その範囲の月ごとの状態（記録が無い月は未確認）
+    func recurringOccurrences(scope: BudgetScope) -> [String: RecurringOccurrence] {
+        scope == .personal ? personalRecurringOccurrences : householdRecurringOccurrences
+    }
+
+    /// 設定を ID で探す（自分だけ・共有の両方から）
+    func recurringTemplate(id: UUID) -> RecurringExpenseTemplate? {
+        personalRecurringTemplates.first { $0.id == id } ?? householdRecurringTemplates.first { $0.id == id }
+    }
+
+    /// 新しく、わが家で共有の定期支出を作れない理由（作れるなら nil。家計簿の共有がオフ・わが家に参加していない など）
+    var householdRecurringBlock: ExpenseSharingBlock? {
+        guard let expenseSync, expenseSync.canShareRecurringExpenses else { return .notConnected }
+        return expenseSync.expenseSharingBlock
+    }
+
+    /// すでにある、わが家で共有の定期支出を変える（編集・停止・再開・今月は追加しない）ことができるか
+    var canEditHouseholdRecurring: Bool {
+        guard let expenseSync else { return false }
+        return expenseSync.canShareRecurringExpenses && expenseSync.canEditSharedExpenses
+    }
+
+    /// 設定を作る・変える（編集は、未確認の月と先の候補にだけ反映。作った支出は変えない）。保存先はあとから変えない
+    @discardableResult
+    func saveRecurringTemplate(_ template: RecurringExpenseTemplate) -> RecurringExpenseError? {
+        if let error = template.validationError { return error }
+        let inPersonal = personalRecurringTemplates.firstIndex { $0.id == template.id }
+        let inHousehold = householdRecurringTemplates.firstIndex { $0.id == template.id }
+        switch template.ownership {
+        case .personal:
+            guard inHousehold == nil else { return .notEditable("保存先は変えられません。") }
+            let previous = personalRecurringTemplates
+            if let inPersonal {
+                guard personalRecurringTemplates[inPersonal] != template else { return nil }
+                personalRecurringTemplates[inPersonal] = template
+            } else {
+                personalRecurringTemplates.append(template)
+            }
+            guard save() else {
+                personalRecurringTemplates = previous
+                return .saveFailed
+            }
+            return nil
+        case .shared:
+            guard inPersonal == nil else { return .notEditable("保存先は変えられません。") }
+            guard let expenseSync else { return .notEditable(ExpenseSharingBlock.notConnected.recurringMessage) }
+            if let inHousehold {
+                guard canEditHouseholdRecurring else { return .notEditable(ExpenseSharingBlock.notJoined.recurringMessage) }
+                let previous = householdRecurringTemplates[inHousehold]
+                guard previous != template else { return nil }
+                householdRecurringTemplates[inHousehold] = template
+                pendingRecurringTemplates[template.id] = template
+                expenseSync.saveSharedRecurringTemplate(template, isNew: false, previous: previous)
+            } else {
+                if let block = householdRecurringBlock { return .notEditable(block.recurringMessage) }
+                householdRecurringTemplates.append(template)
+                pendingRecurringTemplates[template.id] = template
+                expenseSync.saveSharedRecurringTemplate(template, isNew: true, previous: nil)
+            }
+            return nil
+        }
+    }
+
+    /// 停止・再開（停止しても、作った支出・追加済み・今月は追加しないの記録は消さない。再開は、再開した月以降の候補を出す）
+    @discardableResult
+    func setRecurringTemplateActive(_ id: UUID, isActive: Bool, resumingIn month: BudgetMonth) -> RecurringExpenseError? {
+        guard var template = recurringTemplate(id: id) else { return .notFound }
+        guard template.isActive != isActive else { return nil }
+        template.isActive = isActive
+        if isActive, month.isStorable, let start = template.startMonth, start < month {
+            // 再開：止めていたあいだの月の候補は出さない（開始月を再開した月にする。記録は残る）
+            template.startMonthKey = month.key
+        }
+        return saveRecurringTemplate(template)
+    }
+
+    /// 「今月分を追加」の保存：ふつうの支出を1件作り、その月を「追加済み」にする（同じ設定の同じ月は1件だけ）。
+    /// - 自分だけ：支出と「追加済み」を1回の保存で端末に書く。保存できなければ両方とも元に戻す（候補は未確認のまま）
+    /// - わが家で共有：共有の支出と「追加済み」を1回の書き込みで Firestore へ送る。断られたら両方とも消す（自分だけには変えない）
+    @discardableResult
+    func addRecurringExpense(_ expense: Expense, templateID: UUID, month: BudgetMonth) -> RecurringExpenseError? {
+        guard let template = recurringTemplate(id: templateID) else { return .notFound }
+        let occurrences = recurringOccurrences(scope: template.isShared ? .household : .personal)
+        let occurrence = RecurringOccurrence(templateID: templateID, monthKey: month.key, status: .created, expenseID: expense.id)
+        guard occurrences[occurrence.id] == nil else { return .alreadyProcessed }
+        guard template.isActive, let start = template.startMonth, month >= start else { return .paused }
+        guard month.contains(expense.date) else { return .dateOutsideMonth(month) }
+        guard SharedExpensePayload.canShare(expense) else { return .invalidExpense }
+        guard !expenses.contains(where: { $0.id == expense.id }),
+              !householdExpenses.contains(where: { $0.id == expense.id }) else { return .alreadyProcessed }
+        guard template.isShared else {
+            expenses.append(Self.personalExpense(expense))
+            personalRecurringOccurrences[occurrence.id] = occurrence
+            guard save() else {
+                // 端末に保存できなかった：支出と「追加済み」の両方を元に戻す
+                expenses.removeAll { $0.id == expense.id }
+                personalRecurringOccurrences[occurrence.id] = nil
+                return .saveFailed
+            }
+            return nil
+        }
+        guard let sync = expenseSync, sync.canShareRecurringExpenses else { return .notEditable(ExpenseSharingBlock.notConnected.recurringMessage) }
+        if let block = sync.expenseSharingBlock { return .notEditable(block.recurringMessage) }
+        var shared = expense
+        shared.ownership = .shared
+        householdExpenses.append(shared)
+        householdExpenseUpdateCount += 1
+        pendingSharedExpenseCreates[shared.id] = shared
+        householdRecurringOccurrences[occurrence.id] = occurrence
+        pendingRecurringOccurrences[occurrence.id] = .set(occurrence)
+        sync.createRecurringSharedExpense(shared, occurrence: occurrence)
+        return nil
+    }
+
+    /// 「今月は追加しない」（支出は作らない。予算にも入らない。あとで「未確認に戻す」で取り消せる）
+    @discardableResult
+    func skipRecurring(templateID: UUID, month: BudgetMonth) -> RecurringExpenseError? {
+        guard let template = recurringTemplate(id: templateID) else { return .notFound }
+        let occurrence = RecurringOccurrence(templateID: templateID, monthKey: month.key, status: .skipped, expenseID: nil)
+        guard recurringOccurrences(scope: template.isShared ? .household : .personal)[occurrence.id] == nil else { return .alreadyProcessed }
+        guard template.isActive, let start = template.startMonth, month >= start else { return .paused }
+        guard occurrence.isValid else { return .invalidMonth }
+        guard template.isShared else {
+            personalRecurringOccurrences[occurrence.id] = occurrence
+            guard save() else {
+                personalRecurringOccurrences[occurrence.id] = nil
+                return .saveFailed
+            }
+            return nil
+        }
+        guard canEditHouseholdRecurring, let sync = expenseSync else { return .notEditable(ExpenseSharingBlock.notJoined.recurringMessage) }
+        householdRecurringOccurrences[occurrence.id] = occurrence
+        pendingRecurringOccurrences[occurrence.id] = .set(occurrence)
+        sync.saveSharedRecurringSkip(occurrence)
+        return nil
+    }
+
+    /// 「今月は追加しない」を未確認に戻す（追加済みは戻せない：二重に登録しないため）
+    @discardableResult
+    func undoRecurringSkip(templateID: UUID, month: BudgetMonth) -> RecurringExpenseError? {
+        guard let template = recurringTemplate(id: templateID) else { return .notFound }
+        let id = RecurringOccurrence.id(templateID: templateID, monthKey: month.key)
+        guard let occurrence = recurringOccurrences(scope: template.isShared ? .household : .personal)[id] else { return .notFound }
+        guard occurrence.status == .skipped else { return .cannotUndoCreated }
+        guard template.isShared else {
+            personalRecurringOccurrences[id] = nil
+            guard save() else {
+                personalRecurringOccurrences[id] = occurrence
+                return .saveFailed
+            }
+            return nil
+        }
+        guard canEditHouseholdRecurring, let sync = expenseSync else { return .notEditable(ExpenseSharingBlock.notJoined.recurringMessage) }
+        householdRecurringOccurrences[id] = nil
+        pendingRecurringOccurrences[id] = .removed
+        sync.undoSharedRecurringSkip(occurrence)
+        return nil
+    }
+
+    /// Firestore から届いた設定の一覧で入れ替える（送信待ちの変更は、結果が届くまで保つ。書き戻さない）
+    func applySharedRecurringTemplates(_ templates: [RecurringExpenseTemplate]) {
+        receivedRecurringTemplates = templates
+        rebuildHouseholdRecurringTemplates()
+    }
+
+    /// Firestore から届いた月ごとの状態の一覧で入れ替える（送信待ちの変更は、結果が届くまで保つ。書き戻さない）
+    func applySharedRecurringOccurrences(_ occurrences: [RecurringOccurrence]) {
+        var received: [String: RecurringOccurrence] = [:]
+        for occurrence in occurrences where received[occurrence.id] == nil {
+            received[occurrence.id] = occurrence
+        }
+        receivedRecurringOccurrences = received
+        rebuildHouseholdRecurringOccurrences()
+    }
+
+    private func rebuildHouseholdRecurringTemplates() {
+        var result = receivedRecurringTemplates.filter { pendingRecurringTemplates[$0.id] == nil }
+        let receivedIDs = Set(result.map(\.id))
+        for template in pendingRecurringTemplates.values.sorted(by: { $0.id.uuidString < $1.id.uuidString }) where !receivedIDs.contains(template.id) {
+            result.append(template)
+        }
+        if result != householdRecurringTemplates { householdRecurringTemplates = result }
+    }
+
+    private func rebuildHouseholdRecurringOccurrences() {
+        var result = receivedRecurringOccurrences
+        for (id, pending) in pendingRecurringOccurrences {
+            switch pending {
+            case .set(let occurrence):
+                // ほかの iPhone の記録がすでに届いていれば、そちらを使う（同じ月は1件だけ）
+                if result[id] == nil { result[id] = occurrence }
+            case .removed:
+                result[id] = nil
+            }
+        }
+        if result != householdRecurringOccurrences { householdRecurringOccurrences = result }
+    }
+
+    /// わが家で共有の定期支出の表示を消す（退出・わが家の削除・サインアウト・読めなくなったとき）。自分だけの定期支出は消さない
+    func clearHouseholdRecurringExpenses() {
+        pendingRecurringTemplates = [:]
+        pendingRecurringOccurrences = [:]
+        receivedRecurringTemplates = []
+        receivedRecurringOccurrences = [:]
+        if !householdRecurringTemplates.isEmpty { householdRecurringTemplates = [] }
+        if !householdRecurringOccurrences.isEmpty { householdRecurringOccurrences = [:] }
+    }
+
+    /// 共有の設定の保存が確かめられた
+    func sharedRecurringTemplateSaved(_ id: UUID) {
+        if let template = pendingRecurringTemplates.removeValue(forKey: id) {
+            receivedRecurringTemplates.removeAll { $0.id == id }
+            receivedRecurringTemplates.append(template)
+        }
+        rebuildHouseholdRecurringTemplates()
+    }
+
+    /// 共有の設定の保存が断られた：元に戻す（新しい設定なら消す）
+    func sharedRecurringTemplateSaveFailed(_ id: UUID, restoring previous: RecurringExpenseTemplate?) {
+        pendingRecurringTemplates[id] = nil
+        receivedRecurringTemplates.removeAll { $0.id == id }
+        if let previous { receivedRecurringTemplates.append(previous) }
+        rebuildHouseholdRecurringTemplates()
+    }
+
+    /// 共有の「今月分を追加」が確かめられた（共有の支出と「追加済み」の両方が保存された）
+    func recurringSharedExpenseConfirmed(_ expenseID: Expense.ID, occurrence: RecurringOccurrence) {
+        pendingSharedExpenseCreates[expenseID] = nil
+        sharedRecurringOccurrenceSettled(occurrence.id, keeping: occurrence)
+    }
+
+    /// 共有の「今月分を追加」が断られた：支出も「追加済み」も作らない（自分だけの支出にも変えない。候補は未確認のまま、
+    /// ほかの iPhone が先に追加していれば、その「追加済み」を出す）
+    func recurringSharedExpenseFailed(_ expenseID: Expense.ID, occurrence: RecurringOccurrence) {
+        pendingSharedExpenseCreates[expenseID] = nil
+        if householdExpenses.contains(where: { $0.id == expenseID }) {
+            householdExpenses.removeAll { $0.id == expenseID }
+            householdExpenseUpdateCount += 1
+        }
+        pendingRecurringOccurrences[occurrence.id] = nil
+        householdRecurringOccurrences[occurrence.id] = receivedRecurringOccurrences[occurrence.id]
+        rebuildHouseholdRecurringOccurrences()
+    }
+
+    /// 共有の「今月は追加しない」・「未確認に戻す」が確かめられた
+    func sharedRecurringOccurrenceSettled(_ id: String) {
+        sharedRecurringOccurrenceSettled(id, keeping: nil)
+    }
+
+    private func sharedRecurringOccurrenceSettled(_ id: String, keeping created: RecurringOccurrence?) {
+        if let pending = pendingRecurringOccurrences.removeValue(forKey: id) {
+            switch pending {
+            case .set(let occurrence):
+                if receivedRecurringOccurrences[id] == nil { receivedRecurringOccurrences[id] = created ?? occurrence }
+            case .removed:
+                receivedRecurringOccurrences[id] = nil
+            }
+        }
+        rebuildHouseholdRecurringOccurrences()
+    }
+
+    /// 共有の「今月は追加しない」が断られた：未確認に戻す
+    func sharedRecurringSkipFailed(_ occurrence: RecurringOccurrence) {
+        pendingRecurringOccurrences[occurrence.id] = nil
+        householdRecurringOccurrences[occurrence.id] = receivedRecurringOccurrences[occurrence.id]
+        rebuildHouseholdRecurringOccurrences()
+    }
+
+    /// 共有の「未確認に戻す」が断られた：「今月は追加しない」のまま
+    func sharedRecurringUndoSkipFailed(_ occurrence: RecurringOccurrence) {
+        pendingRecurringOccurrences[occurrence.id] = nil
+        householdRecurringOccurrences[occurrence.id] = receivedRecurringOccurrences[occurrence.id] ?? occurrence
+        rebuildHouseholdRecurringOccurrences()
     }
 
     // MARK: - リスト

@@ -142,6 +142,7 @@ final class NoFirestoreWritesTests: XCTestCase {
         var expensesBackendText: String?
         var lineItemsBackendText: String?
         var budgetsBackendText: String?
+        var recurringBackendText: String?
         let forbidden = ["import FirebaseFirestore", "Firestore.firestore(", ".setData(", ".addDocument(", ".updateData("]
         // 2026-10-28（Build 7）：Firestore を使ってよいのは、わが家の共有 ToDo・買い物の窓口のファイルだけ
         // 2026-10-28（Build 8）：共有の通知の端末の文書（自分の users/{uid}/devices）の窓口も
@@ -155,6 +156,9 @@ final class NoFirestoreWritesTests: XCTestCase {
         let lineItemsBackendFile = "FirestoreSharedExpenseLineItemsBackend.swift"
         // 2026-11-10（Build 24）：わが家の共有予算（groups/{groupID}/monthlyBudgets だけ。下で確かめる）
         let budgetsBackendFile = "FirestoreSharedMonthlyBudgetsBackend.swift"
+        // 2026-11-11（Build 25）：わが家で共有の定期支出（groups/{groupID}/recurringExpenses・recurringExpenseOccurrences と、
+        // 「今月分を追加」の共有の支出だけ。下で確かめる）
+        let recurringBackendFile = "FirestoreSharedRecurringExpensesBackend.swift"
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             swiftFiles += 1
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -182,12 +186,16 @@ final class NoFirestoreWritesTests: XCTestCase {
                 budgetsBackendText = text
                 continue
             }
+            if url.lastPathComponent == recurringBackendFile {
+                recurringBackendText = text
+                continue
+            }
             for word in forbidden where text.contains(word) {
                 offenders.append("\(url.lastPathComponent): \(word)")
             }
         }
         try XCTSkipIf(swiftFiles == 0, "アプリのソースを読めない環境のため、確認を省きます")
-        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift・FirestoreDeviceRegistry.swift・FirestoreLocalCacheRepair.swift・FirestoreSharedExpensesBackend.swift・FirestoreSharedExpenseLineItemsBackend.swift・FirestoreSharedMonthlyBudgetsBackend.swift だけ")
+        XCTAssertEqual(offenders, [], "Firestore を使うのは FirestoreSharedItemsBackend.swift・FirestoreDeviceRegistry.swift・FirestoreLocalCacheRepair.swift・FirestoreSharedExpensesBackend.swift・FirestoreSharedExpenseLineItemsBackend.swift・FirestoreSharedMonthlyBudgetsBackend.swift・FirestoreSharedRecurringExpensesBackend.swift だけ")
 
         // 共有の支出の窓口（Build 13）：groups/{groupID}/expenses だけ。文書の ID は支出の UUID。一括・グループまたぎ・ログなし
         let expensesBackend = try XCTUnwrap(expensesBackendText, "FirestoreSharedExpensesBackend.swift が見つからない")
@@ -225,6 +233,21 @@ final class NoFirestoreWritesTests: XCTestCase {
             XCTAssertFalse(budgetsBackend.contains(word), "共有予算の窓口：\(word)")
         }
         XCTAssertEqual(budgetsBackend.components(separatedBy: "FirestoreAccessGate.shared.whenOpen").count - 1, 3, "見張り・置く・消すは片付けを待つ")
+
+        // わが家で共有の定期支出の窓口（Build 25）：groups/{groupID} の recurringExpenses・recurringExpenseOccurrences と、
+        // 「今月分を追加」のときの expenses だけ。共有の支出と「追加済み」は1回の書き込み（batch）で一緒に送る。
+        // グループまたぎ・トランザクション以外の一括・ログ・メール・通知のトークンなし
+        let recurringBackend = try XCTUnwrap(recurringBackendText, "FirestoreSharedRecurringExpensesBackend.swift が見つからない")
+        XCTAssertEqual(Set(Self.matches(of: #"\.collection\("([^"]+)"\)"#, in: recurringBackend)),
+                       ["groups", "recurringExpenses", "recurringExpenseOccurrences", "expenses"], "使うコレクション")
+        XCTAssertEqual(recurringBackend.components(separatedBy: ".batch()").count - 1, 1, "一括で書くのは「今月分を追加」の1か所だけ")
+        XCTAssertTrue(recurringBackend.contains("batch.commit"))
+        for word in [".addDocument(", "collectionGroup", "runTransaction", "\"items\"", "\"users\"", "\"expenseLineItems\"", "\"monthlyBudgets\"",
+                     "email", "fcmToken", "displayName",
+                     "print(", "NSLog", "os_log", "Logger(", "localizedDescription"] {
+            XCTAssertFalse(recurringBackend.contains(word), "定期支出の窓口：\(word)")
+        }
+        XCTAssertEqual(recurringBackend.components(separatedBy: "FirestoreAccessGate.shared.whenOpen").count - 1, 6, "見張り・作る・変える・今月は追加しない・未確認に戻す・今月分を追加は片付けを待つ")
 
         // 片付けの処理：サーバーには書かない・聞かない。端末の中の共有項目を読み、止めて、端末の中の保存を消すだけ
         let repair = try XCTUnwrap(cacheRepairText, "FirestoreLocalCacheRepair.swift が見つからない")
