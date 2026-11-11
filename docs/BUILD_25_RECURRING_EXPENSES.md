@@ -1,6 +1,6 @@
 # Build 25：固定費・定期支出
 
-2026-11-11。ブランチ `build25-recurring-expenses`（`origin/main` の `98020f9` から）。main には入れていません。
+2026-11-11。ブランチ `build25-recurring-expenses`（`origin/main` の `98020f9` から）。作ったときは main に入れず、Mac での確認（2026-11-11）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果」）。
 Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -152,6 +152,29 @@ UID・名前・金額・グループの ID・支出の ID は、画面の操作�
 - ほかの batch（同じファイルの11か所）も検索して確かめた：どれも1つのつなぎ先から batch と文書の参照を作っており、混ざっているのはこの1か所だけだった
 - Rules・アプリ本体・ほかのテストは変えていない。テストの削除・スキップ・条件をゆるめることはしていない
 
+### Mac での確認結果（2026-11-11、池上さんの報告）
+
+確認したコミット：`e4fa98c`（ブランチ `build25-recurring-expenses` の最新。Rules テストの修正を含む）
+
+| 確認 | 結果 |
+| --- | --- |
+| ターミナルの全テスト（`npm test`） | **336件成功・失敗0・スキップ0** |
+| 　単体 | 128件 |
+| 　Rules | 120件 |
+| 　Functions | 49件 |
+| 　アカウント削除 | 39件 |
+| Xcode のテスト | **Test Succeeded・失敗0** |
+| Xcode の実行件数・スキップ数 | 未報告（824件は予定の数として記録するだけ。実行件数としては記録しない） |
+| Release ビルド | **Build Succeeded** |
+| 2台の iPhone での実機確認 | 未実施 |
+| Firestore のルールの本番への公開 | 未実施 |
+| TestFlight へのアップロード | 未実施 |
+
+この結果を受けて、池上さんの指示で main へ fast-forward で取り込みました（rebase・force push・競合の強制解決はしていない）。
+Firebase（ルール・索引・Functions・Hosting）への公開と TestFlight へのアップロードはしていません。
+
+**次の公開の順序：① Firestore のルールの公開（`firebase deploy --only firestore:rules`）→ ② Build 25 を TestFlight へアップロード**（逆にしない。下の「10.」）
+
 ## 10. Firebase の公開が必要か・公開順序
 
 **Firestore のルールの公開が必要です**（索引・Functions・Hosting は不要）。
@@ -171,6 +194,8 @@ Build 24 以前のアプリは定期支出の場所を読み書きしないの�
 2. `cd firebase/functions` → `npm test`（単体・Rules・Functions・アカウント削除。予定は合計336件）
 3. Xcode でテスト（予定は824件）→ Release ビルド
 4. 結果を教えてください（この文書に記録します）。main への取り込み・Firestore のルールの公開・TestFlight は、そのあとの指示で行います
+
+上の 1〜3 は 2026-11-11 に Mac で確認済み（「Mac での確認結果」）。残りは、Firestore のルールの公開 → Build 25 の TestFlight へのアップロード → 2台の iPhone での実機確認です。
 
 Rules のテストで出る `PERMISSION_DENIED` の表示は、断られることを確かめるテストの正常な動きです（ルールを緩めないでください）。
 
