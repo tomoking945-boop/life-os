@@ -1587,9 +1587,14 @@ describe('Build 25：わが家で共有の定期支出（groups/{groupID}/recurr
     await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'paused', null)), '決まっていない状態');
     await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null, { amount: 85000 })), '決まっていない項目');
     await assertFails(setDoc(doc(as('alice'), occurrencePath()), occurrence('alice', 'skipped', null, { schemaVersion: 2 })));
-    const batch = writeBatch(as('alice'));
-    batch.set(doc(as('alice'), expensePath('not-a-uuid')), expense('alice'));
-    batch.set(doc(as('alice'), occurrencePath()), occurrence('alice', 'created', 'not-a-uuid'));
+    // 1回の書き込み（batch）と文書の参照は、同じ Firestore のつなぎ先から作る（as() は呼ぶたびに別のつなぎ先を作る）
+    const aliceDb = as('alice');
+    const batch = writeBatch(aliceDb);
+    batch.set(doc(aliceDb, expensePath('not-a-uuid')), expense('alice'));
+    batch.set(
+      doc(aliceDb, occurrencePath()),
+      occurrence('alice', 'created', 'not-a-uuid')
+    );
     await assertFails(batch.commit(), 'created の expenseID は UUID');
   });
 

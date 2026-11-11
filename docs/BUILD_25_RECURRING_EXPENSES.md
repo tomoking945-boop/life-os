@@ -144,6 +144,14 @@ UID・名前・金額・グループの ID・支出の ID は、画面の操作�
 | `Build10StabilityTests.testOnlyServiceOwnsListener` | 同じ窓口が見張り（addSnapshotListener）を持つため | 見張りを持ってよいファイルに足した（画面は見張りを持たない、の確認はそのまま） |
 | `functions.test.js` の後片付けの一覧 | 新しいコレクションを足したため | テストごとに、定期支出の2つのコレクションも消してから始める |
 
+### Mac の Rules テストで見つかったテストコードの誤り（2026-11-11）
+
+- 失敗：`firebase/functions/test/emulator/rules.test.js:1578`（「月ごとの状態の形」のテスト）で `Provided document reference is from a different Firestore instance.`
+- 原因：テストの書き方の誤り。`writeBatch(as('alice'))` と `doc(as('alice'), ...)` で `as()` を別々に呼んでいたため、1回の書き込み（batch）と文書の参照が別の Firestore のつなぎ先になっていた（Rules・アプリ本体の問題ではない）
+- 修正：`const aliceDb = as('alice')` を1つ作り、`writeBatch(aliceDb)` と `doc(aliceDb, ...)` の両方で使う形にした。確かめる中身（`created` の `expenseID` が UUID でなければ断られる）は変えていない
+- ほかの batch（同じファイルの11か所）も検索して確かめた：どれも1つのつなぎ先から batch と文書の参照を作っており、混ざっているのはこの1か所だけだった
+- Rules・アプリ本体・ほかのテストは変えていない。テストの削除・スキップ・条件をゆるめることはしていない
+
 ## 10. Firebase の公開が必要か・公開順序
 
 **Firestore のルールの公開が必要です**（索引・Functions・Hosting は不要）。
