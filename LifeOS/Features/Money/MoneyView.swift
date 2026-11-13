@@ -14,6 +14,8 @@ import UniformTypeIdentifiers
 /// すべて／自分／共有・月・カテゴリーで絞り込める（docs/BUILD_23_EXPENSE_SEARCH_AND_PRICE_HISTORY.md）
 /// Build 24：上部に月の予算のカード（自分だけ／わが家で共有を別々に）と月の切り替え。カテゴリー別の予算は縦の一覧
 /// （docs/BUILD_24_MONTHLY_BUDGET_AND_CATEGORY_SUMMARY.md）
+/// Build 26：予算のカードの下に「月次レポート」のカード。「詳しく見る」で前月との差・最近6か月の推移・カテゴリー別を見る。
+/// カテゴリー・「支出一覧を見る」からは、下の支出一覧を月・カテゴリーで絞り込んで見せる（docs/BUILD_26_MONTHLY_SPENDING_REPORT.md）
 struct MoneyView: View {
     @State private var viewModel: MoneyViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -43,6 +45,19 @@ struct MoneyView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            moneyScroll
+                // Build 26：月次レポートから「支出一覧を見る」・カテゴリーを選んだら、閉じたあと支出一覧まで動かす（アニメーションなし）
+                .onChange(of: viewModel.listScrollRequest) {
+                    proxy.scrollTo(Self.expenseListAnchor, anchor: .top)
+                }
+        }
+    }
+
+    /// 支出一覧の場所（Build 26：月次レポートから戻ったときに動かす先）
+    private static let expenseListAnchor = "money.expenseList"
+
+    private var moneyScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LifeSpacing.sectionGap) {
                 LifeScreenHeader(eyebrow: "MONEY", title: "お金")
@@ -58,6 +73,8 @@ struct MoneyView: View {
                     searchResultsSection
                 } else {
                     budgetSection
+                    // Build 26：月次レポート（予算のカードの下、定期支出の上。控えめなカード）
+                    MonthlyReportCard(viewModel: viewModel)
                     // Build 25：定期支出（予算のカードの下、追加ボタンの上）
                     RecurringExpensesSection(viewModel: viewModel)
                     VStack(spacing: LifeSpacing.sm) {
@@ -74,6 +91,7 @@ struct MoneyView: View {
                     }
                     categorySection
                     expenseList
+                        .id(Self.expenseListAnchor)
                 }
             }
             .padding(.horizontal, LifeSpacing.screenHorizontal)
@@ -167,6 +185,12 @@ struct MoneyView: View {
             Button("キャンセル", role: .cancel) { viewModel.pendingRecurringSkip = nil }
         } message: { candidate in
             Text("\(candidate.month.title)の支出は作りません（予算にも入りません）。あとで「未確認に戻す」で取り消せます。")
+        }
+        // 月次レポート（Build 26）。閉じたら、支出一覧を開く操作だったときだけ一覧まで動かす
+        .sheet(isPresented: $viewModel.isShowingMonthlyReport, onDismiss: { viewModel.monthlyReportDidClose() }) {
+            MonthlyReportSheet(viewModel: viewModel)
+                .presentationDetents([.large])
+                .lifeSheetPresentation()
         }
         // 月の予算の入力（Build 24）。保存するまで予算は変わらない
         .sheet(item: $viewModel.budgetDraft) { draft in
@@ -520,6 +544,22 @@ struct MoneyView: View {
     private var expenseList: some View {
         VStack(alignment: .leading, spacing: LifeSpacing.sm) {
             LifeSectionTitle("支出一覧", trailing: "\(viewModel.expenses.count)件")
+            // Build 26：月次レポートから開いたときの月の絞り込み（外せる）
+            if let monthTitle = viewModel.listMonthTitle {
+                HStack(spacing: LifeSpacing.xs) {
+                    Text(monthTitle)
+                        .font(LifeTypography.footnote)
+                        .foregroundStyle(LifeColors.text)
+                    Spacer(minLength: LifeSpacing.xs)
+                    Button("月の絞り込みを外す") { viewModel.clearListMonth() }
+                        .font(LifeTypography.footnote)
+                        .frame(minHeight: LifeSpacing.minTapTarget)
+                        .contentShape(Rectangle())
+                        .accessibilityHint("すべての月の支出を見ます")
+                        .accessibilityIdentifier("money.expenseList.clearMonth")
+                }
+                .accessibilityElement(children: .contain)
+            }
             if viewModel.expenses.isEmpty {
                 LifeEmptyState(systemImage: "yensign.circle", title: "支出はありません")
                     .frame(maxWidth: .infinity)

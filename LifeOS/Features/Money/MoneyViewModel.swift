@@ -254,6 +254,17 @@ final class MoneyViewModel {
     /// 予算の入力の画面（開いていなければ nil。保存するまで予算は変わらない）
     var budgetDraft: MonthlyBudgetDraft?
 
+    // MARK: 月次レポート（Build 26。画面のあいだだけ持つ。保存・送信・ログ出力しない）
+
+    /// 月次レポートの画面を開いている
+    var isShowingMonthlyReport = false
+    /// 支出一覧を月で絞り込む（月次レポートの「支出一覧を見る」・カテゴリーから。nil はすべての月）
+    var listMonth: BudgetMonth?
+    /// 支出一覧までスクロールする合図（月次レポートを閉じたあと、1つずつ増える）
+    private(set) var listScrollRequest = 0
+    /// 月次レポートが閉じたら支出一覧までスクロールする
+    @ObservationIgnored private var scrollsToListAfterReport = false
+
     // MARK: 定期支出（Build 25）
 
     /// 定期支出の設定の入力の画面（開いていなければ nil。保存するまで設定は変わらない）
@@ -682,13 +693,120 @@ final class MoneyViewModel {
         ].joined(separator: "、")
     }
 
+    // MARK: - 月次レポート・支出推移（Build 26。docs/BUILD_26_MONTHLY_SPENDING_REPORT.md）
+
+    /// 表示している月・範囲のレポート（端末に読み込んである支出だけで数える。保存・送信しない）。
+    /// 画面では1回の描画で1回だけ作る（推移・前月との差・カテゴリーを、支出を1回見るだけで数える）
+    var monthlyReport: MonthlySpendingReport {
+        MonthlySpendingCalculator.report(expenses: scopedExpenses, scope: effectiveScope, month: displayedMonth, today: now)
+    }
+
+    /// 範囲の名前（「すべて」「自分」「共有」。一人で使う設定は出さない）
+    var reportScopeTitle: String {
+        guard showsScopeFilter else { return "" }
+        switch effectiveScope {
+        case .all: return "すべて（自分と共有）"
+        case .mine: return "自分"
+        case .shared: return "共有"
+        }
+    }
+
+    func openMonthlyReport() {
+        scrollsToListAfterReport = false
+        isShowingMonthlyReport = true
+    }
+
+    func closeMonthlyReport() {
+        isShowingMonthlyReport = false
+    }
+
+    /// 月次レポートの画面が閉じたとき（支出一覧を開く操作だったら、一覧までスクロールする）
+    func monthlyReportDidClose() {
+        guard scrollsToListAfterReport else { return }
+        scrollsToListAfterReport = false
+        listScrollRequest += 1
+    }
+
+    /// 推移のグラフ・月の一覧から月を選ぶ（2000年〜2099年の月だけ）
+    func selectReportMonth(_ month: BudgetMonth) {
+        guard month.isStorable else { return }
+        displayedMonth = month
+    }
+
+    /// その月（とカテゴリー）の支出一覧を開く：お金の画面の支出一覧を、月・カテゴリーで絞り込んで見せる（検索欄は空に戻す）
+    func openExpenseList(category: ExpenseCategory? = nil) {
+        clearSearch()
+        listMonth = displayedMonth
+        selectedCategory = category
+        scrollsToListAfterReport = true
+        isShowingMonthlyReport = false
+    }
+
+    /// 支出一覧の月の絞り込みを外す
+    func clearListMonth() {
+        listMonth = nil
+    }
+
+    /// 支出一覧の月の絞り込みの文字（「2026年10月の支出」）
+    var listMonthTitle: String? {
+        listMonth.map { "\($0.title)の支出" }
+    }
+
+    /// 予算の1行（「自分だけの予算 50,000円・残り 12,300円」。未設定なら nil。上回ったら上回った金額。評価はしない）
+    func reportBudgetLine(_ summary: MonthlyBudgetSummary) -> String? {
+        guard let plan = summary.plan else { return nil }
+        let budget = "\(summary.scope.budgetTitle) \(LifeFormatters.yenSpoken(plan.totalAmount))"
+        if let over = summary.overAmount {
+            return "\(budget)・予算を \(LifeFormatters.yenSpoken(over))上回っています"
+        }
+        return "\(budget)・残り \(LifeFormatters.yenSpoken(summary.remaining ?? 0))"
+    }
+
+    /// 月次レポートの合計の VoiceOver（月・範囲・合計・件数）
+    func reportTotalSpokenLabel(_ report: MonthlySpendingReport) -> String {
+        var parts = [report.month.title, "支出の合計"]
+        if !reportScopeTitle.isEmpty { parts.append(reportScopeTitle) }
+        if report.isFutureMonth && !report.hasExpenses {
+            parts.append("まだ支出はありません")
+        } else {
+            parts.append(LifeFormatters.yenSpoken(report.total))
+            parts.append("\(report.expenseCount)件")
+        }
+        return parts.joined(separator: "、")
+    }
+
+    /// 推移の1か月の VoiceOver（月・金額・選んでいるか）
+    func trendSpokenLabel(_ point: MonthlySpendingPoint) -> String {
+        var parts = [point.month.title]
+        parts.append(point.isFuture && !point.hasExpenses ? "記録なし" : LifeFormatters.yenSpoken(point.amount))
+        if point.isSelected { parts.append("表示中の月") }
+        return parts.joined(separator: "、")
+    }
+
+    /// カテゴリーの行の VoiceOver（カテゴリー・金額・割合）
+    func categoryShareSpokenLabel(_ share: MonthlyCategoryShare) -> String {
+        "\(share.category.label)、\(LifeFormatters.yenSpoken(share.amount))、支出全体の\(share.percent)パーセント"
+    }
+
+    /// 前月との差の VoiceOver
+    func comparisonSpokenLabel(_ comparison: MonthlySpendingComparison) -> String {
+        guard comparison.isAvailable else { return "前月との差、\(comparison.text)" }
+        return "前月との差、\(comparison.text)。\(comparison.periodText)"
+    }
+
     // MARK: - 支出一覧
 
     let categories = ExpenseCategory.allCases
 
+    /// 支出一覧（表示している範囲。カテゴリーの絞り込みと、Build 26 から月の絞り込み。Build 23 の絞り込みと同じ決まりで選ぶ）
     var expenses: [Expense] {
-        scopedExpenses
-            .filter { selectedCategory == nil || $0.category == selectedCategory }
+        let filter = ExpenseSearchFilter(
+            scope: effectiveScope,
+            month: listMonth.map { LifeCalendar.startOfMonth($0.firstDay()) },
+            category: selectedCategory
+        )
+        return scopedExpenses
+            .filter { filter.includes($0) }
             .sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date }
     }
 
