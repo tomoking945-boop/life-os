@@ -209,11 +209,12 @@ final class Build26ScopeAndCategoryTests: XCTestCase {
         device.money.scope = .all
         XCTAssertEqual(device.money.monthlyReport.total, 6200)
         XCTAssertEqual(device.money.monthlyReport.expenseCount, 3)
-        // 一人で使う設定は自分だけ
+        // 一人モードは切り替えを出さず、すべて（既存の仕様：一人モードの範囲は「すべて」）。
+        // 2026-11-13 修正：期待値を自分だけの 1,000円 としていたのはテストの誤り。自分 1,000円＋共有 5,000円＝6,000円
         let solo = makeDevice(personal: [spend(1000, on: TestDates.make(2026, 11, 3))],
                               shared: [spend(5000, on: TestDates.make(2026, 11, 5), shared: true)], usageStyle: .solo)
-        XCTAssertEqual(solo.money.monthlyReport.total, 1000)
-        XCTAssertEqual(solo.money.reportScopeTitle, "")
+        XCTAssertEqual(solo.money.monthlyReport.total, 6000)
+        XCTAssertEqual(solo.money.reportScopeTitle, "", "範囲の切り替えを出さないので、範囲の名前も出さない")
         // 計算部品でも、範囲の外の支出は除く
         let mixed = [spend(1000, on: TestDates.make(2026, 11, 3)), spend(5000, on: TestDates.make(2026, 11, 5), shared: true)]
         XCTAssertEqual(report(mixed, scope: .mine).total, 1000)
@@ -274,9 +275,15 @@ final class Build26ScopeAndCategoryTests: XCTestCase {
     func testLineItemsAreNotAdded() {
         let device = makeDevice()
         let expense = spend(698, on: TestDates.make(2026, 11, 3), title: "まちの八百屋")
-        XCTAssertTrue(device.store.addExpense(expense, destination: .personal, lineItems: [
+        // addExpense の戻り値は「共有の保存を始めたか」。自分だけの保存では、正常でも false
+        // （2026-11-13 修正：XCTAssertTrue としていたのはテストの誤り）
+        let startedSharedSave = device.store.addExpense(expense, destination: .personal, lineItems: [
             ExpenseLineItem(name: "牛乳", amount: 198), ExpenseLineItem(name: "ティッシュ", amount: 500), ExpenseLineItem(name: "割引", amount: 300)
-        ]))
+        ])
+        XCTAssertFalse(startedSharedSave, "自分だけの保存なので、共有の保存は始めない")
+        XCTAssertEqual(device.store.expenses.map(\.id), [expense.id], "支出は自分だけとして保存された")
+        XCTAssertEqual(device.store.lineItems(for: expense.id).map(\.name), ["牛乳", "ティッシュ", "割引"], "明細3件が保存された")
+        XCTAssertEqual(device.store.lineItems(for: expense.id).map(\.amount), [198, 500, 300])
         device.money.scope = .all
         XCTAssertEqual(device.money.monthlyReport.total, 698)
         XCTAssertEqual(device.money.monthlyReport.categories.first?.amount, 698)

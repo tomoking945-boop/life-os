@@ -119,6 +119,17 @@ Firebase（Firestore のルール・索引・Functions・Hosting）への公開�
 | --- | --- | --- |
 | `Build25RecurringExpensesTests.testBuildNumberIs25` | Build 番号を 26 に上げたため | 「4か所とも 25」から「4か所とも同じで 25 以上」へ。Version 1.0・暗号化 NO・Build 16 欠番の確認はそのまま。26 ちょうどは `testBuildNumberIs26` で確かめる |
 
+### Mac の Xcode テストで見つかったテストコードの誤り（2026-11-13）
+
+Xcode のテストで2件が失敗しました。どちらも**テストの書き方の誤り**で、アプリ本体は変えていません（テストの削除・スキップ・条件をゆるめることもしていません）。
+
+| テスト | 原因 | 修正 |
+| --- | --- | --- |
+| `testScopesDoNotMix` | 一人モードは、既存の仕様どおり範囲の切り替えを出さず「すべて」を使う。テストは「自分だけ」と思い込み、期待値を 1,000円にしていた | 期待値を 6,000円（自分 1,000円＋共有 5,000円）に直した。`reportScopeTitle` が空であることの確認は残した。コメントを「一人モードは切り替えを出さず、すべて」に直した |
+| `testLineItemsAreNotAdded` | `LifeStore.addExpense(… destination: .personal …)` の戻り値は「共有の保存を始めたか」で、自分だけの正常な保存でも false。テストは `XCTAssertTrue` で確かめていた | `XCTAssertTrue` をやめ、戻り値が false であることを確かめるようにした。続けて `lineItems(for:)` で明細3件（名前・金額）が保存されたことを確かめる。月次レポートの合計・カテゴリー・推移が支出本体の 698円のままで、明細を足さないことの確認はそのまま |
+
+テストの件数は変わりません（Swift 846件の予定のまま）。
+
 ## Firebase の公開
 
 **Build 26 では Firebase の公開は要りません**（Firestore のルール・索引・Functions・Hosting を変えていないため）。
