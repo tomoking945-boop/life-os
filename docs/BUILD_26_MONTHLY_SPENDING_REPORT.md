@@ -1,6 +1,6 @@
 # Build 26：月次レポート・支出推移
 
-2026-11-13。ブランチ `build26-monthly-spending-report`（`origin/main` の `c3a67ab` から。Build 25 の取り込みと Mac での確認結果の記録のあと）。main には入れていません。
+2026-11-13。ブランチ `build26-monthly-spending-report`（`origin/main` の `c3a67ab` から。Build 25 の取り込みと Mac での確認結果の記録のあと）。作ったときは main に入れず、Mac での確認（2026-11-13）のあと、池上さんの指示で main へ fast-forward で取り込みました（下の「Mac での確認結果」）。
 Firebase（Firestore のルール・索引・Functions・Hosting）への公開、TestFlight へのアップロード、Firebase Console・Apple Developer・App Store Connect の変更はしていません。
 
 ## 始める前に確かめたこと
@@ -130,6 +130,30 @@ Xcode のテストで2件が失敗しました。どちらも**テストの書�
 
 テストの件数は変わりません（Swift 846件の予定のまま）。
 
+### Mac での確認結果（2026-11-13、池上さんの報告）
+
+確認したコミット：`a2440a3`（ブランチ `build26-monthly-spending-report` の最新。テストの誤り2件の修正を含む）
+
+| 確認 | 結果 |
+| --- | --- |
+| ターミナルの全テスト（`npm test`） | **336件成功・失敗0・スキップ0** |
+| 　単体 | 128件 |
+| 　Rules | 120件 |
+| 　Functions | 49件 |
+| 　アカウント削除 | 39件 |
+| 最初の Xcode のテスト（`600a3a0`） | Build 26 で足したテストの期待値の誤りで **2件失敗**（`testScopesDoNotMix`・`testLineItemsAreNotAdded`） |
+| テストを直したあとの Xcode のテスト（`a2440a3`） | **Test Succeeded・失敗0** |
+| Xcode の実行件数・スキップ数 | 未報告（846件は予定の数として記録するだけ。実行件数としては記録しない） |
+| Release ビルド | **Build Succeeded** |
+| 実機での確認 | 未実施 |
+
+失敗した2件の原因（どちらもテストの書き方の誤り。アプリ本体は変えていない。詳しくは上の表）：
+- `testScopesDoNotMix`：一人モードは既存の仕様どおり範囲の切り替えを出さず「すべて」を使うのに、テストが「自分だけ」の 1,000円を期待していた → 6,000円（自分 1,000円＋共有 5,000円）に修正
+- `testLineItemsAreNotAdded`：`addExpense` の戻り値は「共有の保存を始めたか」で、自分だけの正常な保存でも false なのに、テストが `XCTAssertTrue` で確かめていた → false を確かめ、`lineItems(for:)` で明細3件を確かめる形に修正
+
+この結果を受けて、池上さんの指示で main へ fast-forward で取り込みました（rebase・force push・競合の強制解決はしていない）。
+Build 26 は Rules・Functions・索引・Hosting を変えていないので、Firebase は公開していません。TestFlight へのアップロードもまだしていません。
+
 ## Firebase の公開
 
 **Build 26 では Firebase の公開は要りません**（Firestore のルール・索引・Functions・Hosting を変えていないため）。
@@ -141,6 +165,8 @@ Mac での確認のあと、そのまま Build 26 を TestFlight へアップロ
 2. `cd firebase/functions` → `npm test`（予定は合計336件。Build 25 と同じ）
 3. Xcode で全テスト（予定は846件）→ Release ビルド
 4. 結果を教えてください（この文書に記録します）。main への取り込み・TestFlight は、そのあとの指示で行います
+
+上の 1〜3 は 2026-11-13 に Mac で確認済み（「Mac での確認結果」）。残りは、Build 26 の TestFlight へのアップロード（指示があってから）と実機での確認です。
 
 ## 実機確認手順
 
